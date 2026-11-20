@@ -92,8 +92,33 @@ describe('ShiftStrip', () => {
     await waitFor(() => expect(screen.getByTestId('open-shift-badge').textContent).toContain('₹100.00'));
     expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/\$/);
     expect(screen.getByTestId('open-shift-badge').textContent).toMatch(/3 cash posts/);
+    expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/UPI/);
     expect(screen.getByTestId('open-shift-badge').textContent).not.toMatch(/shift_1/);
     expect(screen.getByRole('link', { name: /close/i }).getAttribute('href')).toBe('/shift');
+  });
+
+  it('shows cash-post count with Card/UPI only (no cash sum) while open', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_1',
+        businessDate: '2099-01-01',
+        openingFloat: 10_000,
+        attributedCashCount: 3,
+        status: 'OPEN',
+        tenderTotals: { cardMinor: 0, upiMinor: 2500 },
+      },
+    });
+    renderStrip();
+    const expected =
+      'Shift open · float ₹100.00 · 3 cash posts · Card ₹0.00 · UPI ₹25.00';
+    await waitFor(() => expect(screen.getByTestId('open-shift-badge').textContent).toBe(expected));
+    const badge = screen.getByTestId('open-shift-badge');
+    expect(badge.textContent).toMatch(/3 cash posts/);
+    expect(badge.textContent).not.toMatch(/Cash ₹/);
+    expect(badge.textContent).toMatch(/Card ₹0\.00/);
+    expect(badge.textContent).toMatch(/UPI ₹25\.00/);
+    expect(badge.getAttribute('title')).toBe(expected);
   });
 
   it('opens only when the clerk submits a float, not while they type it', async () => {

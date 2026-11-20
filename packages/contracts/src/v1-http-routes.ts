@@ -1170,6 +1170,12 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'reservations.override_night_rate',
     entitlement: 'pms.core',
   },
+  {
+    id: 'post_upi_payment',
+    scope: 'property',
+    permission: 'folio:post',
+    commandId: 'folio.record_upi_payment',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

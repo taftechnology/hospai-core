@@ -159,9 +159,14 @@ import {
   INVALID_VOID_REASON,
   BULK_NOT_ADMITTED,
   PAYMENT_NOT_CAPTURABLE,
+  DUPLICATE_UPI_REFERENCE,
+  INVALID_UPI_REFERENCE,
   PAYMENT_NOT_RECONCILABLE,
   PAYMENT_NOT_VOIDABLE,
   PAYMENT_NOT_REFUNDABLE,
+  isPspTender,
+  normalizeUpiReference,
+  tenderTotalsForShiftStatus,
   REFUND_EXCEEDS_REMAINING,
   SHIFT_NOT_FOUND,
   SHIFT_ALREADY_OPEN,
@@ -506,7 +511,7 @@ type PaymentRow = {
   idempotency_key: string;
   request_fingerprint: string;
   capture_fingerprint: string | null;
-  tender_type: 'CARD' | 'CASH';
+  tender_type: 'CARD' | 'CASH' | 'UPI';
   shift_id: string | null;
   purpose: 'STAY' | 'DAMAGE';
   refunded_amount_minor: number | null;
@@ -518,6 +523,7 @@ type PaymentRow = {
   last_payment_event_id: string | null;
   card_last4: string | null;
   card_brand: string | null;
+  external_reference: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -837,6 +843,13 @@ class FxRateOpenExistsError extends Error {
   constructor() {
     super(FX_RATE_OPEN_EXISTS);
     this.name = 'FxRateOpenExistsError';
+  }
+}
+
+class DuplicateUpiReferenceError extends Error {
+  constructor() {
+    super(DUPLICATE_UPI_REFERENCE);
+    this.name = 'DuplicateUpiReferenceError';
   }
 }
 
@@ -12329,7 +12342,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const authorized = this.ctx.storage.sql
       .exec(
         `SELECT 1 AS hit FROM payment
-         WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY'
+         WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY' AND tender_type = 'CARD'
          LIMIT 1`,
         reservationId,
       )
@@ -13858,6 +13871,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           openingFloat: number;
           status: 'OPEN';
           attributedCashCount: number;
+          tenderTotals: { cardMinor: number; upiMinor: number };
         } | null;
       }
   > {
@@ -13889,6 +13903,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         openingFloat: row.opening_float,
         status: 'OPEN',
         attributedCashCount: this.countAttributedCashForShiftSync(row.shift_id),
+        tenderTotals: this.shiftTenderTotalsForReadSync(row.shift_id, 'OPEN'),
       },
     };
   }
@@ -18297,6 +18312,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     taxRuleId?: string | null;
     taxComponent?: string;
     taxBandBaseMinor?: number | null;
+    externalReference?: string | null;
   }): void {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
@@ -18318,8 +18334,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
          folio_line_id, folio_window_id, reservation_id, charge_code,
          amount_minor, txn_currency, ledger_amount_minor, fx_rate, fx_rate_at,
          source, business_date, split_of, created_at, payment_id, tax_of, tax_rule_id, tax_component,
-         tax_band_base_minor
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         tax_band_base_minor, external_reference
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.folioLineId,
       input.folioWindowId,
       input.reservationId,
@@ -18338,6 +18354,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       input.taxRuleId ?? null,
       input.taxComponent ?? '',
       input.taxBandBaseMinor ?? null,
+      input.externalReference ?? null,
     );
     this.appendPropertyOutbox({
       eventId: crypto.randomUUID(),
@@ -20061,7 +20078,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 capture_fingerprint, tender_type, shift_id, purpose, refunded_amount_minor,
                 void_fingerprint, refund_fingerprint,
                 fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
-                card_last4, card_brand, created_at, updated_at
+                card_last4, card_brand, external_reference, created_at, updated_at
          FROM payment WHERE payment_id = ?`,
         paymentId,
       )
@@ -20104,7 +20121,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 capture_fingerprint, tender_type, shift_id, purpose, refunded_amount_minor,
                 void_fingerprint, refund_fingerprint,
                 fx_rate, fx_rate_at, balance_at_risk, last_payment_event_id,
-                card_last4, card_brand, created_at, updated_at
+                card_last4, card_brand, external_reference, created_at, updated_at
          FROM payment WHERE idempotency_key = ?`,
         idempotencyKey,
       )
@@ -20181,6 +20198,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       stage?: 'authorize' | 'capture';
       reason?: string;
       feeLedgerMinor?: number;
+      externalReference?: string | null;
     };
   }): { applied: boolean; folioLineId?: string } {
     const recorded = this.recordPaymentEventRowSync({
@@ -20403,6 +20421,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         splitOf: capture.folio_line_id,
         paymentId: null,
         businessDate: this.resolvePostingBusinessDateSync(),
+        externalReference: event.payload.externalReference ?? null,
       });
 
       const newRefunded = refundedBase + refundTxn;
@@ -20560,10 +20579,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     gatewayReference: string | null;
     capturedAmountMinor: number | null;
     refundedAmountMinor: number;
-    tenderType: 'CARD' | 'CASH';
+    tenderType: 'CARD' | 'CASH' | 'UPI';
     shiftId: string | null;
     cardLast4: string | null;
     cardBrand: string | null;
+    externalReference: string | null;
     createdAt: number;
     updatedAt: number;
   } {
@@ -20580,6 +20600,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       shiftId: row.shift_id,
       cardLast4: row.card_last4,
       cardBrand: row.card_brand,
+      externalReference: row.external_reference,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -20625,6 +20646,43 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ total: number }>;
     return openingFloat + Number(rows[0]?.total ?? 0);
+  }
+
+  private computeShiftTenderTotalsSync(shiftId: string): {
+    cashMinor: number;
+    cardMinor: number;
+    upiMinor: number;
+  } {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT p.tender_type AS tender_type,
+                COALESCE(SUM(ABS(fl.ledger_amount_minor)), 0) AS total
+         FROM payment p
+         JOIN folio_line fl ON fl.payment_id = p.payment_id AND fl.charge_code = 'PAYMENT'
+         WHERE p.shift_id = ?
+           AND p.status = 'captured'
+         GROUP BY p.tender_type`,
+        shiftId,
+      )
+      .toArray() as Array<{ tender_type: string; total: number }>;
+    const totals = { cashMinor: 0, cardMinor: 0, upiMinor: 0 };
+    for (const row of rows) {
+      const total = Number(row.total);
+      if (row.tender_type === 'CASH') totals.cashMinor = total;
+      else if (row.tender_type === 'CARD') totals.cardMinor = total;
+      else if (row.tender_type === 'UPI') totals.upiMinor = total;
+    }
+    return totals;
+  }
+
+  /** OPEN shifts omit cashMinor (blind count); closed/force-closed include the cash sum. */
+  private shiftTenderTotalsForReadSync(
+    shiftId: string,
+    status: string,
+  ):
+    | { cardMinor: number; upiMinor: number }
+    | { cashMinor: number; cardMinor: number; upiMinor: number } {
+    return tenderTotalsForShiftStatus(status, this.computeShiftTenderTotalsSync(shiftId));
   }
 
   private forceCloseCashierShiftsSync(businessDate: string): void {
@@ -21218,7 +21276,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const payment = this.readPaymentRowSync(input.paymentId);
     if (!payment) return { ok: false, error: NOT_FOUND };
 
-    if (payment.tender_type === 'CASH') {
+    if (!isPspTender(payment.tender_type)) {
       return { ok: false, error: PAYMENT_NOT_CAPTURABLE };
     }
 
@@ -21450,7 +21508,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (payment.status === 'voided' && payment.void_fingerprint === input.voidFingerprint) {
       return { ok: true, paymentId: payment.payment_id, status: 'voided' };
     }
-    if (payment.tender_type === 'CASH' || payment.status !== 'authorized') {
+    if (!isPspTender(payment.tender_type) || payment.status !== 'authorized') {
       return { ok: false, error: PAYMENT_NOT_VOIDABLE };
     }
 
@@ -21522,14 +21580,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const cutoff = Date.now() - hours * 3_600_000;
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT payment_id FROM payment
-         WHERE status = 'authorized' AND tender_type = 'CARD' AND created_at <= ?`,
+        `SELECT payment_id, tender_type FROM payment
+         WHERE status = 'authorized' AND created_at <= ?`,
         cutoff,
       )
-      .toArray() as Array<{ payment_id: string }>;
+      .toArray() as Array<{ payment_id: string; tender_type: string }>;
 
     const actor: ActorContext = { kind: 'system', reason: 'auth_hold_lapse' };
     for (const row of rows) {
+      if (!isPspTender(row.tender_type)) continue;
       const paymentId = row.payment_id;
       const voidFingerprint = `auth_hold_lapse:${paymentId}`;
       const result = await this.voidAuthorizedCardHoldSync(
@@ -21577,7 +21636,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }
       return { ok: false, error: IDEM_KEY_REUSED };
     }
-    if (payment.tender_type === 'CASH' || payment.status !== 'authorized') {
+    if (!isPspTender(payment.tender_type) || payment.status !== 'authorized') {
       return { ok: false, error: PAYMENT_NOT_VOIDABLE };
     }
 
@@ -21594,12 +21653,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async tryRefundPayment(
     actor: ActorContext,
-    input: { paymentId: string; amountMinor: number },
+    input: { paymentId: string; amountMinor: number; reference?: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; paymentId: string; status: 'captured' | 'refunded'; refundedAmountMinor: number }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof PAYMENT_NOT_REFUNDABLE }
+    | { ok: false; error: typeof INVALID_UPI_REFERENCE }
     | { ok: false; error: typeof REFUND_EXCEEDS_REMAINING }
     | { ok: false; error: typeof MONEY_INVALID }
     | { ok: false; error: typeof PSP_UNAVAILABLE }
@@ -21651,6 +21711,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return { ok: false, error: PAYMENT_NOT_REFUNDABLE };
     }
 
+    let refundReference: string | null = null;
+    if (payment.tender_type === 'UPI' && input.reference != null && input.reference !== '') {
+      const normalized = normalizeUpiReference(input.reference);
+      if (!normalized) return { ok: false, error: INVALID_UPI_REFERENCE };
+      refundReference = normalized;
+    }
+
     const prior = this.lookupIdempotentResponse<{
       ok: true;
       paymentId: string;
@@ -21664,7 +21731,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       return prior;
     }
 
-    if (payment.tender_type === 'CARD') {
+    if (isPspTender(payment.tender_type)) {
       if (!this.pspSimulateEnabled()) return { ok: false, error: PSP_UNAVAILABLE };
       const adapterResult = await simulateRefund(
         {
@@ -21744,6 +21811,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               amountMinor: input.amountMinor,
               currency: payment.currency,
               folioLineId: refundLineId,
+              externalReference: refundReference,
             },
           });
           if (!applied.applied) {
@@ -22109,18 +22177,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const holds = this.ctx.storage.sql
       .exec(
-        `SELECT payment_id, amount_minor, currency FROM payment
-         WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY' AND tender_type = 'CARD'
+        `SELECT payment_id, amount_minor, currency, tender_type FROM payment
+         WHERE reservation_id = ? AND status = 'authorized' AND purpose = 'STAY'
          ORDER BY created_at ASC, payment_id ASC`,
         reservationId,
       )
-      .toArray() as Array<{ payment_id: string; amount_minor: number; currency: string }>;
+      .toArray() as Array<{
+      payment_id: string;
+      amount_minor: number;
+      currency: string;
+      tender_type: string;
+    }>;
 
     const ledger = this.readStoredLedgerCurrencySync();
     if (!ledger) throw new Error(CURRENCY_UNSET);
 
     const captured: string[] = [];
     for (const hold of holds) {
+      if (!isPspTender(hold.tender_type)) continue;
       if (remaining <= 0) break;
       const now = Date.now();
       const txnCurrency = currencyCode(hold.currency);
@@ -22552,6 +22626,213 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  async tryRecordUpiPayment(
+    actor: ActorContext,
+    input: {
+      paymentId: string;
+      reservationId: string;
+      amountMinor: number;
+      currency?: string;
+      reference: string;
+      idempotencyKey: string;
+      requestFingerprint: string;
+    },
+  ): Promise<
+    | {
+        ok: true;
+        paymentId: string;
+        status: 'captured';
+        shiftId: string | null;
+        folioLineId: string;
+        reference: string;
+      }
+    | {
+        ok: false;
+        error:
+          | typeof MONEY_INVALID
+          | typeof NOT_FOUND
+          | typeof IDEM_KEY_REUSED
+          | typeof FX_RATE_MISSING
+          | typeof INVALID_UPI_REFERENCE
+          | typeof DUPLICATE_UPI_REFERENCE;
+      }
+    | { ok: false; error: typeof FORBIDDEN | 'not_member' }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof CURRENCY_UNSET | typeof PROPERTY_ID_UNSET | typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'folio:post');
+    if (permDenied) return permDenied;
+
+    if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+      return { ok: false, error: MONEY_INVALID };
+    }
+    const reference = normalizeUpiReference(input.reference);
+    if (!reference) return { ok: false, error: INVALID_UPI_REFERENCE };
+    const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    if (!ledgerCurrency) return { ok: false, error: CURRENCY_UNSET };
+    const txnCurrency = input.currency ? currencyCode(input.currency) : ledgerCurrency;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.readPaymentByIdempotencyKeySync(input.idempotencyKey);
+        if (existing) {
+          if (existing.request_fingerprint !== input.requestFingerprint) {
+            throw new IdempotencyKeyReused(input.idempotencyKey);
+          }
+          return {
+            ok: true as const,
+            paymentId: existing.payment_id,
+            status: 'captured' as const,
+            shiftId: existing.shift_id,
+            folioLineId: `${existing.payment_id}:capture`,
+            reference: existing.external_reference ?? reference,
+          };
+        }
+
+        const resRows = this.ctx.storage.sql
+          .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, input.reservationId)
+          .toArray();
+        if (!resRows[0]) return { ok: false as const, error: NOT_FOUND };
+
+        const dup = this.ctx.storage.sql
+          .exec(
+            `SELECT 1 AS hit FROM payment
+             WHERE tender_type = 'UPI' AND status = 'captured' AND external_reference = ?
+             LIMIT 1`,
+            reference,
+          )
+          .toArray();
+        if (dup.length > 0) throw new DuplicateUpiReferenceError();
+
+        this.ensureGuestFolioWindowSync(input.reservationId);
+        const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+        const shiftId = this.readOpenShiftIdForActorSync(actor);
+        const now = Date.now();
+        const posted = this.resolveCapturePostedSync(input.amountMinor, txnCurrency, now);
+        this.ctx.storage.sql.exec(
+          `INSERT INTO payment (
+             payment_id, reservation_id, folio_window_id, amount_minor, currency, status,
+             gateway_reference, captured_amount_minor, idempotency_key, request_fingerprint,
+             capture_fingerprint, tender_type, shift_id, external_reference,
+             fx_rate, fx_rate_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 'captured', NULL, ?, ?, ?, NULL, 'UPI', ?, ?, ?, ?, ?, ?)`,
+          input.paymentId,
+          input.reservationId,
+          folioWindowId,
+          input.amountMinor,
+          txnCurrency,
+          input.amountMinor,
+          input.idempotencyKey,
+          input.requestFingerprint,
+          shiftId,
+          reference,
+          posted.fxRate,
+          posted.fxRateAt,
+          now,
+          now,
+        );
+
+        const folioLineId = `${input.paymentId}:capture`;
+        const upiEventId = crypto.randomUUID();
+        this.applyPaymentEventSync({
+          type: 'payment.captured',
+          eventId: upiEventId,
+          gatewayReference: null,
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            capturedAmountMinor: input.amountMinor,
+            currency: txnCurrency,
+            folioLineId,
+          },
+        });
+
+        this.appendPropertyOutbox({
+          eventId: upiEventId,
+          eventType: 'folio.payment_captured',
+          payload: {
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            capturedAmountMinor: input.amountMinor,
+            currency: txnCurrency,
+            gatewayReference: null,
+            folioLineId,
+            tenderType: 'UPI',
+            shiftId,
+            externalReference: reference,
+          },
+        });
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'payment.captured',
+          payload: {
+            version: 1,
+            propertyId,
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            capturedAmountMinor: input.amountMinor,
+            currency: txnCurrency,
+            folioLineId,
+            eventId: upiEventId,
+            gatewayReference: null,
+          },
+        });
+
+        this.appendAuditLogSync({
+          actor: this.auditActorSync(actor),
+          commandId: 'folio.record_upi_payment',
+          entityType: 'payment',
+          entityId: input.paymentId,
+          beforeJson: null,
+          afterJson: {
+            paymentId: input.paymentId,
+            reservationId: input.reservationId,
+            amountMinor: input.amountMinor,
+            currency: ledgerCurrency,
+            tenderType: 'UPI',
+            status: 'captured',
+            shiftId,
+            externalReference: reference,
+          },
+          shiftId,
+          reservationId: input.reservationId,
+        });
+
+        return {
+          ok: true as const,
+          paymentId: input.paymentId,
+          status: 'captured' as const,
+          shiftId,
+          folioLineId,
+          reference,
+        };
+      });
+    } catch (e) {
+      if (e instanceof DuplicateUpiReferenceError) {
+        return { ok: false, error: DUPLICATE_UPI_REFERENCE };
+      }
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
+      if (e instanceof Error && e.message === FX_RATE_MISSING) {
+        return { ok: false, error: FX_RATE_MISSING };
+      }
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
   async readShift(shiftId: string): Promise<
     | {
         ok: true;
@@ -22566,6 +22847,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           variance: number | null;
           status: ShiftStatus;
           unattributedCashCount: number;
+          tenderTotals:
+            | { cardMinor: number; upiMinor: number }
+            | { cashMinor: number; cardMinor: number; upiMinor: number };
         };
       }
     | { ok: false; error: typeof SHIFT_NOT_FOUND }
@@ -22583,9 +22867,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!row) return { ok: false, error: SHIFT_NOT_FOUND };
     return {
       ok: true,
-      shift: this.mapShiftRow(row, {
-        unattributedCashCount: this.countUnattributedCashForBusinessDateSync(row.business_date),
-      }) as {
+      shift: {
+        ...this.mapShiftRow(row, {
+          unattributedCashCount: this.countUnattributedCashForBusinessDateSync(row.business_date),
+        }),
+        tenderTotals: this.shiftTenderTotalsForReadSync(row.shift_id, row.status),
+      } as {
         shiftId: string;
         cashierUserId: string;
         businessDate: string;
@@ -22596,6 +22883,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         variance: number | null;
         status: ShiftStatus;
         unattributedCashCount: number;
+        tenderTotals:
+          | { cardMinor: number; upiMinor: number }
+          | { cashMinor: number; cardMinor: number; upiMinor: number };
       },
     };
   }
@@ -22612,10 +22902,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           gatewayReference: string | null;
           capturedAmountMinor: number | null;
           refundedAmountMinor: number;
-          tenderType: 'CARD' | 'CASH';
+          tenderType: 'CARD' | 'CASH' | 'UPI';
           shiftId: string | null;
           cardLast4: string | null;
           cardBrand: string | null;
+          externalReference: string | null;
           createdAt: number;
           updatedAt: number;
           dispute: {
@@ -22649,9 +22940,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           refundedAmountMinor: number;
           createdAt: number;
           updatedAt: number;
-          tenderType: 'CARD' | 'CASH';
+          tenderType: 'CARD' | 'CASH' | 'UPI';
           cardLast4: string | null;
           cardBrand: string | null;
+          externalReference: string | null;
           dispute: {
             disputeId: string;
             status: 'open' | 'closed';
@@ -22671,7 +22963,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const rows = this.ctx.storage.sql
       .exec(
         `SELECT payment_id, reservation_id, amount_minor, currency, status, purpose, gateway_reference,
-                captured_amount_minor, refunded_amount_minor, created_at, updated_at, tender_type, card_last4, card_brand
+                captured_amount_minor, refunded_amount_minor, created_at, updated_at, tender_type, card_last4, card_brand,
+                external_reference
          FROM payment WHERE reservation_id = ?
          ORDER BY created_at ASC`,
         reservationId,
@@ -22688,9 +22981,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       refunded_amount_minor: number | null;
       created_at: number;
       updated_at: number;
-      tender_type: 'CARD' | 'CASH';
+      tender_type: 'CARD' | 'CASH' | 'UPI';
       card_last4: string | null;
       card_brand: string | null;
+      external_reference: string | null;
     }>;
 
     return {
@@ -22710,6 +23004,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         tenderType: row.tender_type,
         cardLast4: row.card_last4,
         cardBrand: row.card_brand,
+        externalReference: row.external_reference,
         dispute: this.readPaymentDisputeSync(row.payment_id),
       })),
     };
@@ -22743,6 +23038,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       Date.now(),
       input.paymentId,
     );
+  }
+
+  async readFolioLineExternalReferenceForTest(folioLineId: string): Promise<string | null> {
+    this.assertUnsafeLocal('readFolioLineExternalReferenceForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT external_reference FROM folio_line WHERE folio_line_id = ?`,
+        folioLineId,
+      )
+      .toArray() as Array<{ external_reference: string | null }>;
+    return rows[0]?.external_reference ?? null;
   }
 
   async readFolio(reservationId: string): Promise<

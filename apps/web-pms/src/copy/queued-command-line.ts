@@ -15,6 +15,7 @@ const COMMAND_ID_LABELS: Record<string, string> = {
   'folio.add_line': 'Folio charge',
   post_folio_charge: 'Folio charge',
   'folio.record_cash_payment': 'Cash payment',
+  'folio.record_upi_payment': 'UPI payment',
   'folio.open_shift': 'Open shift',
   'folio.close_shift': 'Close shift',
   'rooms.update_status': 'Room status update',

@@ -46,15 +46,17 @@ Cashiering is **drawer attribution**, not a posting gate. Gating folio writers o
 
 | Item | Detail |
 |---|---|
-| `tender_type` | `'CARD' \| 'CASH'` on `payment` |
+| `tender_type` | `'CARD' \| 'CASH'` on `payment` at v16. **Amended 2026-11-19 (R4.18):** `'CARD' \| 'CASH' \| 'UPI'`. v48 rebuilds the CHECK and adds `payment.external_reference`. UPI is recorded (`folio.record_upi_payment`), not collected. See the amendment below. |
 | Command | **`folio.record_cash_payment`** — own catalog entry; **`folio:post`** (not `folio:adjust` — see §2.4); entitlement `pms.core`; events `folio.payment_captured` + `folio.line_posted` |
 | Write shape | One `transactionSync`: insert `payment` at **`captured`**, insert negative `PAYMENT` folio line; `gateway_reference` NULL; `capture_fingerprint` NULL; `request_fingerprint` for idempotency |
 | PSP gate | **Must not consult** `pspSimulateEnabled()` / adapter availability. Inheriting authorize/capture's `PSP_UNAVAILABLE` → **501 in production** (`HOSPAI_UNSAFE_LOCAL` is off). Highest-risk footgun — looks green under simulate-on tests |
-| Capture on cash | Explicit reject `tender_type = 'CASH'` → **`PAYMENT_NOT_CAPTURABLE`** (not misleading `IDEM_KEY_REUSED` from NULL fingerprint compare) |
+| Capture on cash | Explicit reject of a non-PSP tender (`isPspTender` is `tender === 'CARD'`) → **`PAYMENT_NOT_CAPTURABLE`** (not misleading `IDEM_KEY_REUSED` from NULL fingerprint compare). CASH and UPI both take this path. |
 | Degraded | **`FAIL_CLOSED` this slice** — reason: *shift attribution cannot survive provisional replay* (queue at 11pm, replay at 2am → wrong/closed shift), **not** "payments are fail-closed as a class." Door open if queue payload later stamps shift-at-queue-time |
 | `readPayment` | `gatewayReference` legitimately NULL for an entire tender type — clients must not treat NULL as "not yet authorized" |
 
 **Leftover:** cash taken during an outage has no record until recovery (reconciliation / shrinkage window).
+
+**Amendment (2026-11-19, R4.18).** v16's CHECK stays the historical shape. PropertyDO v48 rebuilds `payment` (and the child tables that reference it) so `tender_type` is `CARD | CASH | UPI` and adds nullable `external_reference`. `folio.record_upi_payment` mirrors cash: one `transactionSync`, status `captured`, negative `PAYMENT` line, `gateway_reference` NULL, no PSP call, `FAIL_CLOSED` for the same shift-attribution reason. The reference is required, trimmed, `/^[A-Za-z0-9]{6,35}$/`, and unique among captured UPI payments (`duplicate_upi_reference`). Expected cash stays `opening_float + Σ captured CASH`. Shift summary adds informational per-tender totals (Cash, Card, UPI) and does not change the variance formula or the unattributed-cash check. Refunds of UPI use `folio.refund` on the local path; an optional reference is stored on the refund folio line. When R4.12 accounting export is built, UPI needs its own ledger mapping. No bank transfer, cheque, voucher, or gift.
 
 ### 2.2 Shifts — overlay + force-close (Q6)
 
@@ -226,9 +228,11 @@ Canary: widen everything to `folio:post` → test 12a fails.
 | Per-cashier audit trail | Belongs to [audit log](./2026-08-07-audit-log-design.md), not born here |
 | Other night-audit stubs | PRE_CHECK / PROCESS_NO_SHOWS / SNAPSHOT_REPORTS |
 | SPA `gatewayReference` NULL | Clients must not mean "unauthorized" |
+| UPI ledger mapping | R4.12 accounting export is not built. When it is, UPI needs its own ledger mapping. Not a bank transfer. |
+| Per-tender shift totals | Informational Cash / Card / UPI sums on the open shift and the receipt. Expected cash and unattributed cash stay CASH-only. |
 
 ---
 
 ## 6. Open questions
 
-None. Settled: cash command + no PSP gate; force-close with NULL count; per-actor stamp; overlay not gate (with named unattributed-cash cost); **`folio:post` = bring money in / `folio:adjust` = modify posted** (cash, shifts, authorize, capture → post; split / split-payment stay adjust); variance = `opening_float + Σ(captured CASH on this shift) − closing_count`; `tender_type NOT NULL DEFAULT 'CARD' CHECK (...)`; audit log separate.
+None. Settled: cash command + no PSP gate; force-close with NULL count; per-actor stamp; overlay not gate (with named unattributed-cash cost); **`folio:post` = bring money in / `folio:adjust` = modify posted** (cash, UPI, shifts, authorize, capture → post; split / split-payment stay adjust); variance = `opening_float + Σ(captured CASH on this shift) − closing_count` (UPI is not in that sum); `tender_type` is `CARD | CASH | UPI` after the 2026-11-19 amendment; audit log separate. No bank transfer, cheque, voucher, or gift.

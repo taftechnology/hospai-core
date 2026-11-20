@@ -164,6 +164,8 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     }
     return 'A guest with this email or phone is already on file at this property. Search for them instead.';
   },
+  duplicate_upi_reference: () => 'This UPI reference is already recorded on another payment.',
+  invalid_upi_reference: () => 'UPI reference must be 6 to 35 letters or digits.',
   no_availability: (body, context) => {
     const date = bodyStringField(body, 'date');
     if (date) {

@@ -566,7 +566,8 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** two foreign nationals on one stay give two records with separate deadlines; hotel A cannot read hotel B's records (AGENTS §5); purge removes them and the certificate says so; a person record adds no row to the guest directory.
   - **Scope out:** C-form departure updates beyond what the portal requires; other countries' guest registration.
 
-- [ ] **R4.18 Desk tenders for India — UPI**
+- [x] **R4.18 Desk tenders for India — UPI**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-19-upi-tender-design.md). The cashiering spec and AGENTS §2 now list `CARD | CASH | UPI`. `folio.record_upi_payment` (`post_upi_payment`) mirrors the cash command: a captured payment on the guest window with the open shift stamped, no PSP. A UPI reference (6–35 letters or digits) is required, unique among captured UPI payments (`422 duplicate_upi_reference`, also a partial unique index), shown on the folio line and the Tenders list, and kept out of URLs (payment ids never carry it). PropertyDO migration 48 rebuilds `payment`, `folio_line` and `payment_dispute` (new `external_reference`), proven on real SQLite. `isPspTender` guards capture, void, auth expiry and auto-capture. Refunds of UPI post locally with an optional return reference. Shifts: expected cash stays CASH-only; Card and UPI totals show on the shift strip and close screen, and Cash joins them only on the closed-shift receipt, so the count stays blind. The folio payment form now rotates its operation id after each success (before, a second cash payment on the same page was refused as a replay) and refreshes the shift strip. Out: UPI collect / QR / gateway (R4.7, R5.4), bank transfer, the R4.12 UPI ledger mapping (noted in the cashiering locks). Pins: catalog 117, routes 191 (last `post_upi_payment`), `PROPERTY_SCHEMA_HEAD` 48.
   - **Answered (client, 2026-11-19):** the desk takes **UPI**; no bank transfer. Amend the cashiering spec to add `UPI` (tender list, shift-close expected amounts, R4.12 mapping), then implement. Bank transfer and other tenders stay out.
   - **Pilot checklist Q4:** which tenders the desk records today. Indian desks commonly take **UPI** and **bank transfer** alongside cash and card.
   - **Locked:** `tender_type` stays `CARD` \| `CASH` (cashiering spec, AGENTS §2) **until that spec is amended**. If the client needs more, amend [cashiering](superpowers/specs/2026-08-07-cashiering-design.md) first — tender list, shift-close expected amounts and the R4.12 ledger mapping — then implement. Recording a payment taken on an external terminal or UPI app is a tender, **not** a gateway integration (that is R4.7 / R5.4).
@@ -1039,13 +1040,13 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R4.20** (2026-11-19):
+After **R4.18** (2026-11-20):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **116** |
-| `V1_HTTP_ROUTE_AUDIT` | **190** routes, last `post_reservation_rate_override` |
-| `PROPERTY_SCHEMA_HEAD` | **47** |
+| `COMMAND_CATALOG` | length **117** |
+| `V1_HTTP_ROUTE_AUDIT` | **191** routes, last `post_upi_payment` |
+| `PROPERTY_SCHEMA_HEAD` | **48** |
 | `ORG_SCHEMA_HEAD` | **13** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 

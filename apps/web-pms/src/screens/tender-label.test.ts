@@ -38,5 +38,6 @@ describe('tender labels (R2.5)', () => {
     expect(tenderLabel(row({ cardBrand: 'visa', cardLast4: '4242' }))).toBe('Visa •••• 4242');
     expect(tenderLabel(row({ purpose: 'DAMAGE', status: 'authorized' }))).toBe('Damage deposit');
     expect(tenderLabel(row({ tenderType: 'CASH' }))).toBe('Cash');
+    expect(tenderLabel(row({ tenderType: 'UPI', externalReference: 'UTR123456' }))).toBe('UPI UTR123456');
   });
 });

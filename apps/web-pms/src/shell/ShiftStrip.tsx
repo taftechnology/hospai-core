@@ -136,6 +136,7 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
         businessDate: string;
         openingFloat: number;
         attributedCashCount: number;
+        tenderTotals?: { cardMinor: number; upiMinor: number };
         status: 'OPEN';
       } | null }
     | undefined;
@@ -183,12 +184,20 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
   }
 
   const shift = body.shift;
+  const badgeText = shift.tenderTotals
+    ? `Shift open · float ${money(shift.openingFloat)} · ${shift.attributedCashCount} cash posts · Card ${money(shift.tenderTotals.cardMinor)} · UPI ${money(shift.tenderTotals.upiMinor)}`
+    : `Shift open · float ${money(shift.openingFloat)} · ${shift.attributedCashCount} cash posts`;
 
   return (
     <div className="shift-strip">
       <span className="shift-strip__dot" aria-hidden="true" />
-      <Link className="shift-strip__badge" data-testid="open-shift-badge" to="/shift">
-        Shift open · float {money(shift.openingFloat)} · {shift.attributedCashCount} cash posts
+      <Link
+        className="shift-strip__badge"
+        data-testid="open-shift-badge"
+        to="/shift"
+        title={badgeText}
+      >
+        {badgeText}
       </Link>
       <Link className="shift-strip__close" to="/shift">
         Close shift

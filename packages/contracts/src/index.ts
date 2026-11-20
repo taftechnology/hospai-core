@@ -37,3 +37,4 @@ export * from './zoned-wall-clock.js';
 export * from './invoice-number.js';
 export * from './gstin.js';
 export * from './gst-buyer.js';
+export * from './tender.js';

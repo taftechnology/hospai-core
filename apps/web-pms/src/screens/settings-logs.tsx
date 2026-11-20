@@ -42,6 +42,7 @@ const COMMAND_LABELS: Record<string, string> = {
   'folio.capture': 'Card captured',
   'folio.void': 'Authorisation voided',
   'folio.record_cash_payment': 'Cash payment',
+  'folio.record_upi_payment': 'UPI payment',
   'folio.transfer_charge': 'Charge transferred',
   'folio.open_window': 'Folio window opened',
   'folio.open_shift': 'Shift opened',

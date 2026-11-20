@@ -25,6 +25,10 @@ import { propertyLocalToday } from '../status/property-local-today.js';
 import { shiftSeverity } from '../status/shift-severity.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 
+type OpenTenderTotals = { cardMinor: number; upiMinor: number };
+type ClosedTenderTotals = OpenTenderTotals & { cashMinor: number };
+type ShiftTenderTotals = OpenTenderTotals | ClosedTenderTotals;
+
 type ShiftBody = {
   ok: true;
   shift: {
@@ -35,8 +39,33 @@ type ShiftBody = {
     variance: number | null;
     status: 'OPEN' | 'CLOSED' | 'FORCE_CLOSED';
     unattributedCashCount: number;
+    tenderTotals?: ShiftTenderTotals;
   };
 };
+
+function TenderTotalFields({
+  totals,
+  money,
+  includeCash,
+}: {
+  totals: ShiftTenderTotals | undefined;
+  money: (minor: number) => string;
+  includeCash: boolean;
+}) {
+  if (!totals) return null;
+  return (
+    <>
+      {includeCash && 'cashMinor' in totals ? (
+        <StatField
+          label="Cash"
+          value={<span data-testid="tender-total-cash">{money(totals.cashMinor)}</span>}
+        />
+      ) : null}
+      <StatField label="Card" value={<span data-testid="tender-total-card">{money(totals.cardMinor)}</span>} />
+      <StatField label="UPI" value={<span data-testid="tender-total-upi">{money(totals.upiMinor)}</span>} />
+    </>
+  );
+}
 
 const SHIFT_STATUS_WORD: Record<ShiftBody['shift']['status'], string> = {
   OPEN: 'Open',
@@ -124,7 +153,12 @@ function ShiftCloseForm() {
   const open = openQ.data as
     | {
         ok?: boolean;
-        shift?: { shiftId: string; businessDate?: string; openingFloat?: number } | null;
+        shift?: {
+          shiftId: string;
+          businessDate?: string;
+          openingFloat?: number;
+          tenderTotals?: OpenTenderTotals;
+        } | null;
       }
     | undefined;
   if (!open?.shift) {
@@ -170,6 +204,15 @@ function ShiftCloseForm() {
               <>Enter closing count (blind; expected cash is not shown).</>
             )}
           </p>
+          {open.shift.tenderTotals ? (
+            <div className="ui-stat-grid" data-testid="shift-tender-totals">
+              <TenderTotalFields
+                totals={open.shift.tenderTotals}
+                money={money}
+                includeCash={false}
+              />
+            </div>
+          ) : null}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -293,6 +336,11 @@ function ShiftReceipt({ shiftId }: { shiftId: string }) {
             <StatField
               label="Variance"
               value={<span data-testid="receipt-variance">{varianceCopy}</span>}
+            />
+            <TenderTotalFields
+              totals={shift.tenderTotals}
+              money={money}
+              includeCash={shift.status !== 'OPEN'}
             />
             <StatField
               label="Cash with no shift"

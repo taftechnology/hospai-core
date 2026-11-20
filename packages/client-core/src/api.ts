@@ -233,7 +233,8 @@ export type FolioPaymentRow = {
   refundedAmountMinor?: number;
   createdAt: number;
   updatedAt: number;
-  tenderType?: 'CARD' | 'CASH';
+  tenderType?: 'CARD' | 'CASH' | 'UPI';
+  externalReference?: string | null;
   cardLast4?: string | null;
   cardBrand?: string | null;
   fxRate?: string | null;
@@ -656,7 +657,20 @@ export function createClient(opts: {
     },
     async getOpenShift(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/front-desk/shift`);
-      return body;
+      return body as {
+        ok: true;
+        shift: {
+          shiftId: string;
+          cashierUserId: string;
+          businessDate: string;
+          openedAt: number;
+          openingFloat: number;
+          status: 'OPEN';
+          attributedCashCount: number;
+          /** Blind count: card + UPI only — no cashMinor while OPEN. */
+          tenderTotals: { cardMinor: number; upiMinor: number };
+        } | null;
+      };
     },
     async getRecentShifts(propertyId: string) {
       const { body } = await getJson(
@@ -997,6 +1011,29 @@ export function createClient(opts: {
         { reservationId },
       );
     },
+    async recordUpiPayment(
+      propertyId: string,
+      reservationId: string,
+      input: { paymentId: string; amountMinor: number; reference: string; currency?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio/payments/upi`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            paymentId: input.paymentId,
+            amountMinor: input.amountMinor,
+            reference: input.reference,
+            ...(input.currency ? { currency: input.currency } : {}),
+            idempotencyKey,
+          }),
+        },
+        { reservationId },
+      );
+    },
     async authorizePayment(
       propertyId: string,
       reservationId: string,
@@ -1218,6 +1255,7 @@ export function createClient(opts: {
       paymentId: string,
       amountMinor: number,
       opId: string,
+      reference?: string,
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
@@ -1225,7 +1263,11 @@ export function createClient(opts: {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ amountMinor, idempotencyKey }),
+          body: JSON.stringify({
+            amountMinor,
+            idempotencyKey,
+            ...(reference ? { reference } : {}),
+          }),
         },
       );
     },

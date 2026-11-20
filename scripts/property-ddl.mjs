@@ -92,6 +92,7 @@ if (process.argv.includes('--self-test')) {
   let ID_DOCUMENT_ON_FILE_V45_SQL;
   let BUYER_GST_V46_SQL;
   let RATE_OVERRIDE_V47_SQL;
+  let UPI_TENDER_V48_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -159,6 +160,7 @@ if (process.argv.includes('--self-test')) {
       ID_DOCUMENT_ON_FILE_V45_SQL,
       BUYER_GST_V46_SQL,
       RATE_OVERRIDE_V47_SQL,
+      UPI_TENDER_V48_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -626,6 +628,15 @@ const doPropertyTargets = [
 
 `,
     sql: RATE_OVERRIDE_V47_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0048_upi_tender.sql'),
+    header: `-- PropertyDO UPI tender — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: UPI_TENDER_V48_SQL,
   },
 ];
 

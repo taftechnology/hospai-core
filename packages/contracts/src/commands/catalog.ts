@@ -496,6 +496,17 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes: 'Cash tender — no PSP gate. FAIL_CLOSED: shift attribution cannot survive provisional replay.',
   },
   {
+    id: 'folio.record_upi_payment',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.payment_captured', 'folio.line_posted', 'payment.captured'],
+    entitlement: 'pms.core',
+    permission: 'folio:post',
+    notes: 'UPI tender — recorded, not collected. No PSP gate. FAIL_CLOSED: shift attribution cannot survive provisional replay.',
+  },
+  {
     id: 'folio.open_window',
     prototypeAction: null,
     lane: 'INTERACTIVE',

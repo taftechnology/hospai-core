@@ -231,6 +231,15 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE payment_v24 RENAME TO payment')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v24 RENAME TO folio_line')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE folio_line_v21 RENAME TO folio_line')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO payment_v48')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO folio_line_v48')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO payment_dispute_v48')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE payment_dispute')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE payment_v48 RENAME TO payment')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_line_v48 RENAME TO folio_line')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE payment_dispute_v48 RENAME TO payment_dispute')) {
+      return { toArray: () => [] };
+    }
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN checked_out_business_date')) {
       return { toArray: () => [] };
     }
@@ -276,16 +285,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 47', () => {
+  it('applies property migrations through version 48', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(47);
+    expect(v1).toBe(48);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(47);
-    expect(sql.schemaVersion).toHaveLength(47);
+    expect(v2).toBe(48);
+    expect(sql.schemaVersion).toHaveLength(48);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -737,9 +746,27 @@ describe('freeAvailability', () => {
   });
 });
 
+describe('upi tender v48', () => {
+  it('rebuilds payment child-first and widens the tender check', () => {
+    const v48 = PROPERTY_MIGRATIONS.find((m) => m.version === 48);
+    expect(v48?.name).toBe('upi_tender');
+    expect(v48?.statements.some((s) => /PRAGMA foreign_keys/i.test(s))).toBe(false);
+    const drops = v48!.statements.filter((s) => s.startsWith('DROP TABLE'));
+    expect(drops.map((d) => d.replace('DROP TABLE ', ''))).toEqual([
+      'payment_dispute',
+      'folio_line',
+      'payment',
+    ]);
+    expect(v48?.statements.some((s) => s.includes("tender_type IN ('CARD', 'CASH', 'UPI')"))).toBe(
+      true,
+    );
+    expect(v48?.statements.some((s) => s.includes('payment_upi_reference_uidx'))).toBe(true);
+  });
+});
+
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(47);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(48);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

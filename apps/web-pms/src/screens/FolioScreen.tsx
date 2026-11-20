@@ -1,4 +1,5 @@
 import {
+  UPI_REFERENCE_RE,
   GST_STATE_CODES,
   UNREGISTERED_BUYER_NAME_ADDRESS_THRESHOLD_MINOR,
   gstinProblem,
@@ -536,6 +537,9 @@ export function FolioScreen() {
   const [chargeCode, setChargeCode] = useState('MISC');
   const [chargeAmount, setChargeAmount] = useState('');
   const [cashAmount, setCashAmount] = useState('');
+  const [payTender, setPayTender] = useState<'CASH' | 'UPI'>('CASH');
+  const [upiReference, setUpiReference] = useState('');
+  const [refundReferences, setRefundReferences] = useState<Record<string, string>>({});
   const [authAmount, setAuthAmount] = useState('');
   const [authPurpose, setAuthPurpose] = useState<'STAY' | 'DAMAGE'>('STAY');
   const [splitLineId, setSplitLineId] = useState('');
@@ -554,7 +558,9 @@ export function FolioScreen() {
   const [captureAmounts, setCaptureAmounts] = useState<Record<string, string>>({});
   const [refundAmounts, setRefundAmounts] = useState<Record<string, string>>({});
   const [chargeOpId] = useState(() => `charge:${reservationId}:${crypto.randomUUID()}`);
-  const [cashOpId] = useState(() => `cash:${reservationId}:${crypto.randomUUID()}`);
+  const [payOpBase, setPayOpBase] = useState(
+    () => `${reservationId}:${crypto.randomUUID()}`,
+  );
   const [authOpId] = useState(() => `auth:${reservationId}:${crypto.randomUUID()}`);
   const [payCurrency, setPayCurrency] = useState('');
   const [chargebackPaymentId, setChargebackPaymentId] = useState('');
@@ -945,23 +951,46 @@ export function FolioScreen() {
       if (!policy.canPay) throw new Error('policy_blocked_pay');
       const amountMinor = parseAmountToMinor(cashAmount);
       if (amountMinor == null) throw new Error('invalid_amount');
+      const currency =
+        selectedPayCurrency !== ledgerCurrency ? { currency: selectedPayCurrency } : {};
+      if (payTender === 'UPI') {
+        const reference = upiReference.trim();
+        if (!UPI_REFERENCE_RE.test(reference)) {
+          throw new ClassifiedError({
+            class: 'client_error',
+            status: 422,
+            body: { error: 'invalid_upi_reference' },
+            retryAfterMs: null,
+          });
+        }
+        const derivedKey = `${payOpBase}:${payTender}:${amountMinor}:${selectedPayCurrency}:${reference}`;
+        const paymentId = `pay_upi:${payOpBase}:${amountMinor}:${selectedPayCurrency}`;
+        return api.recordUpiPayment(
+          propertyId,
+          reservationId,
+          { paymentId, amountMinor, reference, ...currency },
+          derivedKey,
+        );
+      }
+      const derivedKey = `${payOpBase}:${payTender}:${amountMinor}:${selectedPayCurrency}`;
+      const paymentId = `pay_cash:${derivedKey}`;
       return api.recordCashPayment(
         propertyId,
         reservationId,
-        {
-          paymentId: `pay_${cashOpId}`,
-          amountMinor,
-          ...(selectedPayCurrency !== ledgerCurrency ? { currency: selectedPayCurrency } : {}),
-        },
-        cashOpId,
+        { paymentId, amountMinor, ...currency },
+        derivedKey,
       );
     },
     onSuccess: () => {
-      setSettledNotice('Cash payment recorded.');
+      setSettledNotice(payTender === 'UPI' ? 'UPI payment recorded.' : 'Cash payment recorded.');
+      setPayOpBase(`${reservationId}:${crypto.randomUUID()}`);
+      setCashAmount('');
+      setUpiReference('');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
+      void queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
     },
   });
 
@@ -1038,6 +1067,7 @@ export function FolioScreen() {
       setForfeitNote(null);
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({ queryKey: ['folio-payments', propertyId, reservationId] });
+      void queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
     } catch (err) {
       if (linePosted) {
         setForfeitNote(
@@ -1144,6 +1174,7 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
+      void queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
     },
   });
 
@@ -1382,13 +1413,31 @@ export function FolioScreen() {
   const refundPay = useFolioActionMutation({
     fallback: 'Refund failed',
     setMessage,
-    mutationFn: ({ paymentId, amountMinor }: { paymentId: string; amountMinor: number }) => {
+    mutationFn: ({
+      paymentId,
+      amountMinor,
+      reference,
+    }: {
+      paymentId: string;
+      amountMinor: number;
+      reference?: string;
+    }) => {
       if (!canAdjust) throw new Error('policy_blocked_adjust');
+      const trimmed = reference?.trim() ?? '';
+      if (trimmed && !UPI_REFERENCE_RE.test(trimmed)) {
+        throw new ClassifiedError({
+          class: 'client_error',
+          status: 422,
+          body: { error: 'invalid_upi_reference' },
+          retryAfterMs: null,
+        });
+      }
       return api.refundPayment(
         propertyId,
         paymentId,
         amountMinor,
         `refund:${paymentId}:${crypto.randomUUID()}`,
+        trimmed || undefined,
       );
     },
     onSuccess: () => {
@@ -1397,6 +1446,7 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
+      void queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
     },
   });
 
@@ -1693,13 +1743,18 @@ export function FolioScreen() {
       }
     }
     for (const p of tenderById.values()) {
-      const cash = tenderMethod(p) === 'Cash';
+      const method = tenderMethod(p);
       rows.push({
         key: `pay-${p.paymentId}`,
         sortKey: p.createdAt,
         date: instantDate(p.createdAt),
-        code: cash ? 'CASH' : 'CARD',
-        description: cash ? 'Cash payment' : `Card payment · ${tenderLabel(p)}`,
+        code: method === 'Cash' ? 'CASH' : method === 'UPI' ? 'UPI' : 'CARD',
+        description:
+          method === 'Cash'
+            ? 'Cash payment'
+            : method === 'UPI'
+              ? `UPI payment · ${tenderLabel(p)}`
+              : `Card payment · ${tenderLabel(p)}`,
         chargeMinor: 0,
         paymentMinor: -p.amountMinor,
       });
@@ -2026,7 +2081,23 @@ export function FolioScreen() {
               <div className="ui-row">
                 <Field
                   size="xs"
-                  label="Cash"
+                  label="Tender"
+                  control={
+                    <NativeSelect
+                      aria-label="payment-tender"
+                      data-testid="payment-tender"
+                      value={payTender}
+                      disabled={!policy.canPay}
+                      onChange={(e) => setPayTender(e.target.value === 'UPI' ? 'UPI' : 'CASH')}
+                    >
+                      <option value="CASH">Cash</option>
+                      <option value="UPI">UPI</option>
+                    </NativeSelect>
+                  }
+                />
+                <Field
+                  size="xs"
+                  label="Amount"
                   control={
                     <Input
                       aria-label="cash-amount"
@@ -2036,15 +2107,50 @@ export function FolioScreen() {
                     />
                   }
                 />
+                {payTender === 'UPI' ? (
+                  <Field
+                    size="sm"
+                    label="UPI reference"
+                    control={
+                      <Input
+                        aria-label="upi-reference"
+                        data-testid="upi-reference"
+                        value={upiReference}
+                        onChange={(e) => setUpiReference(e.target.value)}
+                        disabled={!policy.canPay}
+                      />
+                    }
+                  />
+                ) : null}
                 <Button
                   type="button"
-                  data-testid="record-cash"
-                  disabled={!policy.canPay || cashPay.isPending || cashMinor == null}
+                  data-testid={payTender === 'UPI' ? 'record-upi' : 'record-cash'}
+                  disabled={
+                    !policy.canPay ||
+                    cashPay.isPending ||
+                    cashMinor == null ||
+                    (payTender === 'UPI' && !UPI_REFERENCE_RE.test(upiReference.trim()))
+                  }
                   onClick={() => cashPay.mutate()}
                 >
-                  Record cash
+                  {payTender === 'UPI' ? 'Record UPI' : 'Record cash'}
                 </Button>
               </div>
+              {payTender === 'UPI' &&
+              upiReference.trim() !== '' &&
+              !UPI_REFERENCE_RE.test(upiReference.trim()) ? (
+                <Alert intent="exception" data-testid="upi-reference-invalid">
+                  {classifiedUserMessage(
+                    {
+                      class: 'client_error',
+                      status: 422,
+                      body: { error: 'invalid_upi_reference' },
+                      retryAfterMs: null,
+                    },
+                    { fallback: 'UPI reference is not valid.' },
+                  )}
+                </Alert>
+              ) : null}
               <div className="ui-row">
                 <Field
                   size="xs"
@@ -2280,15 +2386,42 @@ export function FolioScreen() {
                                 }))
                               }
                             />
+                            {p.tenderType === 'UPI' ? (
+                              <Field
+                                label={<VisuallyHidden>Return UPI reference</VisuallyHidden>}
+                                control={
+                                  <Input
+                                    placeholder="Return UPI reference (optional)"
+                                    data-testid={`refund-reference-${p.paymentId}`}
+                                    value={refundReferences[p.paymentId] ?? ''}
+                                    onChange={(e) =>
+                                      setRefundReferences((prev) => ({
+                                        ...prev,
+                                        [p.paymentId]: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                }
+                              />
+                            ) : null}
                             <Button
                               type="button"
                               intent="destructive"
                               data-testid={`refund-payment-${p.paymentId}`}
-                              disabled={refundPay.isPending}
+                              disabled={
+                                refundPay.isPending ||
+                                (p.tenderType === 'UPI' &&
+                                  (refundReferences[p.paymentId] ?? '').trim() !== '' &&
+                                  !UPI_REFERENCE_RE.test((refundReferences[p.paymentId] ?? '').trim()))
+                              }
                               onClick={() =>
                                 refundPay.mutate({
                                   paymentId: p.paymentId,
                                   amountMinor: Math.round(Number(refundValue) * 100),
+                                  reference:
+                                    p.tenderType === 'UPI'
+                                      ? refundReferences[p.paymentId]
+                                      : undefined,
                                 })
                               }
                             >

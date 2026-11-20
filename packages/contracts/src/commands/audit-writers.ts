@@ -32,6 +32,7 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'folio.open_shift',
   'folio.close_shift',
   'folio.record_cash_payment',
+  'folio.record_upi_payment',
   'folio.open_window',
   'folio.close_window',
   'folio.reopen_window',

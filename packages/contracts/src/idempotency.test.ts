@@ -60,6 +60,8 @@ import {
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
   PSP_UNAVAILABLE,
+  DUPLICATE_UPI_REFERENCE,
+  INVALID_UPI_REFERENCE,
   PAYMENT_NOT_CAPTURABLE,
   LINE_NOT_SPLITTABLE,
   TAX_RULE_NOT_FOUND,
@@ -215,6 +217,8 @@ describe('fingerprintPayload', () => {
   it('exports payment wire codes', () => {
     expect(PSP_UNAVAILABLE).toBe('psp_unavailable');
     expect(PAYMENT_NOT_CAPTURABLE).toBe('payment_not_capturable');
+    expect(DUPLICATE_UPI_REFERENCE).toBe('duplicate_upi_reference');
+    expect(INVALID_UPI_REFERENCE).toBe('invalid_upi_reference');
     expect(LINE_NOT_SPLITTABLE).toBe('line_not_splittable');
   });
 
@@ -308,7 +312,7 @@ describe('fingerprintPayload', () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('./idempotency.ts', import.meta.url), 'utf8');
     const count = (src.match(/^export const /gm) ?? []).length;
-    expect(count).toBe(207);
+    expect(count).toBe(209);
   });
 });
 

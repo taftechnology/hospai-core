@@ -115,6 +115,8 @@ export const LINE_NOT_SPLITTABLE = 'line_not_splittable' as const;
 export const INVALID_VOID_REASON = 'invalid_void_reason' as const;
 export const PSP_ADAPTER_FAILED = 'psp_adapter_failed' as const;
 export const PAYMENT_INSERT_FAILED = 'payment_insert_failed' as const;
+export const DUPLICATE_UPI_REFERENCE = 'duplicate_upi_reference' as const;
+export const INVALID_UPI_REFERENCE = 'invalid_upi_reference' as const;
 
 /** Room / housekeeping wire codes */
 export const ROOM_CODE_EXISTS = 'room_code_exists' as const;

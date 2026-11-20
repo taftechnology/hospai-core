@@ -13,7 +13,8 @@ export function formatBrandLabel(brand: string): string {
   return brand.charAt(0).toUpperCase() + brand.slice(1).toLowerCase();
 }
 
-export function tenderMethod(p: FolioPaymentRow): 'Card' | 'Cash' {
+export function tenderMethod(p: FolioPaymentRow): 'Card' | 'Cash' | 'UPI' {
+  if (p.tenderType === 'UPI') return 'UPI';
   if (p.tenderType === 'CASH') return 'Cash';
   if (p.tenderType === 'CARD') return 'Card';
   if (p.status === 'authorized') return 'Card';
@@ -23,6 +24,9 @@ export function tenderMethod(p: FolioPaymentRow): 'Card' | 'Cash' {
 
 export function tenderLabel(p: FolioPaymentRow): string {
   if (p.purpose === 'DAMAGE') return 'Damage deposit';
+  if (tenderMethod(p) === 'UPI') {
+    return p.externalReference ? `UPI ${p.externalReference}` : 'UPI';
+  }
   if (tenderMethod(p) === 'Cash') return 'Cash';
   if (p.cardLast4) {
     if (p.cardBrand) return `${formatBrandLabel(p.cardBrand)} •••• ${p.cardLast4}`;
@@ -49,10 +53,12 @@ export function stayGuaranteeText(
   const qualifying = payments.filter(isStayGuarantee);
   const card = qualifying.find((p) => tenderMethod(p) === 'Card');
   const cash = qualifying.find((p) => tenderMethod(p) === 'Cash');
-  const pick = card ?? cash ?? qualifying[0];
+  const upi = qualifying.find((p) => tenderMethod(p) === 'UPI');
+  const pick = card ?? cash ?? upi ?? qualifying[0];
   if (!pick) return 'None on file';
   const amount = formatAmount(pick.amountMinor);
   if (tenderMethod(pick) === 'Cash') return `Cash ${amount}`;
+  if (tenderMethod(pick) === 'UPI') return `${tenderLabel(pick)} paid ${amount}`;
   const word = pick.status === 'authorized' ? 'authorized' : 'paid';
   return `${tenderLabel(pick)} ${word} ${amount}`;
 }

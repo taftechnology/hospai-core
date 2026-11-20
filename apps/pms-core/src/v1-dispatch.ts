@@ -72,6 +72,8 @@ import {
   LINE_NOT_SPLITTABLE,
   PSP_UNAVAILABLE,
   PAYMENT_NOT_CAPTURABLE,
+  INVALID_UPI_REFERENCE,
+  normalizeUpiReference,
   PAYMENT_NOT_RECONCILABLE,
   HOLD_EXPIRED,
   INQUIRY_EXPIRED,
@@ -6381,6 +6383,71 @@ async function handlePostCashPayment(ctx: V1DispatchContext): Promise<Response> 
   });
 }
 
+async function handlePostUpiPayment(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    paymentId: string;
+    amountMinor: number;
+    currency?: string;
+    reference?: string;
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.paymentId || body.amountMinor == null || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.reference == null || body.reference.trim() === '') {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const reference = normalizeUpiReference(body.reference);
+  if (!reference) return json({ error: INVALID_UPI_REFERENCE }, 422);
+  if (body.paymentId.includes(reference)) {
+    return json({ error: INVALID_REQUEST }, 422);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const requestFingerprint = await commandFingerprint('folio.record_upi_payment', {
+    paymentId: body.paymentId,
+    reservationId,
+    amountMinor: body.amountMinor,
+    reference,
+    ...(body.currency ? { currency: body.currency } : {}),
+  });
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const commandPayload = {
+    paymentId: body.paymentId,
+    reservationId,
+    amountMinor: body.amountMinor,
+    reference,
+    ...(body.currency ? { currency: body.currency } : {}),
+    idempotencyKey: body.idempotencyKey,
+    requestFingerprint,
+  };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordUpiPayment']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.record_upi_payment',
+      routeId: 'post_upi_payment',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRecordUpiPayment(actor, commandPayload),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:post',
+    successStatus: 201,
+  });
+}
+
 async function handleGetShift(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const shiftId = decodeURIComponent(ctx.match[2]!);
@@ -7812,7 +7879,11 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const paymentId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-    const bodyParsed = await parseJsonBody<{ amountMinor?: number; idempotencyKey?: string }>(ctx.request);
+    const bodyParsed = await parseJsonBody<{
+    amountMinor?: number;
+    idempotencyKey?: string;
+    reference?: string;
+  }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (
@@ -7823,9 +7894,19 @@ async function handlePostFolioRefund(ctx: V1DispatchContext): Promise<Response> 
   ) {
     return json({ error: 'invalid_body' }, 400);
   }
+  let reference: string | undefined;
+  if (body.reference != null && body.reference !== '') {
+    const normalized = normalizeUpiReference(body.reference);
+    if (!normalized) return json({ error: INVALID_UPI_REFERENCE }, 422);
+    reference = normalized;
+  }
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
-  const commandPayload = { paymentId, amountMinor: body.amountMinor };
+  const commandPayload = {
+    paymentId,
+    amountMinor: body.amountMinor,
+    ...(reference ? { reference } : {}),
+  };
   const fingerprint = await commandFingerprint('folio.refund', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -10790,6 +10871,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'reservations.override_night_rate',
     entitlement: 'pms.core',
     handler: handlePostReservationRateOverride,
+  },
+  {
+    id: 'post_upi_payment',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio\/payments\/upi$/,
+    permission: 'folio:post',
+    commandId: 'folio.record_upi_payment',
+    handler: handlePostUpiPayment,
   },
 ];
 

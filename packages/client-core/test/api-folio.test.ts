@@ -155,6 +155,29 @@ describe('folio API', () => {
     expect(JSON.parse(bodies[1]!).currency).toBe('EUR');
   });
 
+  it('recordUpiPayment posts the reference on the upi path', async () => {
+    const bodies: string[] = [];
+    const paths: string[] = [];
+    const { client } = clientWith(async (path, init) => {
+      paths.push(path);
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.recordUpiPayment(
+      'p',
+      'res_1',
+      { paymentId: 'pay_upi', amountMinor: 500, reference: 'UTR123456', currency: 'INR' },
+      'op-upi',
+    );
+    expect(paths[0]).toBe('/v1/properties/p/reservations/res_1/folio/payments/upi');
+    expect(JSON.parse(bodies[0]!)).toMatchObject({
+      paymentId: 'pay_upi',
+      amountMinor: 500,
+      reference: 'UTR123456',
+      currency: 'INR',
+    });
+  });
+
   it('authorizePayment sends optional purpose', async () => {
     let body = '';
     let path = '';

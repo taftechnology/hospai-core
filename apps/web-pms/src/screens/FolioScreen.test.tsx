@@ -17,6 +17,7 @@ const checkOut = vi.fn();
 const earlyDepart = vi.fn();
 const postGuestsBatch = vi.fn();
 const recordCashPayment = vi.fn();
+const recordUpiPayment = vi.fn();
 const splitFolioLine = vi.fn();
 const closeFolioWindow = vi.fn();
 const transferFolioLine = vi.fn();
@@ -94,6 +95,7 @@ vi.mock('../client.js', () => ({
     earlyDepart: (...args: unknown[]) => earlyDepart(...args),
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
+    recordUpiPayment: (...args: unknown[]) => recordUpiPayment(...args),
     capturePayment: (...args: unknown[]) => capturePayment(...args),
     splitFolioLine: (...args: unknown[]) => splitFolioLine(...args),
     closeFolioWindow: (...args: unknown[]) => closeFolioWindow(...args),
@@ -695,6 +697,279 @@ describe('FolioScreen wiring', () => {
       await Promise.resolve();
     });
     expect(recordCashPayment).toHaveBeenCalled();
+  });
+
+  it('records UPI with a reference and invalidates folio and payments', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_upi',
+          reservationId: 'res_1',
+          amountMinor: 1000,
+          currency: 'INR',
+          status: 'captured',
+          tenderType: 'UPI',
+          externalReference: 'UTR123456',
+          gatewayReference: null,
+          capturedAmountMinor: 1000,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    render(
+      <QueryClientProvider client={client}>
+        <PropertyFormatProvider>
+          <MemoryRouter initialEntries={['/folio/res_1']}>
+            <Routes>
+              <Route path="/folio/:reservationId" element={<FolioScreen />} />
+            </Routes>
+          </MemoryRouter>
+        </PropertyFormatProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
+    fillCashAmount();
+    const bad = screen.getByTestId('record-upi') as HTMLButtonElement;
+    expect(bad.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'no' } });
+    expect(screen.getByTestId('upi-reference-invalid').textContent).toMatch(/6 to 35 letters or digits/);
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR123456' } });
+    const btn = screen.getByTestId('record-upi') as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalled());
+    expect(recordCashPayment).not.toHaveBeenCalled();
+    const upiBody = recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string; reference: string };
+    const upiKey = recordUpiPayment.mock.calls[0]?.[3] as string;
+    expect(upiBody.paymentId.startsWith('pay_upi:')).toBe(true);
+    expect(upiBody.paymentId).not.toContain('UTR123456');
+    expect(upiBody.paymentId).not.toContain(upiBody.reference);
+    expect(upiKey).toContain('UTR123456');
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"folio"') && k.includes('prop_demo') && k.includes('res_1'))).toBe(
+        true,
+      );
+      expect(keys.some((k) => k.includes('folio-payments') && k.includes('prop_demo') && k.includes('res_1'))).toBe(
+        true,
+      );
+      expect(keys.some((k) => k.includes('open-shift') && k.includes('prop_demo'))).toBe(true);
+    });
+    expect(screen.getByText('UPI UTR123456')).toBeTruthy();
+  });
+
+  it('shows the duplicate UPI reference message from the classified body', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    recordUpiPayment.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { error: 'duplicate_upi_reference' },
+        retryAfterMs: null,
+      }),
+    );
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
+    fillCashAmount();
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR123456' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-upi'));
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('folio-message').textContent).toBe(
+        'This UPI reference is already recorded on another payment.',
+      ),
+    );
+  });
+
+  it('two UPI payments on one mount send different keys and pay_upi: paymentIds', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
+    fillCashAmount('10.00');
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR111111' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-upi'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(1));
+    const firstBody = recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string; reference: string };
+    const firstKey = recordUpiPayment.mock.calls[0]?.[3] as string;
+    expect(firstBody.paymentId.startsWith('pay_upi:')).toBe(true);
+    expect(firstBody.paymentId).not.toContain('UTR111111');
+    expect(firstBody.paymentId).not.toContain(firstBody.reference);
+    expect(firstKey).toContain('UTR111111');
+    await waitFor(() => {
+      expect((screen.getByLabelText('cash-amount') as HTMLInputElement).value).toBe('');
+      expect((screen.getByTestId('upi-reference') as HTMLInputElement).value).toBe('');
+    });
+    fillCashAmount('15.00');
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR222222' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-upi'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(2));
+    const secondBody = recordUpiPayment.mock.calls[1]?.[2] as { paymentId: string; reference: string };
+    const secondKey = recordUpiPayment.mock.calls[1]?.[3] as string;
+    expect(secondBody.paymentId.startsWith('pay_upi:')).toBe(true);
+    expect(secondBody.paymentId).not.toContain('UTR222222');
+    expect(secondBody.paymentId).not.toContain(secondBody.reference);
+    expect(secondKey).toContain('UTR222222');
+    expect(secondKey).not.toBe(firstKey);
+    expect(secondBody.paymentId).not.toBe(firstBody.paymentId);
+  });
+
+  it('clears amount and UPI reference after a successful UPI payment', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
+    fillCashAmount('12.00');
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR333333' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-upi'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalled());
+    await waitFor(() => {
+      expect((screen.getByLabelText('cash-amount') as HTMLInputElement).value).toBe('');
+      expect((screen.getByTestId('upi-reference') as HTMLInputElement).value).toBe('');
+    });
+  });
+
+  it('same-inputs double submit before success uses the same idempotency key', async () => {
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    let resolveFirst: ((value: { ok: true }) => void) | undefined;
+    recordUpiPayment.mockImplementation(
+      () =>
+        new Promise<{ ok: true }>((resolve) => {
+          if (!resolveFirst) resolveFirst = resolve;
+          else resolve( { ok: true });
+        }),
+    );
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
+    fillCashAmount('10.00');
+    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR444444' } });
+    const btn = screen.getByTestId('record-upi');
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      invokeReactClick(btn);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(2));
+    const key1 = recordUpiPayment.mock.calls[0]?.[3] as string;
+    const key2 = recordUpiPayment.mock.calls[1]?.[3] as string;
+    const pay1 = (recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string }).paymentId;
+    const pay2 = (recordUpiPayment.mock.calls[1]?.[2] as { paymentId: string }).paymentId;
+    expect(key1).toBe(key2);
+    expect(key1).toContain('UTR444444');
+    expect(pay1).toBe(pay2);
+    expect(pay1).not.toContain('UTR444444');
+    await act(async () => {
+      resolveFirst?.({ ok: true });
+      await Promise.resolve();
+    });
+  });
+
+  it('refund of UPI shows an optional reference and sends it when set', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_upi_ref',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'INR',
+          status: 'captured',
+          tenderType: 'UPI',
+          externalReference: 'UTR111222',
+          gatewayReference: null,
+          capturedAmountMinor: 5000,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    refundPayment.mockResolvedValue({ ok: true });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    render(
+      <QueryClientProvider client={client}>
+        <PropertyFormatProvider>
+          <MemoryRouter initialEntries={['/folio/res_1']}>
+            <Routes>
+              <Route path="/folio/:reservationId" element={<FolioScreen />} />
+            </Routes>
+          </MemoryRouter>
+        </PropertyFormatProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('refund-reference-pay_upi_ref')).toBeTruthy());
+    const refundRef = screen.getByTestId('refund-reference-pay_upi_ref') as HTMLInputElement;
+    expect(refundRef.placeholder).toBe('Return UPI reference (optional)');
+    expect(screen.getByLabelText(/Return UPI reference/)).toBeTruthy();
+    expect(screen.getByTestId('refund-payment-pay_upi_ref')).toBeTruthy();
+    fireEvent.change(refundRef, {
+      target: { value: 'bad' },
+    });
+    expect((screen.getByTestId('refund-payment-pay_upi_ref') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.change(screen.getByTestId('refund-reference-pay_upi_ref'), {
+      target: { value: 'REFUND99' },
+    });
+    fireEvent.change(screen.getByLabelText('refund-amount-pay_upi_ref'), {
+      target: { value: '20.00' },
+    });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('refund-payment-pay_upi_ref'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(refundPayment).toHaveBeenCalled());
+    expect(refundPayment.mock.calls[0]?.[2]).toBe(2000);
+    expect(refundPayment.mock.calls[0]?.[4]).toBe('REFUND99');
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('open-shift') && k.includes('prop_demo'))).toBe(true);
+    });
   });
 
   it('balance chrome uses server balanceMinor not liveTotalMinor', async () => {

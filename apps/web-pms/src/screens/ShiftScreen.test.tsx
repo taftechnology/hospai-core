@@ -187,6 +187,46 @@ describe('ShiftScreen', () => {
     );
   });
 
+  it('close form keeps the blind expected-cash sentence and shows Card/UPI only', async () => {
+    getOpenShift.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_upi',
+        businessDate: '2026-08-09',
+        openingFloat: 10_000,
+        tenderTotals: { cardMinor: 200, upiMinor: 2500 },
+      },
+    });
+    renderAt('/shift');
+    await waitFor(() => expect(screen.getByTestId('shift-tender-totals')).toBeTruthy());
+    expect(document.body.textContent).toMatch(/expected cash is not shown/);
+    expect(screen.getByTestId('tender-total-card').textContent).toBe('₹2.00');
+    expect(screen.getByTestId('tender-total-upi').textContent).toBe('₹25.00');
+    expect(screen.queryByTestId('tender-total-cash')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/Cash ₹/);
+  });
+
+  it('closed-shift receipt shows Cash, Card, and UPI totals', async () => {
+    getShiftById.mockResolvedValue({
+      ok: true,
+      shift: {
+        shiftId: 'shift_closed_tenders',
+        businessDate: '2026-08-09',
+        openingFloat: 10_000,
+        closingCount: 11_500,
+        variance: 0,
+        status: 'CLOSED',
+        unattributedCashCount: 0,
+        tenderTotals: { cashMinor: 1500, cardMinor: 200, upiMinor: 2500 },
+      },
+    });
+    renderAt('/shift/shift_closed_tenders');
+    await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
+    expect(screen.getByTestId('tender-total-cash').textContent).toBe('₹15.00');
+    expect(screen.getByTestId('tender-total-card').textContent).toBe('₹2.00');
+    expect(screen.getByTestId('tender-total-upi').textContent).toBe('₹25.00');
+  });
+
   it('open-shift load error is an Alert, not a bare paragraph', async () => {
     getOpenShift.mockRejectedValue(
       new ClassifiedError({ class: 'server_error', status: 500, body: {}, retryAfterMs: null }),

@@ -60,6 +60,7 @@ describe('multi-currency folio v24 real sqlite', () => {
       ...row,
       tax_component: '',
       tax_band_base_minor: null,
+      external_reference: null,
     }));
     expect(folioAfter).toHaveLength(folioBefore.length);
     expect(folioAfter).toEqual(withComponent);

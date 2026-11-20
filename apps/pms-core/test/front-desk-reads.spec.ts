@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fingerprintPayload } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
@@ -10,6 +11,7 @@ import {
   setKillSwitch,
 } from '../src/registry.js';
 import { createGuest, idemFor, orgStub, provisionedPropertyWithGuest, TEST_OWNER_ACTOR } from './guest-helpers.js';
+import { addCalendarDays } from './date-helpers.js';
 
 async function postOrg(orgId: string, name: string, actor: string) {
   return worker.fetch(
@@ -275,6 +277,9 @@ describe('PropertyDO front-desk reads', () => {
     expect(result.shift.openingFloat).toBe(5000);
     expect(result.shift.status).toBe('OPEN');
     expect(typeof result.shift.attributedCashCount).toBe('number');
+    expect(result.shift.tenderTotals).toEqual({ cardMinor: 0, upiMinor: 0 });
+    expect(Object.keys(result.shift.tenderTotals).sort()).toEqual(['cardMinor', 'upiMinor']);
+    expect(result.shift.tenderTotals).not.toHaveProperty('cashMinor');
     expect(Object.keys(result.shift).sort()).toEqual(
       [
         'attributedCashCount',
@@ -284,6 +289,7 @@ describe('PropertyDO front-desk reads', () => {
         'openingFloat',
         'shiftId',
         'status',
+        'tenderTotals',
       ].sort(),
     );
   });
@@ -454,6 +460,59 @@ describe('front-desk read HTTP routes', () => {
     const body = (await res.json()) as { ok: boolean; shift: null };
     expect(body.ok).toBe(true);
     expect(body.shift).toBeNull();
+  });
+
+  it('GET front-desk/shift omits cashMinor while OPEN after a cash payment', async () => {
+    const propertyId = 'fd_http_shift_blind';
+    const { stub, guestRef } = await provisionHttpProperty(propertyId);
+    const businessDate = (await stub.readBusinessDate())!;
+    const shiftId = 'shift_blind_1';
+    expect(
+      await stub.tryOpenShift(
+        TEST_OWNER_ACTOR,
+        { shiftId, openingFloat: 5000 },
+        await idemFor('open-blind', { shiftId, openingFloat: 5000 }),
+      ),
+    ).toMatchObject({ ok: true });
+    const reservationId = 'res_blind_cash';
+    await stub.insertReservationForTest({
+      reservationId,
+      roomTypeId: 'rt_king',
+      guestRef,
+      piiKeyId: 'key1',
+      arrivalDate: businessDate,
+      departureDate: addCalendarDays(businessDate, 1),
+      status: 'checked_in',
+    });
+    expect(
+      await stub.tryRecordCashPayment(TEST_OWNER_ACTOR, {
+        paymentId: 'pay_blind_cash',
+        reservationId,
+        amountMinor: 1500,
+        idempotencyKey: 'cash-blind',
+        requestFingerprint: await fingerprintPayload({ reservationId, amountMinor: 1500 }),
+      }),
+    ).toMatchObject({ ok: true, shiftId });
+
+    const res = await worker.fetch(
+      new Request(`http://localhost/v1/properties/${encodeURIComponent(propertyId)}/front-desk/shift`, {
+        headers: { 'x-dev-actor': actor },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      shift: {
+        attributedCashCount: number;
+        tenderTotals: Record<string, number>;
+      };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.shift.attributedCashCount).toBe(1);
+    expect(Object.keys(body.shift.tenderTotals).sort()).toEqual(['cardMinor', 'upiMinor']);
+    expect(body.shift.tenderTotals).not.toHaveProperty('cashMinor');
+    expect(JSON.stringify(body)).not.toMatch(/cashMinor/);
   });
 
   it('PropertyDO blocked: front-desk/shifts/recent returns FAIL_CLOSED 503', async () => {

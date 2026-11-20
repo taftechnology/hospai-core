@@ -91,7 +91,7 @@ When adding or changing any path that accepts a `propertyId` / `orgId` in the **
 
 **Damage deposit** is money-ops, not a new command: `folio.authorize` with `purpose=DAMAGE`; release = `folio.void`; forfeit = post `DAMAGE` then capture. Do not auto-capture DAMAGE on `capture_due`.
 
-**Tenders** are `CARD` \| `CASH` (cashiering spec). Do not add CHECK / VOUCHER / GIFT without amending that spec.
+**Tenders** are `CARD` \| `CASH` \| `UPI` (cashiering spec, amended 2026-11-19). UPI is recorded at the desk, not collected through a PSP. Do not add CHECK / VOUCHER / GIFT / bank transfer without amending that spec.
 
 **Do not silently release `sold` inside `tryCheckOut`.** Remaining nights after early departure stay sold until a **named** early-departure / shorten command runs (`ARCHITECTURE.md` §7.1). If you add checkout UX without that command, warn the clerk — do not change inventory.
 
@@ -219,13 +219,13 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.20 (day-wise rate override, 2026-11-19) — update this table when you bump them:
+After roadmap R4.18 (UPI tender, 2026-11-20) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **116** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **190** routes, last id **`post_reservation_rate_override`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `PROPERTY_SCHEMA_HEAD` | **47** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **117** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **191** routes, last id **`post_upi_payment`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `PROPERTY_SCHEMA_HEAD` | **48** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length 6, includes **`id_proof_missing`** | `packages/contracts/src/register.test.ts` |
@@ -246,7 +246,7 @@ There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **inclu
 - **Fork decisions (2026-10-31):** the user kept four locks challenged by the pilot's BluePMS ticks, each with a named exit. `transfer_cross_reservation` holds unless client Q17 lifts it (F1). The 14-day tape cap holds unless Q18 raises it to 30 after measuring (F2). The R4.14 report list stays closed and is rewritten once from the client's Q10 (F3). Party size stays, with one exception (F4, §4 above). See [roadmap Track P](docs/roadmap.md#fork-decisions).
 - **Already shipped — do not rebuild:** `ARI_KV` + book `quoteAriVersion`; `PurgeWorkflow` + certificates; `StaleWatermark`; ShiftStrip in AppShell; money-ops DAMAGE/void/discount/invoice; guest CRM directory + blind-index search (tags/LTV/merge remain deferred in that spec); `get_audit_log` (do not add `audit.append` HTTP).
 - Folio transfer to **another reservation** — rejected. Charges move between windows on the same stay.
-- `tender_type` `CARD` \| `CASH` only until the cashiering spec is amended.
+- `tender_type` `CARD` \| `CASH` \| `UPI`. UPI is a recorded tender (`folio.record_upi_payment`), not a gateway. Do not add CHECK / VOUCHER / GIFT / bank transfer without amending the cashiering spec.
 - Confirmation email / Whistle inbox / concierge tickets — Phase 3, not a Phase 1 Settings Email clone.
 
 ---

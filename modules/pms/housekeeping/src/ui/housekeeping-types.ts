@@ -1,5 +1,14 @@
 import type { ReactNode } from 'react';
 import type {
+  HousekeepingCaseList,
+  HousekeepingCaseReturned,
+  HousekeepingRequestAction,
+  HousekeepingRequestDepartment,
+  HousekeepingRequestList,
+  LostItemAction,
+  LostItemCategory,
+  LostItemDetail,
+  LostItemList,
   HousekeepingTaskAction,
   HousekeepingTaskList,
   HousekeepingTaskPriority,
@@ -55,6 +64,20 @@ export type HousekeepingRosterPerson = {
   exitedAt: number | null;
   kinds: string[];
   ops?: HousekeepingRosterOps;
+};
+
+/**
+ * Guest names never travel through this module's own reads: the host resolves them through the
+ * property-scoped guest batch (chunked to 50) and the property-scoped guest search.
+ */
+export type HousekeepingGuests = {
+  labels: (refs: string[]) => Promise<Record<string, string>>;
+  search: (query: string) => Promise<Array<{ guestRef: string; label: string }>>;
+};
+
+/** The one in-house stay per room that the room board reports (used to link a record to a stay). */
+export type HousekeepingRoomBoard = {
+  rooms: Array<{ roomId: string; inHouse: { reservationId: string; guestRef: string } | null }>;
 };
 
 export type HousekeepingApi = {
@@ -121,6 +144,110 @@ export type HousekeepingApi = {
     input: { action: HousekeepingTaskAction; notes?: string | null; reason?: string },
     opId: string,
   ) => Promise<unknown>;
+  getHousekeepingRequests: (
+    propertyId: string,
+    query?: {
+      from?: string;
+      to?: string;
+      status?: string;
+      department?: string;
+      roomId?: string;
+      search?: string;
+    },
+  ) => Promise<HousekeepingRequestList>;
+  createHousekeepingRequest: (
+    propertyId: string,
+    input: {
+      businessDate: string;
+      roomId: string;
+      reservationId?: string | null;
+      requestType: string;
+      department?: HousekeepingRequestDepartment;
+      note?: string | null;
+      assigneeRef?: string | null;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  updateHousekeepingRequest: (
+    propertyId: string,
+    requestId: string,
+    input: {
+      action?: HousekeepingRequestAction;
+      assigneeRef?: string | null;
+      note?: string | null;
+      department?: HousekeepingRequestDepartment;
+      resolution?: string;
+      reason?: string;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  getLostItems: (
+    propertyId: string,
+    query?: { status?: string; from?: string; to?: string; search?: string },
+  ) => Promise<LostItemList>;
+  getLostItem: (propertyId: string, itemId: string) => Promise<LostItemDetail>;
+  recordLostItem: (
+    propertyId: string,
+    input: {
+      businessDate: string;
+      description: string;
+      category: LostItemCategory;
+      foundWhere: string;
+      roomId?: string | null;
+      reservationId?: string | null;
+      foundByRef?: string | null;
+      storageLocation?: string | null;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  updateLostItem: (
+    propertyId: string,
+    itemId: string,
+    input: {
+      action?: LostItemAction;
+      handedToRef?: string;
+      guestRef?: string;
+      proofNote?: string | null;
+      reason?: string;
+      description?: string;
+      category?: LostItemCategory;
+      foundWhere?: string;
+      storageLocation?: string | null;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  getHousekeepingCases: (
+    propertyId: string,
+    query?: { kind?: string; status?: string; from?: string; to?: string; search?: string },
+  ) => Promise<HousekeepingCaseList>;
+  openHousekeepingCase: (
+    propertyId: string,
+    input: {
+      businessDate: string;
+      kind: 'missing' | 'damaged';
+      roomId: string;
+      reservationId?: string | null;
+      item: string;
+      reporterRef?: string | null;
+      inspectionDetail?: string | null;
+      returnedStatus?: HousekeepingCaseReturned;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  updateHousekeepingCase: (
+    propertyId: string,
+    caseId: string,
+    input: {
+      item?: string;
+      inspectionDetail?: string | null;
+      returnedStatus?: HousekeepingCaseReturned;
+      action?: 'close';
+      closureNote?: string;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  /** Optional: when present (and permitted), a record can be linked to the room's in-house stay. */
+  getRoomBoard?: (propertyId: string) => Promise<HousekeepingRoomBoard>;
   listRoster: (
     propertyId: string,
     query?: { kind?: string },

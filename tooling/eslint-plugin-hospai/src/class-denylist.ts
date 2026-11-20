@@ -22,6 +22,7 @@ export const CLASS_DENYLIST = [
   'HousekeepingInvalidRequestError',
   'HousekeepingLimitError',
   'HousekeepingTaskNotFoundError',
+  'HousekeepingRecordNotFoundError',
   'HousekeepingInvalidTaskTransitionError',
   'InvalidTicketTransitionError',
   'MaintenanceLimitExceededError',

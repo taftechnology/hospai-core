@@ -1231,6 +1231,10 @@ a.ui-metric:hover {
   white-space: nowrap;
 }
 
+.ui-nowrap {
+  white-space: nowrap;
+}
+
 .ui-num {
   font-variant-numeric: tabular-nums;
 }

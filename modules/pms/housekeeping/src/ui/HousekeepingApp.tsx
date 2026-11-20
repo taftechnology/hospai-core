@@ -27,6 +27,14 @@ import { useBusinessDate } from './use-business-date.js';
 import { ROOMS_BULK_STATUS_MAX } from '@hospai/contracts';
 import { HousekeepingInventory } from './HousekeepingInventory.js';
 import { HousekeepingPriority } from './HousekeepingPriority.js';
+import { HousekeepingCases } from './HousekeepingCases.js';
+import { HousekeepingLostFound } from './HousekeepingLostFound.js';
+import {
+  HousekeepingRequests,
+  NO_REQUEST_FILTERS,
+  housekeepingRequestsKey,
+  requestsQueryInput,
+} from './HousekeepingRequests.js';
 import { HousekeepingTasks } from './HousekeepingTasks.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { blockTimes, blockTypeLabel } from './housekeeping-labels.js';
@@ -45,11 +53,17 @@ import {
   assignedCounts,
   sortAssignableHousekeepers,
 } from './roster-assign-label.js';
-import type { HousekeepingApi, HousekeepingOooRange, HousekeepingRosterPerson } from './housekeeping-types.js';
+import type {
+  HousekeepingApi,
+  HousekeepingGuests,
+  HousekeepingOooRange,
+  HousekeepingRosterPerson,
+} from './housekeeping-types.js';
 
 export type {
   HousekeepingApi,
   HousekeepingAssignment,
+  HousekeepingGuests,
   HousekeepingOooRange,
   HousekeepingRoom,
   HousekeepingRosterPerson,
@@ -75,6 +89,8 @@ export type HousekeepingAppProps = {
   canAssign: boolean;
   canReadRoster?: boolean;
   canSetOoo?: boolean;
+  /** Property-scoped guest names and search, supplied by the host (never from this module's reads). */
+  guests?: HousekeepingGuests;
   /** Name for a staff user id (history dialogs). Unknown ids show as "Staff member". */
   actorLabel?: (actor: string) => string | null | undefined;
   classifyError?: (err: unknown) => { class?: string } | undefined;
@@ -86,6 +102,8 @@ export type HousekeepingAppProps = {
   queuedCopy?: string;
   format: {
     dateHeading: (iso: string) => string;
+    /** Compact date (dd/mm/yyyy) for list cells. Falls back to `dateHeading`. */
+    date?: (iso: string) => string;
     dateTime: (ms: number) => string;
   };
 };
@@ -161,6 +179,15 @@ function HousekeepingBoard({
     queryFn: () => api.getHousekeepingPriorities(propertyId, businessDate),
     enabled: Boolean(businessDate),
   });
+
+  // Open and in-progress guest requests per room (R4.11). The count is global, not per date.
+  const openRequests = { ...NO_REQUEST_FILTERS, status: 'open' };
+  const requestsQuery = useQuery({
+    queryKey: housekeepingRequestsKey(propertyId, openRequests),
+    queryFn: () => api.getHousekeepingRequests(propertyId, requestsQueryInput(openRequests)),
+    retry: false,
+  });
+  const openRequestsByRoom = requestsQuery.data?.openByRoom ?? {};
 
   const rosterQuery = useQuery({
     queryKey: ['roster', propertyId, 'housekeeper'],
@@ -560,6 +587,7 @@ function HousekeepingBoard({
                 <DataTableHeaderCell>Room</DataTableHeaderCell>
                 <DataTableHeaderCell>Status</DataTableHeaderCell>
                 <DataTableHeaderCell>Assignee</DataTableHeaderCell>
+                <DataTableHeaderCell>Requests</DataTableHeaderCell>
                 <DataTableHeaderCell>
                   <VisuallyHidden>Actions</VisuallyHidden>
                 </DataTableHeaderCell>
@@ -667,6 +695,21 @@ function HousekeepingBoard({
                       })}
                     </DataTableCell>
                     <DataTableCell>{assigneeLabel}</DataTableCell>
+                    <DataTableCell>
+                      {requestsQuery.isError ? (
+                        '—'
+                      ) : (openRequestsByRoom[room.roomId] ?? 0) > 0 ? (
+                        <Link
+                          to="/housekeeping/requests"
+                          aria-label={`${openRequestsByRoom[room.roomId]} open requests for ${room.code}`}
+                          data-testid="hk-room-requests"
+                        >
+                          <Badge rung="attention">{openRequestsByRoom[room.roomId]} open</Badge>
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
+                    </DataTableCell>
                     <DataTableCell>
                       <Button
                         type="button"
@@ -810,6 +853,52 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         api={props.api}
         canWrite={props.canAssign}
         canReadRoster={readRoster}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/requests')) {
+    return (
+      <HousekeepingRequests
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        guests={props.guests}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/lost-found')) {
+    return (
+      <HousekeepingLostFound
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        guests={props.guests}
+        actorLabel={props.actorLabel}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/cases')) {
+    return (
+      <HousekeepingCases
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        guests={props.guests}
         subtitle={props.subtitle}
         formatError={props.formatError}
         format={props.format}

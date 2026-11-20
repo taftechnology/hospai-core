@@ -30,6 +30,7 @@ import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
+import { GuestRequestButton } from './GuestRequestButton.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { GuestDocumentBadges, GuestPreferenceBadges, useGuestPreferences } from './guest-identity.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -388,6 +389,7 @@ export function ReservationStayScreen() {
       />
       <StayActions
         res={res}
+        roomCode={roomCode}
         businessDate={businessDate}
         message={message}
         pending={
@@ -904,6 +906,7 @@ function DamagePanel({
 
 function StayActions({
   res,
+  roomCode,
   businessDate,
   message,
   pending,
@@ -916,6 +919,7 @@ function StayActions({
   onCancelCheckIn,
 }: {
   res: ReservationRead;
+  roomCode: string | null | undefined;
   businessDate: string | null;
   message: StayMessage | null;
   pending: boolean;
@@ -955,6 +959,18 @@ function StayActions({
             <Alert intent={message.intent} data-testid="stay-message">
               {message.text}
             </Alert>
+          ) : null}
+          {res.roomId && !terminal ? (
+            <div className="ui-row" data-testid="stay-guest-request">
+              <span className="muted">Guest request</span>
+              <RowActions>
+                <GuestRequestButton
+                  roomId={res.roomId}
+                  roomCode={roomCode ?? undefined}
+                  reservationId={res.reservationId}
+                />
+              </RowActions>
+            </div>
           ) : null}
           <div className="ui-row" data-testid="stay-documents">
             <span className="muted">Documents</span>

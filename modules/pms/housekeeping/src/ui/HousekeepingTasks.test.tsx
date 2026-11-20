@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HousekeepingTaskList, HousekeepingTaskListRow } from '@hospai/contracts';
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
+import { depthAStubs } from './depth-a-stubs.fixture.js';
 
 const TYPES = [
   { code: 'departure_clean', label: 'Departure clean' },
@@ -81,6 +82,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     createHousekeepingTask: async () => ({ ok: true }),
     updateHousekeepingTask: async () => ({ ok: true }),
     transitionHousekeepingTask: async () => ({ ok: true }),
+    ...depthAStubs(),
     ...over,
   };
 }

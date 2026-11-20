@@ -999,6 +999,61 @@ describe('SettingsScreen', () => {
     });
   });
 
+  it('R4.11: request types add a row by name with a department, derive the code, and save with the reason', async () => {
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    expect(within(card).getByText('No request types. Add one so guest requests can be logged.')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Add request type' }));
+    fireEvent.change(within(card).getByLabelText('Request type 1'), { target: { value: 'Extra slippers' } });
+    fireEvent.change(within(card).getByLabelText('Department for request type 1'), {
+      target: { value: 'front_office' },
+    });
+    expect(putDomainConfig).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), { target: { value: 'ops:requests' } });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls.at(-1)?.[1]).toEqual({
+      key: 'pms.housekeeping.request_types',
+      value: [{ code: 'extra_slippers', label: 'Extra slippers', department: 'front_office' }],
+      reason: 'ops:requests',
+    });
+  });
+
+  it('R4.11: stored request types show names and departments in words, never codes; a blank name blocks the save', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        domain('pms.housekeeping.request_types', [
+          { code: 'extra_towels', label: 'Extra towels', department: 'housekeeping' },
+          { code: 'repair', label: 'Repair', department: 'maintenance' },
+        ]),
+        domain('pms.money.currency_code', 'USD'),
+        domain('pms.time.time_zone', 'UTC'),
+      ],
+    });
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    const first = (await within(card).findByLabelText('Request type 1')) as HTMLInputElement;
+    expect(first.value).toBe('Extra towels');
+    expect((within(card).getByLabelText('Department for request type 2') as HTMLSelectElement).value).toBe('maintenance');
+    expect(within(card).getAllByText('Front office').length).toBeGreaterThan(0);
+    expect(card.textContent).not.toMatch(/extra_towels|front_office|food_beverage/);
+
+    fireEvent.change(first, { target: { value: '' } });
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), { target: { value: 'ops:requests' } });
+    expect(within(card).getByText('Give every request type a name to save the list.')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(putDomainConfig).not.toHaveBeenCalled();
+
+    fireEvent.change(first, { target: { value: 'Extra towels' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Remove request type Repair' }));
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls.at(-1)?.[1]).toEqual({
+      key: 'pms.housekeeping.request_types',
+      value: [{ code: 'extra_towels', label: 'Extra towels', department: 'housekeeping' }],
+      reason: 'ops:requests',
+    });
+  });
+
   it('R4.23: Open folio enable hint when auto invoices disallow pending', async () => {
     listDomainConfig.mockResolvedValue({
       ok: true,

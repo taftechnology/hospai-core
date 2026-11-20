@@ -271,6 +271,7 @@ import {
   type RatePlanListItem,
   GUEST_NOT_FOUND,
   GUEST_ALREADY_ERASED,
+  isHousekeepingRequestDepartment,
   STAFF_EXITED,
   STAFF_NOT_ASSIGNABLE,
   STAFF_NOT_FOUND,
@@ -297,8 +298,11 @@ import {
   type ProvisionalExceptionRow,
 } from '@hospai/contracts';
 import type {
+  HousekeepingRequestAction,
+  HousekeepingRequestType,
   HousekeepingTaskAction,
   HousekeepingTaskType,
+  LostItemAction,
   OooBlockType,
   OooRangeRow,
   RoomOooEventRow,
@@ -308,7 +312,18 @@ import {
   assignHousekeeping,
   bulkUpdateRoomStatus,
   createInventoryItem,
+  createRequest as createHousekeepingRequest,
   createTask as createHousekeepingTask,
+  openCase as openHousekeepingCase,
+  readHousekeepingCases,
+  readHousekeepingRequests,
+  readLostItem,
+  readLostItems,
+  recordLostItem as recordHousekeepingLostItem,
+  updateCase as updateHousekeepingCase,
+  updateLostItem as updateHousekeepingLostItem,
+  updateRequest as updateHousekeepingRequest,
+  HousekeepingRecordNotFoundError,
   recordRoomStatusChange,
   readHousekeepingTasks,
   readRoomStatusHistory,
@@ -1491,6 +1506,19 @@ function mapReservationPreconditionError(e: unknown):
   return null;
 }
 
+/** Org-side ref checks that can refuse an R4.11 write before its transaction opens. */
+type HousekeepingRefGateFailure = {
+  ok: false;
+  error:
+    | typeof INVALID_ASSIGNEE_REF
+    | typeof ORG_UNREACHABLE
+    | typeof STAFF_NOT_FOUND
+    | typeof STAFF_EXITED
+    | typeof STAFF_NOT_ASSIGNABLE
+    | typeof GUEST_NOT_FOUND
+    | typeof GUEST_ALREADY_ERASED;
+};
+
 function mapPropertyCommandError(
   e: unknown,
 ): NonNullable<ReturnType<typeof mapReservationPreconditionError>> | { ok: false; error: CommandError } | null {
@@ -1834,6 +1862,10 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'housekeeping_inventory_item',
   'housekeeping_inventory_movement',
   'housekeeping_task',
+  'housekeeping_request',
+  'housekeeping_lost_item',
+  'housekeeping_lost_item_event',
+  'housekeeping_case',
   'maintenance_task_type',
   'maintenance_ticket',
   'idempotency',
@@ -1898,6 +1930,10 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM housekeeping_inventory_item) +
       (SELECT COUNT(*) FROM housekeeping_inventory_movement) +
       (SELECT COUNT(*) FROM housekeeping_task) +
+      (SELECT COUNT(*) FROM housekeeping_request) +
+      (SELECT COUNT(*) FROM housekeeping_lost_item) +
+      (SELECT COUNT(*) FROM housekeeping_lost_item_event) +
+      (SELECT COUNT(*) FROM housekeeping_case) +
       (SELECT COUNT(*) FROM maintenance_task_type) +
       (SELECT COUNT(*) FROM maintenance_ticket) +
       (SELECT COUNT(*) FROM idempotency) +
@@ -18026,10 +18062,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       commandId:
         | 'housekeeping.create_task'
         | 'housekeeping.update_task'
-        | 'housekeeping.transition_task';
+        | 'housekeeping.transition_task'
+        | 'housekeeping.create_request'
+        | 'housekeeping.update_request'
+        | 'housekeeping.record_lost_item'
+        | 'housekeeping.update_lost_item'
+        | 'housekeeping.open_case'
+        | 'housekeeping.update_case';
       entityId?: string;
+      /** Audit entity type; tasks by default. */
+      entityType?: string;
       /** Staff ref to verify against the roster before the transaction opens. */
       assigneeRef?: string | null;
+      /** Roster kind the assignee must hold (R4.11 requests); housekeeper by default. */
+      assigneeKind?: 'housekeeper' | 'maintenance';
+      /** R4.11: the assignee must also be linked to this property. */
+      scopeAssigneeToProperty?: boolean;
+      /** R4.11 refs checked in the org before the transaction opens. */
+      refGates?: (orgId: string, propertyId: string) => Promise<HousekeepingRefGateFailure | null>;
     },
     execute: (
       ctx: ModuleTxnCtx,
@@ -18043,15 +18093,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof PROPERTY_ID_UNSET }
     | { ok: false; error: typeof ORG_ID_UNSET }
     | { ok: false; error: typeof NOT_FOUND }
-    | {
-        ok: false;
-        error:
-          | typeof INVALID_ASSIGNEE_REF
-          | typeof ORG_UNREACHABLE
-          | typeof STAFF_NOT_FOUND
-          | typeof STAFF_EXITED
-          | typeof STAFF_NOT_ASSIGNABLE;
-      }
+    | HousekeepingRefGateFailure
     | { ok: false; error: typeof INTERNAL_ERROR }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
@@ -18071,8 +18113,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     if (audit.assigneeRef !== undefined && audit.assigneeRef !== null) {
       if (!isStaffRef(audit.assigneeRef)) return { ok: false, error: INVALID_ASSIGNEE_REF };
-      const staffGate = await this.gateStaffRef(orgId, audit.assigneeRef, 'housekeeper');
+      const staffGate = await this.gateStaffRef(
+        orgId,
+        audit.assigneeRef,
+        audit.assigneeKind ?? 'housekeeper',
+        audit.scopeAssigneeToProperty ? propertyId : undefined,
+      );
       if (!staffGate.ok) return staffGate;
+    }
+    if (audit.refGates) {
+      const refDenied = await audit.refGates(orgId, propertyId);
+      if (refDenied) return refDenied;
     }
 
     const actorRef = this.auditActorSync(actor);
@@ -18083,7 +18134,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.appendAuditLogSync({
             actor: actorRef,
             commandId: audit.commandId,
-            entityType: 'housekeeping_task',
+            entityType: audit.entityType ?? 'housekeeping_task',
             entityId: out.entityId,
             beforeJson: out.before,
             afterJson: out.after,
@@ -18094,7 +18145,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof InvalidAssigneeRefError) return { ok: false, error: INVALID_ASSIGNEE_REF };
-      if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
+      if (
+        e instanceof HousekeepingRoomNotFoundError ||
+        e instanceof HousekeepingRecordNotFoundError ||
+        e instanceof RoomNotFoundError
+      ) {
         return { ok: false, error: NOT_FOUND };
       }
       const mapped = mapPropertyCommandError(e);
@@ -18204,6 +18259,334 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       today: this.readBusinessDateSync(),
     });
     return { ...list, taskTypes: this.housekeepingTaskTypesSync() };
+  }
+
+  // -------------------------------------------------------------------------
+  // R4.11 Part A: guest requests, lost and found, missing and damage cases
+  // -------------------------------------------------------------------------
+
+  /** The `pms.housekeeping.request_types` list, read inside the create/update transaction. */
+  private housekeepingRequestTypesSync(): HousekeepingRequestType[] {
+    const raw = this.readConfigValueSync('pms.housekeeping.request_types');
+    if (!Array.isArray(raw)) return [];
+    const out: HousekeepingRequestType[] = [];
+    for (const t of raw) {
+      const o = t as { code?: unknown; label?: unknown; department?: unknown } | null;
+      if (
+        o &&
+        typeof o.code === 'string' &&
+        typeof o.label === 'string' &&
+        typeof o.department === 'string' &&
+        isHousekeepingRequestDepartment(o.department)
+      ) {
+        out.push({ code: o.code, label: o.label, department: o.department });
+      }
+    }
+    return out;
+  }
+
+  /** A staff ref (any roster kind) that is an active member of this property. */
+  private async gateStaffAtProperty(
+    orgId: string,
+    propertyId: string,
+    staffRef: string | null | undefined,
+  ): Promise<HousekeepingRefGateFailure | null> {
+    if (staffRef === undefined || staffRef === null) return null;
+    if (!isStaffRef(staffRef)) return { ok: false, error: INVALID_ASSIGNEE_REF };
+    const gate = await this.gateOrgRef(orgId, (org) => org.assertStaffAtProperty(staffRef, propertyId));
+    return gate.ok ? null : gate;
+  }
+
+  /** A claimant: a live guest record linked to this property. */
+  private async gateGuestAtProperty(
+    orgId: string,
+    propertyId: string,
+    guestRef: string | undefined,
+  ): Promise<HousekeepingRefGateFailure | null> {
+    if (guestRef === undefined) return null;
+    const gate = await this.gateOrgRef(orgId, (org) => org.assertGuestAtProperty(guestRef, propertyId));
+    return gate.ok ? null : gate;
+  }
+
+  /** Implements catalog `housekeeping.create_request`. */
+  async tryCreateHousekeepingRequest(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      roomId: string;
+      reservationId?: string | null;
+      requestType: string;
+      department?: string;
+      note?: string | null;
+      assigneeRef?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    const types = this.housekeepingRequestTypesSync();
+    const department =
+      input.department ?? types.find((t) => t.code === input.requestType)?.department;
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.create_request',
+        entityType: 'housekeeping_request',
+        // An unknown type or a department with no roster kind fails inside the use case.
+        assigneeRef: department === 'housekeeping' || department === 'maintenance' ? input.assigneeRef : null,
+        assigneeKind: department === 'maintenance' ? 'maintenance' : 'housekeeper',
+        scopeAssigneeToProperty: true,
+      },
+      (ctx, actorRef) => {
+        const result = createHousekeepingRequest(ctx, {
+          ...input,
+          actorRef,
+          allowedRequestTypes: this.housekeepingRequestTypesSync(),
+        });
+        return { result, entityId: result.request.requestId, before: null, after: result.request };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.update_request`. */
+  async tryUpdateHousekeepingRequest(
+    actor: ActorContext,
+    input: {
+      requestId: string;
+      action?: HousekeepingRequestAction;
+      assigneeRef?: string | null;
+      note?: string | null;
+      department?: string;
+      resolution?: string;
+      reason?: string;
+    },
+    idem: IdempotencyKey,
+  ) {
+    let department = input.department;
+    if (department === undefined && input.assigneeRef) {
+      const row = this.ctx.storage.sql
+        .exec(`SELECT department FROM housekeeping_request WHERE request_id = ?`, input.requestId)
+        .toArray() as Array<{ department: string }>;
+      department = row[0]?.department;
+    }
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.update_request',
+        entityType: 'housekeeping_request',
+        entityId: input.requestId,
+        assigneeRef: department === 'housekeeping' || department === 'maintenance' ? input.assigneeRef : null,
+        assigneeKind: department === 'maintenance' ? 'maintenance' : 'housekeeper',
+        scopeAssigneeToProperty: true,
+      },
+      (ctx, actorRef) => {
+        const r = updateHousekeepingRequest(ctx, { ...input, actorRef });
+        return {
+          result: { ok: true as const, request: r.request },
+          entityId: input.requestId,
+          before: r.before,
+          after: r.request,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.record_lost_item`. */
+  async tryRecordHousekeepingLostItem(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      description: string;
+      category: string;
+      foundWhere: string;
+      roomId?: string | null;
+      reservationId?: string | null;
+      foundByRef?: string | null;
+      storageLocation?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.record_lost_item',
+        entityType: 'housekeeping_lost_item',
+        refGates: (orgId, propertyId) => this.gateStaffAtProperty(orgId, propertyId, input.foundByRef),
+      },
+      (ctx, actorRef) => {
+        const result = recordHousekeepingLostItem(ctx, { ...input, actorRef });
+        return { result, entityId: result.item.itemId, before: null, after: result.item };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.update_lost_item`. */
+  async tryUpdateHousekeepingLostItem(
+    actor: ActorContext,
+    input: {
+      itemId: string;
+      action?: LostItemAction;
+      handedToRef?: string;
+      guestRef?: string;
+      proofNote?: string | null;
+      reason?: string;
+      description?: string;
+      category?: string;
+      foundWhere?: string;
+      storageLocation?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.update_lost_item',
+        entityType: 'housekeeping_lost_item',
+        entityId: input.itemId,
+        refGates: async (orgId, propertyId) =>
+          (await this.gateStaffAtProperty(orgId, propertyId, input.handedToRef)) ??
+          (await this.gateGuestAtProperty(orgId, propertyId, input.guestRef)),
+      },
+      (ctx, actorRef) => {
+        const r = updateHousekeepingLostItem(ctx, { ...input, actorRef });
+        return {
+          result: { ok: true as const, item: r.item },
+          entityId: input.itemId,
+          before: r.before,
+          after: r.item,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.open_case`. */
+  async tryOpenHousekeepingCase(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      kind: string;
+      roomId: string;
+      reservationId?: string | null;
+      item: string;
+      reporterRef?: string | null;
+      inspectionDetail?: string | null;
+      returnedStatus?: string;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.open_case',
+        entityType: 'housekeeping_case',
+        refGates: (orgId, propertyId) => this.gateStaffAtProperty(orgId, propertyId, input.reporterRef),
+      },
+      (ctx, actorRef) => {
+        const result = openHousekeepingCase(ctx, { ...input, actorRef });
+        return { result, entityId: result.case.caseId, before: null, after: result.case };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.update_case`. */
+  async tryUpdateHousekeepingCase(
+    actor: ActorContext,
+    input: {
+      caseId: string;
+      item?: string;
+      inspectionDetail?: string | null;
+      returnedStatus?: string;
+      action?: 'close';
+      closureNote?: string;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.update_case',
+        entityType: 'housekeeping_case',
+        entityId: input.caseId,
+      },
+      (ctx, actorRef) => {
+        const r = updateHousekeepingCase(ctx, { ...input, actorRef });
+        return {
+          result: { ok: true as const, case: r.case },
+          entityId: input.caseId,
+          before: r.before,
+          after: r.case,
+        };
+      },
+    );
+  }
+
+  /** `get_housekeeping_requests` — filtered list, counters and open-per-room counts. */
+  async readHousekeepingRequestList(filters: {
+    from?: string;
+    to?: string;
+    status?: string;
+    department?: string;
+    roomId?: string;
+    search?: string;
+  }) {
+    this.assertRpcAvailable();
+    const requestTypes = this.housekeepingRequestTypesSync();
+    const needle = filters.search?.toLowerCase();
+    const searchTypeCodes = needle
+      ? requestTypes.filter((t) => t.label.toLowerCase().includes(needle)).map((t) => t.code)
+      : [];
+    const list = readHousekeepingRequests(this.ctx.storage.sql, {
+      ...filters,
+      searchTypeCodes,
+      today: this.readBusinessDateSync(),
+    });
+    return { ...list, requestTypes };
+  }
+
+  /** `get_lost_items` — custody list with counters. */
+  async readLostItemList(filters: { status?: string; from?: string; to?: string; search?: string }) {
+    this.assertRpcAvailable();
+    // The month is the property's: its business date's year-month, local midnight to local
+    // midnight in the property time zone (never the UTC month).
+    const today = this.readBusinessDateSync();
+    const timeZone = this.readStoredTimeZoneSync();
+    let monthRangeMs: { from: number; to: number } | null = null;
+    if (today && timeZone) {
+      const [y, m] = today.split('-').map(Number) as [number, number];
+      const first = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-01`;
+      const next = m === 12 ? `${String(y + 1).padStart(4, '0')}-01-01` : `${String(y).padStart(4, '0')}-${String(m + 1).padStart(2, '0')}-01`;
+      monthRangeMs = { from: zonedMidnightMs(first, timeZone), to: zonedMidnightMs(next, timeZone) };
+    }
+    return readLostItems(this.ctx.storage.sql, { ...filters, monthRangeMs });
+  }
+
+  /** `get_lost_item` — one item with its event history. */
+  async readLostItemDetail(
+    itemId: string,
+  ): Promise<ReturnType<typeof readLostItem> | { ok: false; error: typeof NOT_FOUND }> {
+    this.assertRpcAvailable();
+    try {
+      return readLostItem(this.ctx.storage.sql, itemId);
+    } catch (e) {
+      if (e instanceof HousekeepingRecordNotFoundError) return { ok: false, error: NOT_FOUND };
+      throw e;
+    }
+  }
+
+  /** `get_housekeeping_cases` — missing and damage cases. */
+  async readHousekeepingCaseList(filters: {
+    kind?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    search?: string;
+  }) {
+    this.assertRpcAvailable();
+    return readHousekeepingCases(this.ctx.storage.sql, filters);
   }
 
   /** `get_room_status_history` — newest 100 rows for one room of this property. */

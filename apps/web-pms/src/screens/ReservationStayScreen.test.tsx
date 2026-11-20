@@ -28,6 +28,8 @@ const getReservationProforma = vi.fn();
 const recordCashPayment = vi.fn();
 const recordUpiPayment = vi.fn();
 const authorizePayment = vi.fn();
+const getHousekeepingRequests = vi.fn();
+const createHousekeepingRequest = vi.fn();
 
 const businessDate = { current: '2026-11-09' };
 
@@ -66,6 +68,8 @@ vi.mock('../client.js', () => ({
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
     recordUpiPayment: (...args: unknown[]) => recordUpiPayment(...args),
     authorizePayment: (...args: unknown[]) => authorizePayment(...args),
+    getHousekeepingRequests: (...args: unknown[]) => getHousekeepingRequests(...args),
+    createHousekeepingRequest: (...args: unknown[]) => createHousekeepingRequest(...args),
   },
 }));
 
@@ -190,6 +194,18 @@ describe('ReservationStayScreen', () => {
     recordCashPayment.mockResolvedValue({ ok: true });
     recordUpiPayment.mockResolvedValue({ ok: true });
     authorizePayment.mockResolvedValue({ ok: true });
+    getHousekeepingRequests.mockResolvedValue({
+      ok: true,
+      requests: [],
+      truncated: false,
+      counters: { open: 0, inProgress: 0, resolvedToday: 0 },
+      openByRoom: {},
+      requestTypes: [{ code: 'extra_towels', label: 'Extra towels', department: 'housekeeping' }],
+    });
+    createHousekeepingRequest.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, request: { requestId: 'req_1', requestType: 'extra_towels', roomId: 'rm_1' } },
+    });
   });
 
   afterEach(() => cleanup());
@@ -577,5 +593,55 @@ describe('ReservationStayScreen', () => {
     expect(table.textContent).toMatch(/₹7,200\.00/);
     expect((screen.getByTestId('night-amount-2026-11-12') as HTMLInputElement).value).toBe('5000');
     expect(screen.queryByTestId('night-amount-2026-11-13')).toBeNull();
+  });
+  it('R4.11: the stay card has a Guest request button that opens the dialog with the room and stay fixed', async () => {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:read', 'housekeeping:read', 'housekeeping:write'],
+      orgPermissions: [],
+    });
+    getReservation.mockResolvedValue(stay('checked_in', { arrivalDate: '2026-11-08', departureDate: '2026-11-11' }));
+    renderStay();
+    const button = (await screen.findByTestId('guest-request')) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    expect(await screen.findByText('Guest request · Room 101')).toBeTruthy();
+    // Types load for this room only; no room picker is offered.
+    await waitFor(() => expect(getHousekeepingRequests).toHaveBeenCalledWith('prop_demo', { roomId: 'rm_1' }));
+    const log = await screen.findByRole('button', { name: 'Log request' });
+    expect(screen.queryByLabelText('Request room')).toBeNull();
+    fireEvent.click(log);
+    await waitFor(() =>
+      expect(createHousekeepingRequest).toHaveBeenCalledWith(
+        'prop_demo',
+        {
+          // The property business date, never the browser clock.
+          businessDate: '2026-11-09',
+          roomId: 'rm_1',
+          requestType: 'extra_towels',
+          department: 'housekeeping',
+          reservationId: 'res_1',
+        },
+        expect.any(String),
+      ),
+    );
+    expect(await screen.findByTestId('hk-request-done')).toBeTruthy();
+  });
+
+  it('R4.11: without housekeeping access the button is disabled and says why; no room, no button', async () => {
+    getReservation.mockResolvedValue(stay('checked_in', { arrivalDate: '2026-11-08', departureDate: '2026-11-11' }));
+    renderStay();
+    const button = (await screen.findByTestId('guest-request')) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(await screen.findByText('Guest requests need housekeeping access.')).toBeTruthy();
+    cleanup();
+    getReservation.mockResolvedValue(stay('confirmed', { roomId: undefined }));
+    renderStay();
+    await screen.findByText('Ada Lovelace · Demo Inn');
+    expect(screen.queryByTestId('guest-request')).toBeNull();
   });
 });

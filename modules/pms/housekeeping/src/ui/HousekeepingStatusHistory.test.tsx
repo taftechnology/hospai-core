@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
+import { depthAStubs } from './depth-a-stubs.fixture.js';
 
 const ROOMS = [
   { roomId: 'rm_1', code: '101', status: 'clean' },
@@ -38,6 +39,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     createHousekeepingTask: async () => ({ ok: true }),
     updateHousekeepingTask: async () => ({ ok: true }),
     transitionHousekeepingTask: async () => ({ ok: true }),
+    ...depthAStubs(),
     setOooRange: async () => ({ ok: true }),
     ...over,
   };

@@ -299,17 +299,17 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 52', () => {
+  it('applies property migrations through version 53', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(52);
+    expect(v1).toBe(53);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(52);
-    expect(sql.schemaVersion).toHaveLength(52);
+    expect(v2).toBe(53);
+    expect(sql.schemaVersion).toHaveLength(53);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50, 51, 52,
+      49, 50, 51, 52, 53,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -829,13 +829,31 @@ describe('housekeeping tasks and status history v52', () => {
     expect(has('ALTER TABLE room_ooo ADD COLUMN end_time')).toBe(true);
     expect(has('ALTER TABLE room_ooo ADD COLUMN inspection_notes')).toBe(true);
     expect(has("source IN ('desk','bulk','check_out','room_move','stay_change','ooo')")).toBe(true);
-    expect(PROPERTY_SCHEMA_HEAD).toBe(52);
+    expect(PROPERTY_SCHEMA_HEAD).toBeGreaterThanOrEqual(52);
+  });
+});
+
+describe('housekeeping depth A v53', () => {
+  it('creates the request, lost item, lost item event and case tables with no name column', () => {
+    const v53 = PROPERTY_MIGRATIONS.find((m) => m.version === 53);
+    expect(v53?.name).toBe('housekeeping_depth_a');
+    const has = (needle: string) => v53?.statements.some((st) => st.includes(needle)) === true;
+    expect(has('CREATE TABLE housekeeping_request (')).toBe(true);
+    expect(has('CREATE TABLE housekeeping_lost_item (')).toBe(true);
+    expect(has('CREATE TABLE housekeeping_lost_item_event (')).toBe(true);
+    expect(has('CREATE TABLE housekeeping_case (')).toBe(true);
+    expect(has("department IN ('housekeeping','front_office','maintenance','food_beverage')")).toBe(true);
+    expect(has("status IN ('found','handed_over','claimed','disposed','closed')")).toBe(true);
+    // No plaintext person column: claimants and guests are guest_ref records only.
+    const ddl = (v53?.statements ?? []).join('\n');
+    expect(ddl).not.toMatch(/claimant_name|guest_name|display_name|\bemail\b|\bphone\b/i);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(53);
   });
 });
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(52);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(53);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

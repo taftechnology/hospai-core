@@ -2883,6 +2883,48 @@ export class OrgDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /**
+   * R4.11 lost-and-found claimant: the guest must be a live record linked to this property
+   * (the property-scoped directory). Anything else answers `guest_not_found`, so an id from
+   * another hotel of the org is indistinguishable from an unknown one.
+   */
+  async assertGuestAtProperty(
+    guestRef: string,
+    propertyId: string,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED }
+  > {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT erased_at FROM guest WHERE guest_id = ?`, guestRef)
+      .toArray() as Array<{ erased_at: number | null }>;
+    const guest = rows[0];
+    if (!guest || !this.isGuestLinkedToPropertySync(guestRef, propertyId)) {
+      return { ok: false, error: GUEST_NOT_FOUND };
+    }
+    if (guest.erased_at != null) return { ok: false, error: GUEST_ALREADY_ERASED };
+    return { ok: true };
+  }
+
+  /** R4.11 handover / finder / reporter: an active roster member of this property, any kind. */
+  async assertStaffAtProperty(
+    staffId: string,
+    propertyId: string,
+  ): Promise<
+    | { ok: true; staffId: string }
+    | { ok: false; error: typeof STAFF_NOT_FOUND | typeof STAFF_EXITED | typeof STAFF_NOT_ASSIGNABLE }
+  > {
+    this.assertRpcAvailable();
+    const row = this.loadRosterRow(staffId);
+    if (!row || !this.isStaffLinkedToPropertySync(staffId, propertyId)) {
+      return { ok: false, error: STAFF_NOT_FOUND };
+    }
+    if (row.exited_at != null) return { ok: false, error: STAFF_EXITED };
+    if (row.status !== 'active') return { ok: false, error: STAFF_NOT_ASSIGNABLE };
+    return { ok: true, staffId };
+  }
+
   async assertStaffAssignable(
     staffId: string,
     kind: RosterKind,

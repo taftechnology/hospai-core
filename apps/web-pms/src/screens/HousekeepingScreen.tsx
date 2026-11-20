@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { HousekeepingApp as HousekeepingBoard } from '@hospai/pms-housekeeping/ui';
+import { HousekeepingApp as HousekeepingBoard, type HousekeepingGuests } from '@hospai/pms-housekeeping/ui';
+import { useMemo } from 'react';
 import { useLocation } from 'react-router';
 import {
   hasPropertyPermission,
@@ -9,14 +10,16 @@ import {
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
+import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { guestLabel } from './guest-row.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { usePropertyActorLabel } from '../status/use-property-actor-label.js';
 
 export function HousekeepingScreen() {
   const timeZone = usePropertyTimeZone();
-  const { dateHeading, dateTime } = useFormat();
+  const { date, dateHeading, dateTime } = useFormat();
   // Empty until the property time zone is known: the views wait for it rather than guess from the browser.
   const defaultBusinessDate = timeZone ? propertyLocalToday(timeZone) : '';
   const propertyId = tenant.propertyId;
@@ -44,10 +47,37 @@ export function HousekeepingScreen() {
   const canSetOoo = liveMe ? hasPropertyPermission(liveMe, 'inventory:write') : false;
   const canReadStaff = liveMe ? hasPropertyPermission(liveMe, 'staff:read') : false;
   const actorLabel = usePropertyActorLabel(canReadStaff);
+  const canReadGuests = liveMe ? hasPropertyPermission(liveMe, 'guests:read') : false;
+  // Names come only through the property-scoped batch and search (R4.11); never from housekeeping reads.
+  const guests = useMemo<HousekeepingGuests | undefined>(
+    () =>
+      canReadGuests
+        ? {
+            labels: async (refs) => {
+              const { states } = await fetchGuestStatesChunked(api.postGuestsBatch, propertyId, refs);
+              return Object.fromEntries(refs.map((ref) => [ref, guestLabel(states[ref], ref)]));
+            },
+            search: async (q) => {
+              const result = (await api.searchGuests(propertyId, { q })) as {
+                body?: { items?: Array<{ guestId?: unknown; profile?: { displayName?: unknown } }> };
+              };
+              return (result.body?.items ?? []).flatMap((row) =>
+                typeof row.guestId === 'string' && typeof row.profile?.displayName === 'string'
+                  ? [{ guestRef: row.guestId, label: row.profile.displayName }]
+                  : [],
+              );
+            },
+          }
+        : undefined,
+    [canReadGuests, propertyId],
+  );
   const path = useLocation().pathname;
   const priority = path.endsWith('/priority');
   const inventory = path.endsWith('/inventory');
   const tasks = path.endsWith('/tasks');
+  const requests = path.endsWith('/requests');
+  const lostFound = path.endsWith('/lost-found');
+  const cases = path.endsWith('/cases');
   const { subtitle } = usePropertySubtitle(
     inventory
       ? 'Par levels and stock counts'
@@ -55,7 +85,13 @@ export function HousekeepingScreen() {
         ? 'Cleaning queue'
         : tasks
           ? 'Tasks and attendants'
-          : 'Room status and assignments',
+          : requests
+            ? 'Guest requests by room'
+            : lostFound
+              ? 'Lost and found custody'
+              : cases
+                ? 'Missing and damaged items'
+                : 'Room status and assignments',
   );
 
   return (
@@ -66,10 +102,11 @@ export function HousekeepingScreen() {
       canAssign={canAssign}
       canReadRoster={canReadRoster}
       canSetOoo={canSetOoo}
+      guests={guests}
       actorLabel={actorLabel}
       subtitle={subtitle}
       classifyError={(err) => asClassified(err)}
-      format={{ dateHeading, dateTime }}
+      format={{ date, dateHeading, dateTime }}
       formatError={(err) =>
         classifiedUserMessage(asClassified(err), {
           fallback: inventory
@@ -78,7 +115,13 @@ export function HousekeepingScreen() {
               ? 'Could not load housekeeping priority'
               : tasks
                 ? 'Could not load housekeeping tasks'
-                : 'Could not load housekeeping',
+                : requests
+                  ? 'Could not load guest requests'
+                  : lostFound
+                    ? 'Could not load lost and found'
+                    : cases
+                      ? 'Could not load missing and damaged cases'
+                      : 'Could not load housekeeping',
         })
       }
       isQueuedResult={isQueuedResult}

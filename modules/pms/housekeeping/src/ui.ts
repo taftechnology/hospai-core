@@ -8,4 +8,9 @@ export {
   type OooBlockInput,
 } from './ui/ooo-block.js';
 export { BLOCK_TYPE_LABEL, blockTimes, blockTypeLabel } from './ui/housekeeping-labels.js';
-export type { HousekeepingApi, HousekeepingOooRange } from './ui/housekeeping-types.js';
+export { GuestRequestDialog } from './ui/HousekeepingRequests.js';
+export type {
+  HousekeepingApi,
+  HousekeepingGuests,
+  HousekeepingOooRange,
+} from './ui/housekeeping-types.js';

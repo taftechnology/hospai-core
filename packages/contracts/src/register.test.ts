@@ -377,7 +377,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(96);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(102);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -980,12 +980,13 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_room_ooo_history');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_room_status_history');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_housekeeping_tasks');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('post_housekeeping_task_transition');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('patch_housekeeping_task');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('post_housekeeping_tasks');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_housekeeping_cases');
+    expect(V1_HTTP_ROUTE_AUDIT[213]?.id).toBe('get_room_ooo_history');
+    expect(V1_HTTP_ROUTE_AUDIT[212]?.id).toBe('get_room_status_history');
+    expect(V1_HTTP_ROUTE_AUDIT[211]?.id).toBe('get_housekeeping_tasks');
+    expect(V1_HTTP_ROUTE_AUDIT[210]?.id).toBe('post_housekeeping_task_transition');
+    expect(V1_HTTP_ROUTE_AUDIT[209]?.id).toBe('patch_housekeeping_task');
+    expect(V1_HTTP_ROUTE_AUDIT[208]?.id).toBe('post_housekeeping_tasks');
     expect(V1_HTTP_ROUTE_AUDIT[207]?.id).toBe('get_room_board');
     expect(V1_HTTP_ROUTE_AUDIT[206]?.id).toBe('get_reservation_draft_bill');
     expect(V1_HTTP_ROUTE_AUDIT[205]?.id).toBe('post_reservation_undo_check_out');
@@ -995,7 +996,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[201]?.id).toBe('post_folio_hold_release');
     expect(V1_HTTP_ROUTE_AUDIT[198]?.id).toBe('get_reservation_registration_card');
     expect(V1_HTTP_ROUTE_AUDIT[197]?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(214);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(224);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1057,8 +1058,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(96);
-    expect(COMMAND_CATALOG).toHaveLength(130);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(102);
+    expect(COMMAND_CATALOG).toHaveLength(136);
     expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
       id: 'post_folio_hold',
       scope: 'property',
@@ -1155,10 +1156,48 @@ describe('command catalog', () => {
       });
       expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
     }
+    // R4.11 Part A: six commands then four reads, appended last in this order.
+    for (const [i, id, commandId] of [
+      [214, 'post_housekeeping_requests', 'housekeeping.create_request'],
+      [215, 'patch_housekeeping_request', 'housekeeping.update_request'],
+      [216, 'post_lost_items', 'housekeeping.record_lost_item'],
+      [217, 'patch_lost_item', 'housekeeping.update_lost_item'],
+      [218, 'post_housekeeping_cases', 'housekeeping.open_case'],
+      [219, 'patch_housekeeping_case', 'housekeeping.update_case'],
+    ] as const) {
+      expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
+        id,
+        scope: 'property',
+        permission: 'housekeeping:write',
+        commandId,
+        entitlement: 'pms.core',
+      });
+    }
+    for (const [i, id] of [
+      [220, 'get_housekeeping_requests'],
+      [221, 'get_lost_items'],
+      [222, 'get_lost_item'],
+      [223, 'get_housekeeping_cases'],
+    ] as const) {
+      expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
+        id,
+        scope: 'property',
+        permission: 'housekeeping:read',
+        entitlement: 'pms.core',
+        degradedRead: 'FAIL_CLOSED',
+      });
+      expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
+    }
     for (const id of [
       'housekeeping.create_task',
       'housekeeping.update_task',
       'housekeeping.transition_task',
+      'housekeeping.create_request',
+      'housekeeping.update_request',
+      'housekeeping.record_lost_item',
+      'housekeeping.update_lost_item',
+      'housekeeping.open_case',
+      'housekeeping.update_case',
     ]) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toMatchObject({
         lane: 'INTERACTIVE',
@@ -1661,6 +1700,39 @@ describe('command catalog', () => {
       e?.schema.safeParse([
         { code: 'a', label: 'A' },
         { code: 'a', label: 'B' },
+      ]).success,
+    ).toBe(false);
+  });
+
+  it('request_types is a DOMAIN list with seven defaults, a 30 cap, a code pattern and a department', () => {
+    const e = CONFIG_REGISTER.find((x) => x.key === 'pms.housekeeping.request_types');
+    expect(e?.class).toBe('DOMAIN');
+    const defaults = e?.default as Array<{ code: string; department: string }>;
+    expect(defaults.map((t) => [t.code, t.department])).toEqual([
+      ['extra_towels', 'housekeeping'],
+      ['extra_pillows', 'housekeeping'],
+      ['cot', 'housekeeping'],
+      ['toiletries', 'housekeeping'],
+      ['iron', 'housekeeping'],
+      ['wake_up_call', 'front_office'],
+      ['repair', 'maintenance'],
+    ]);
+    expect(e?.schema.safeParse(e?.default).success).toBe(true);
+    const thirty = Array.from({ length: 30 }, (_, i) => ({
+      code: `t${i}`,
+      label: `T${i}`,
+      department: 'housekeeping',
+    }));
+    expect(e?.schema.safeParse(thirty).success).toBe(true);
+    expect(
+      e?.schema.safeParse([...thirty, { code: 't30', label: 'T30', department: 'housekeeping' }]).success,
+    ).toBe(false);
+    expect(e?.schema.safeParse([{ code: 'a', label: 'A', department: 'spa' }]).success).toBe(false);
+    expect(e?.schema.safeParse([{ code: 'A b', label: 'A', department: 'housekeeping' }]).success).toBe(false);
+    expect(
+      e?.schema.safeParse([
+        { code: 'a', label: 'A', department: 'housekeeping' },
+        { code: 'a', label: 'B', department: 'maintenance' },
       ]).success,
     ).toBe(false);
   });

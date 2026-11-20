@@ -400,6 +400,84 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       'R4.30 housekeeping task record — kill-switch via pms.core entitlement; never queued offline. ' +
       'start | complete | review | cancel; cancel needs a reason; any other move is invalid_task_transition. Idempotency key is header x-idempotency-key.',
   },
+  {
+    id: 'housekeeping.create_request',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Guest request against a room (type from pms.housekeeping.request_types; department defaults from the type); not a maintenance ticket. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.update_request',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Assign, start, resolve (resolution required), cancel (reason required) or edit note or department while open or in progress. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.record_lost_item',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Lost and found custody: record a find. Claimants are guest records, never typed names. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.update_lost_item',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Hand over, claim (guestRef), dispose (reason required) or close; edit while found. Every step writes an event row. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.open_case',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Missing or damaged item case; no folio posting (damage charges stay on folio.authorize purpose=DAMAGE). Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.update_case',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Edit while open; close needs a closure note. Idempotency key is header x-idempotency-key.',
+  },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {
     id: 'folio.add_item',

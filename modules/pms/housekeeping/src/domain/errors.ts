@@ -118,3 +118,11 @@ export class HousekeepingInvalidTaskTransitionError extends Error {
     this.name = 'HousekeepingInvalidTaskTransitionError';
   }
 }
+
+/** A request, lost item or case id that is not in this property (R4.11). */
+export class HousekeepingRecordNotFoundError extends Error {
+  constructor() {
+    super(NOT_FOUND);
+    this.name = 'HousekeepingRecordNotFoundError';
+  }
+}

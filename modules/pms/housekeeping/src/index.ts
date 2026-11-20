@@ -5,6 +5,19 @@ export { updateTask, type UpdateTaskInput } from './application/update-task.js';
 export { transitionTask, type TransitionTaskInput } from './application/transition-task.js';
 export { readHousekeepingTasks, type ReadTasksFilters } from './application/read-tasks.js';
 export { readRoomStatusHistory } from './application/read-room-status-history.js';
+export { createRequest, type CreateRequestInput } from './application/create-request.js';
+export { updateRequest, type UpdateRequestInput } from './application/update-request.js';
+export { readHousekeepingRequests, type ReadRequestsFilters } from './application/read-requests.js';
+export { recordLostItem, type RecordLostItemInput } from './application/record-lost-item.js';
+export { updateLostItem, type UpdateLostItemInput } from './application/update-lost-item.js';
+export {
+  readLostItems,
+  readLostItem,
+  type ReadLostItemsFilters,
+} from './application/read-lost-items.js';
+export { openCase, type OpenCaseInput } from './application/open-case.js';
+export { updateCase, type UpdateCaseInput } from './application/update-case.js';
+export { readHousekeepingCases, type ReadCasesFilters } from './application/read-cases.js';
 export { updateRoomStatus } from './application/update-room-status.js';
 export { bulkUpdateRoomStatus } from './application/bulk-update-room-status.js';
 export { assignHousekeeping } from './application/assign-housekeeping.js';
@@ -34,6 +47,7 @@ export {
   HousekeepingInvalidRequestError,
   HousekeepingLimitError,
   HousekeepingTaskNotFoundError,
+  HousekeepingRecordNotFoundError,
   HousekeepingInvalidTaskTransitionError,
   isStaffRef,
 } from './domain/errors.js';

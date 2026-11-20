@@ -224,6 +224,17 @@ import {
   isHousekeepingTaskStatus,
   isOooBlockType,
   HK_TASK_SEARCH_MAX,
+  HK_REQUEST_SEARCH_MAX,
+  LOST_ITEM_SEARCH_MAX,
+  isHousekeepingCaseKind,
+  isHousekeepingCaseReturned,
+  isHousekeepingCaseStatus,
+  isHousekeepingRequestAction,
+  isHousekeepingRequestDepartment,
+  isHousekeepingRequestStatus,
+  isLostItemAction,
+  isLostItemCategory,
+  isLostItemStatus,
   isHousekeepingPriorityLevelInput,
   isMaintenanceCategory,
   isMaintenancePriority,
@@ -5609,6 +5620,506 @@ async function handleGetRoomOooHistory(ctx: V1DispatchContext): Promise<Response
   try {
     const result = await resolvedCtx.resolved.stub.readRoomOooHistoryForRoom(roomId);
     if (!result.ok) return json({ error: 'not_found' }, 404);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// R4.11 Part A: guest requests, lost and found, missing and damage cases
+// ---------------------------------------------------------------------------
+
+type HkBody = Record<string, unknown>;
+
+function isOptionalString(v: unknown): boolean {
+  return v === undefined || typeof v === 'string';
+}
+
+function isHkBody(v: unknown): v is HkBody {
+  return Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Copies the listed keys that are present, so absent fields never reach the fingerprint. */
+function pickPresent(body: HkBody, keys: readonly string[]): HkBody {
+  const out: HkBody = {};
+  for (const k of keys) if (body[k] !== undefined) out[k] = body[k];
+  return out;
+}
+
+const REQUEST_CREATE_KEYS = [
+  'businessDate',
+  'roomId',
+  'reservationId',
+  'requestType',
+  'department',
+  'note',
+  'assigneeRef',
+] as const;
+const REQUEST_UPDATE_KEYS = ['action', 'assigneeRef', 'note', 'department', 'resolution', 'reason'] as const;
+const LOST_ITEM_CREATE_KEYS = [
+  'businessDate',
+  'description',
+  'category',
+  'foundWhere',
+  'roomId',
+  'reservationId',
+  'foundByRef',
+  'storageLocation',
+] as const;
+const LOST_ITEM_UPDATE_KEYS = [
+  'action',
+  'handedToRef',
+  'guestRef',
+  'proofNote',
+  'reason',
+  'description',
+  'category',
+  'foundWhere',
+  'storageLocation',
+] as const;
+const CASE_CREATE_KEYS = [
+  'businessDate',
+  'kind',
+  'roomId',
+  'reservationId',
+  'item',
+  'reporterRef',
+  'inspectionDetail',
+  'returnedStatus',
+] as const;
+const CASE_UPDATE_KEYS = ['item', 'inspectionDetail', 'returnedStatus', 'action', 'closureNote'] as const;
+
+/** `from` / `to` / `search` shared by the three lists; a bad value is `invalid_body`. */
+function listFilters(
+  params: URLSearchParams,
+  searchMax: number,
+): { from?: string; to?: string; search?: string } | null {
+  const from = params.get('from') ?? undefined;
+  const to = params.get('to') ?? undefined;
+  const search = params.get('search')?.trim() || undefined;
+  if (
+    (from !== undefined && !ISO_DATE_RE.test(from)) ||
+    (to !== undefined && !ISO_DATE_RE.test(to)) ||
+    (search !== undefined && search.length > searchMax)
+  ) {
+    return null;
+  }
+  return { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}) };
+}
+
+async function handlePostHousekeepingRequests(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body) || !(typeof body.businessDate === 'string' &&
+      ISO_DATE_RE.test(body.businessDate) &&
+      typeof body.roomId === 'string' &&
+      body.roomId.length > 0 &&
+      typeof body.requestType === 'string' &&
+      body.requestType.length > 0 &&
+      isOptionalNullableString(body.reservationId) &&
+      (body.department === undefined || isHousekeepingRequestDepartment(body.department)) &&
+      isOptionalNullableString(body.note) &&
+      isOptionalNullableString(body.assigneeRef))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, REQUEST_CREATE_KEYS) } as Parameters<PropertyDO['tryCreateHousekeepingRequest']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.create_request', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateHousekeepingRequest']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.create_request',
+      routeId: 'post_housekeeping_requests',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateHousekeepingRequest(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePatchHousekeepingRequest(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const requestId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body) || !((body.action === undefined || isHousekeepingRequestAction(body.action)) &&
+      isOptionalNullableString(body.assigneeRef) &&
+      isOptionalNullableString(body.note) &&
+      (body.department === undefined || isHousekeepingRequestDepartment(body.department)) &&
+      isOptionalString(body.resolution) &&
+      isOptionalString(body.reason) &&
+      REQUEST_UPDATE_KEYS.some((k) => body[k] !== undefined))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, REQUEST_UPDATE_KEYS), requestId } as Parameters<PropertyDO['tryUpdateHousekeepingRequest']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.update_request', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateHousekeepingRequest']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.update_request',
+      routeId: 'patch_housekeeping_request',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateHousekeepingRequest(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostLostItems(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body) || !(typeof body.businessDate === 'string' &&
+      ISO_DATE_RE.test(body.businessDate) &&
+      typeof body.description === 'string' &&
+      typeof body.foundWhere === 'string' &&
+      isLostItemCategory(body.category) &&
+      isOptionalNullableString(body.roomId) &&
+      isOptionalNullableString(body.reservationId) &&
+      isOptionalNullableString(body.foundByRef) &&
+      isOptionalNullableString(body.storageLocation))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, LOST_ITEM_CREATE_KEYS) } as Parameters<PropertyDO['tryRecordHousekeepingLostItem']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.record_lost_item', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordHousekeepingLostItem']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.record_lost_item',
+      routeId: 'post_lost_items',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRecordHousekeepingLostItem(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePatchLostItem(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const itemId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body) || !((body.action === undefined || isLostItemAction(body.action)) &&
+      isOptionalString(body.handedToRef) &&
+      isOptionalString(body.guestRef) &&
+      isOptionalNullableString(body.proofNote) &&
+      isOptionalString(body.reason) &&
+      isOptionalString(body.description) &&
+      (body.category === undefined || isLostItemCategory(body.category)) &&
+      isOptionalString(body.foundWhere) &&
+      isOptionalNullableString(body.storageLocation) &&
+      LOST_ITEM_UPDATE_KEYS.some((k) => body[k] !== undefined))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, LOST_ITEM_UPDATE_KEYS), itemId } as Parameters<PropertyDO['tryUpdateHousekeepingLostItem']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.update_lost_item', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateHousekeepingLostItem']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.update_lost_item',
+      routeId: 'patch_lost_item',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateHousekeepingLostItem(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostHousekeepingCases(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body) || !(typeof body.businessDate === 'string' &&
+      ISO_DATE_RE.test(body.businessDate) &&
+      isHousekeepingCaseKind(body.kind) &&
+      typeof body.roomId === 'string' &&
+      body.roomId.length > 0 &&
+      typeof body.item === 'string' &&
+      isOptionalNullableString(body.reservationId) &&
+      isOptionalNullableString(body.reporterRef) &&
+      isOptionalNullableString(body.inspectionDetail) &&
+      (body.returnedStatus === undefined || isHousekeepingCaseReturned(body.returnedStatus)))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, CASE_CREATE_KEYS) } as Parameters<PropertyDO['tryOpenHousekeepingCase']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.open_case', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryOpenHousekeepingCase']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.open_case',
+      routeId: 'post_housekeeping_cases',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryOpenHousekeepingCase(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePatchHousekeepingCase(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const caseId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body) || !(isOptionalString(body.item) &&
+      isOptionalNullableString(body.inspectionDetail) &&
+      (body.returnedStatus === undefined || isHousekeepingCaseReturned(body.returnedStatus)) &&
+      (body.action === undefined || body.action === 'close') &&
+      isOptionalString(body.closureNote) &&
+      CASE_UPDATE_KEYS.some((k) => body[k] !== undefined))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, CASE_UPDATE_KEYS), caseId } as Parameters<PropertyDO['tryUpdateHousekeepingCase']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.update_case', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateHousekeepingCase']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.update_case',
+      routeId: 'patch_housekeeping_case',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateHousekeepingCase(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handleGetHousekeepingRequests(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, HK_REQUEST_SEARCH_MAX);
+  const status = params.get('status') ?? undefined;
+  const department = params.get('department') ?? undefined;
+  if (
+    !base ||
+    (status !== undefined && !isHousekeepingRequestStatus(status)) ||
+    (department !== undefined && !isHousekeepingRequestDepartment(department))
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingRequestList({
+      ...base,
+      ...(status ? { status } : {}),
+      ...(department ? { department } : {}),
+      ...(params.get('roomId') ? { roomId: params.get('roomId')! } : {}),
+    });
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetLostItems(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, LOST_ITEM_SEARCH_MAX);
+  const status = params.get('status') ?? undefined;
+  if (!base || (status !== undefined && !isLostItemStatus(status))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readLostItemList({
+      ...base,
+      ...(status ? { status } : {}),
+    });
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetLostItem(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const itemId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readLostItemDetail(itemId);
+    if (!result.ok) return json({ error: 'not_found' }, 404);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetHousekeepingCases(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, HK_REQUEST_SEARCH_MAX);
+  const kind = params.get('kind') ?? undefined;
+  const status = params.get('status') ?? undefined;
+  if (
+    !base ||
+    (kind !== undefined && !isHousekeepingCaseKind(kind)) ||
+    (status !== undefined && !isHousekeepingCaseStatus(status))
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingCaseList({
+      ...base,
+      ...(kind ? { kind } : {}),
+      ...(status ? { status } : {}),
+    });
     return json(result, 200);
   } catch (e) {
     if (isPropertyDoTransportFailure(e, ctx.env)) {
@@ -12339,6 +12850,102 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetRoomOooHistory,
+  },
+  {
+    id: 'post_housekeeping_requests',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/requests$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.create_request',
+    entitlement: 'pms.core',
+    handler: handlePostHousekeepingRequests,
+  },
+  {
+    id: 'patch_housekeeping_request',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/requests\/([^/]+)$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.update_request',
+    entitlement: 'pms.core',
+    handler: handlePatchHousekeepingRequest,
+  },
+  {
+    id: 'post_lost_items',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/lost-items$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.record_lost_item',
+    entitlement: 'pms.core',
+    handler: handlePostLostItems,
+  },
+  {
+    id: 'patch_lost_item',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/lost-items\/([^/]+)$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.update_lost_item',
+    entitlement: 'pms.core',
+    handler: handlePatchLostItem,
+  },
+  {
+    id: 'post_housekeeping_cases',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/cases$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.open_case',
+    entitlement: 'pms.core',
+    handler: handlePostHousekeepingCases,
+  },
+  {
+    id: 'patch_housekeeping_case',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/cases\/([^/]+)$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.update_case',
+    entitlement: 'pms.core',
+    handler: handlePatchHousekeepingCase,
+  },
+  {
+    id: 'get_housekeeping_requests',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/requests$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingRequests,
+  },
+  {
+    id: 'get_lost_items',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/lost-items$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetLostItems,
+  },
+  {
+    id: 'get_lost_item',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/lost-items\/([^/]+)$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetLostItem,
+  },
+  {
+    id: 'get_housekeeping_cases',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/cases$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingCases,
   },
 ];
 

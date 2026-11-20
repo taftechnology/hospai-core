@@ -9,10 +9,22 @@ import type {
   HousekeepingPriorityLevel,
   HousekeepingPriorityLevelInput,
   HousekeepingPriorityQueueRow,
+  HousekeepingCaseList,
+  HousekeepingCaseListRow,
+  HousekeepingCaseReturned,
+  HousekeepingRequestAction,
+  HousekeepingRequestDepartment,
+  HousekeepingRequestList,
+  HousekeepingRequestRow,
   HousekeepingTaskAction,
   HousekeepingTaskList,
   HousekeepingTaskPriority,
   HousekeepingTaskRow,
+  LostItemAction,
+  LostItemCategory,
+  LostItemDetail,
+  LostItemList,
+  LostItemListRow,
   MaintenanceCategory,
   MaintenancePriority,
   MaintenanceStatus,
@@ -2349,6 +2361,198 @@ export function createClient(opts: {
           body: JSON.stringify(input),
         },
       ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }>;
+    },
+    // ---- R4.11 Part A: guest requests, lost and found, missing and damage cases ----
+    async getHousekeepingRequests(
+      propertyId: string,
+      query?: {
+        from?: string;
+        to?: string;
+        status?: string;
+        department?: string;
+        roomId?: string;
+        search?: string;
+      },
+    ): Promise<HousekeepingRequestList> {
+      const qs = new URLSearchParams();
+      for (const k of ['from', 'to', 'status', 'department', 'roomId', 'search'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/requests${q ? `?${q}` : ''}`,
+      );
+      return body as HousekeepingRequestList;
+    },
+    async createHousekeepingRequest(
+      propertyId: string,
+      input: {
+        businessDate: string;
+        roomId: string;
+        reservationId?: string | null;
+        requestType: string;
+        department?: HousekeepingRequestDepartment;
+        note?: string | null;
+        assigneeRef?: string | null;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; request: HousekeepingRequestRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/requests`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; request: HousekeepingRequestRow } }>;
+    },
+    /** `action` start | resolve (needs `resolution`) | cancel (needs `reason`), or edit fields while open. */
+    async updateHousekeepingRequest(
+      propertyId: string,
+      requestId: string,
+      input: {
+        action?: HousekeepingRequestAction;
+        assigneeRef?: string | null;
+        note?: string | null;
+        department?: HousekeepingRequestDepartment;
+        resolution?: string;
+        reason?: string;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; request: HousekeepingRequestRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/requests/${enc(requestId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify(input),
+        },
+      ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; request: HousekeepingRequestRow } }>;
+    },
+    async getLostItems(
+      propertyId: string,
+      query?: { status?: string; from?: string; to?: string; search?: string },
+    ): Promise<LostItemList> {
+      const qs = new URLSearchParams();
+      for (const k of ['status', 'from', 'to', 'search'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/lost-items${q ? `?${q}` : ''}`,
+      );
+      return body as LostItemList;
+    },
+    async getLostItem(propertyId: string, itemId: string): Promise<LostItemDetail> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/lost-items/${enc(itemId)}`,
+      );
+      return body as LostItemDetail;
+    },
+    async recordLostItem(
+      propertyId: string,
+      input: {
+        businessDate: string;
+        description: string;
+        category: LostItemCategory;
+        foundWhere: string;
+        roomId?: string | null;
+        reservationId?: string | null;
+        foundByRef?: string | null;
+        storageLocation?: string | null;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; item: LostItemListRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/lost-items`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; item: LostItemListRow } }>;
+    },
+    /** `claim` takes a `guestRef` (a guest record), never a typed name. */
+    async updateLostItem(
+      propertyId: string,
+      itemId: string,
+      input: {
+        action?: LostItemAction;
+        handedToRef?: string;
+        guestRef?: string;
+        proofNote?: string | null;
+        reason?: string;
+        description?: string;
+        category?: LostItemCategory;
+        foundWhere?: string;
+        storageLocation?: string | null;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; item: LostItemListRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/lost-items/${enc(itemId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify(input),
+        },
+      ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; item: LostItemListRow } }>;
+    },
+    async getHousekeepingCases(
+      propertyId: string,
+      query?: { kind?: string; status?: string; from?: string; to?: string; search?: string },
+    ): Promise<HousekeepingCaseList> {
+      const qs = new URLSearchParams();
+      for (const k of ['kind', 'status', 'from', 'to', 'search'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/cases${q ? `?${q}` : ''}`,
+      );
+      return body as HousekeepingCaseList;
+    },
+    async openHousekeepingCase(
+      propertyId: string,
+      input: {
+        businessDate: string;
+        kind: 'missing' | 'damaged';
+        roomId: string;
+        reservationId?: string | null;
+        item: string;
+        reporterRef?: string | null;
+        inspectionDetail?: string | null;
+        returnedStatus?: HousekeepingCaseReturned;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; case: HousekeepingCaseListRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/cases`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; case: HousekeepingCaseListRow } }>;
+    },
+    /** Edit while open, or `action: 'close'` with a `closureNote`. */
+    async updateHousekeepingCase(
+      propertyId: string,
+      caseId: string,
+      input: {
+        item?: string;
+        inspectionDetail?: string | null;
+        returnedStatus?: HousekeepingCaseReturned;
+        action?: 'close';
+        closureNote?: string;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; case: HousekeepingCaseListRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/cases/${enc(caseId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; case: HousekeepingCaseListRow } }>;
     },
     async listRoster(propertyId: string, query?: { kind?: string }) {
       const qs = new URLSearchParams();

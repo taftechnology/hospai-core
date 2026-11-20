@@ -38,6 +38,8 @@ const supersedeFxRate = vi.fn();
 const recordChargeback = vi.fn();
 const postFxAdjustment = vi.fn();
 const listRooms = vi.fn();
+const getHousekeepingRequests = vi.fn();
+const createHousekeepingRequest = vi.fn();
 const listChargeCodes = vi.fn();
 const listProducts = vi.fn();
 const listRecurringCharges = vi.fn();
@@ -124,6 +126,8 @@ vi.mock('../client.js', () => ({
     recordChargeback: (...args: unknown[]) => recordChargeback(...args),
     postFxAdjustment: (...args: unknown[]) => postFxAdjustment(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
+    getHousekeepingRequests: (...args: unknown[]) => getHousekeepingRequests(...args),
+    createHousekeepingRequest: (...args: unknown[]) => createHousekeepingRequest(...args),
     listChargeCodes: (...args: unknown[]) => listChargeCodes(...args),
     listProducts: (...args: unknown[]) => listProducts(...args),
     listRecurringCharges: (...args: unknown[]) => listRecurringCharges(...args),
@@ -446,6 +450,55 @@ describe('FolioScreen wiring', () => {
     expect(listDomainConfig).not.toHaveBeenCalled();
     expect(getFolioHold).not.toHaveBeenCalled();
     expect(fetchCityLedgerAccounts).not.toHaveBeenCalled();
+  });
+
+  it('R4.11: the folio header has a Guest request button that opens the dialog for this room and stay', async () => {
+    getMe.mockResolvedValue({
+      ...ownerMe,
+      permissions: [...ownerMe.permissions, 'housekeeping:read', 'housekeeping:write'],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, roomId: 'rm_1' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    listRooms.mockResolvedValue({
+      ok: true,
+      rooms: [{ roomId: 'rm_1', roomTypeId: 'rt', code: '101', status: 'clean', floor: null, createdAt: 1, updatedAt: 1, oooRanges: [] }],
+    });
+    getHousekeepingRequests.mockResolvedValue({
+      ok: true,
+      requests: [],
+      truncated: false,
+      counters: { open: 0, inProgress: 0, resolvedToday: 0 },
+      openByRoom: {},
+      requestTypes: [{ code: 'cot', label: 'Cot', department: 'housekeeping' }],
+    });
+    renderFolio();
+    const button = (await screen.findByTestId('guest-request')) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    expect(await screen.findByText('Guest request · Room 101')).toBeTruthy();
+    await waitFor(() => expect(getHousekeepingRequests).toHaveBeenCalledWith('prop_demo', { roomId: 'rm_1' }));
+    expect(await screen.findByRole('button', { name: 'Log request' })).toBeTruthy();
+  });
+
+  it('R4.11: a folio with no room has no Guest request button', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    reservationMock({ roomId: null });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(getFolio).toHaveBeenCalled());
+    expect(screen.queryByTestId('guest-request')).toBeNull();
   });
 
   it('T-P7b: opening Advanced triggers city ledger / fx subset', async () => {

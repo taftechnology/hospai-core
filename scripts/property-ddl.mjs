@@ -97,6 +97,7 @@ if (process.argv.includes('--self-test')) {
   let FOLIO_HOLD_V50_SQL;
   let FOLIO_HOLD_EVENT_REACTIVATED_V51_SQL;
   let HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL;
+  let HOUSEKEEPING_DEPTH_A_V53_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -169,6 +170,7 @@ if (process.argv.includes('--self-test')) {
       FOLIO_HOLD_V50_SQL,
       FOLIO_HOLD_EVENT_REACTIVATED_V51_SQL,
       HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL,
+      HOUSEKEEPING_DEPTH_A_V53_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -681,6 +683,15 @@ const doPropertyTargets = [
 
 `,
     sql: HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0053_housekeeping_depth_a.sql'),
+    header: `-- PropertyDO housekeeping requests, lost and found, cases — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: HOUSEKEEPING_DEPTH_A_V53_SQL,
   },
 ];
 

@@ -72,6 +72,7 @@ import { FormDialog } from '../shell/FormDialog.js';
 import { queuedCommandLine } from '../copy/queued-command-line.js';
 import { minorToMajorInput, parseAmountToMinor } from '../money.js';
 import { useFormat } from '../shell/PropertyFormat.js';
+import { GuestRequestButton } from './GuestRequestButton.js';
 import { tenderLabel, tenderMethod, tenderStatusLabel } from './tender-label.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
@@ -2928,6 +2929,13 @@ export function FolioScreen() {
               <Link className="ui-link-btn" to={`/book?guestRef=${encodeURIComponent(guestRef)}`}>
                 Book for guest
               </Link>
+            ) : null}
+            {reservationQ.data?.roomId && !TERMINAL_STATUSES.has(reservationQ.data.status) ? (
+              <GuestRequestButton
+                roomId={reservationQ.data.roomId}
+                roomCode={roomCode}
+                reservationId={reservationId}
+              />
             ) : null}
             {showDraftBill ? (
               <Link

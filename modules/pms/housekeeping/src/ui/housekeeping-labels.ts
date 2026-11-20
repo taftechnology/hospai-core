@@ -1,4 +1,13 @@
 import type {
+  HousekeepingCaseKind,
+  HousekeepingCaseReturned,
+  HousekeepingCaseStatus,
+  HousekeepingRequestDepartment,
+  HousekeepingRequestStatus,
+  HousekeepingRequestType,
+  LostItemCategory,
+  LostItemEventKind,
+  LostItemStatus,
   HousekeepingTaskPriority,
   HousekeepingTaskStatus,
   HousekeepingTaskType,
@@ -43,7 +52,7 @@ const SYSTEM_SOURCE_LABEL: Partial<Record<RoomStatusSource, string>> = {
 };
 
 /** Same string, humanised: `departure_clean` -> `Departure clean`. */
-function humanise(code: string): string {
+export function humanise(code: string): string {
   const text = code.replace(/_/g, ' ').trim();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : code;
 }
@@ -83,4 +92,74 @@ export function blockTimes(start: string | null | undefined, end: string | null 
   if (start) return `from ${start}`;
   if (end) return `until ${end}`;
   return '';
+}
+
+// ---------------------------------------------------------------------------
+// R4.11 Part A words: requests, lost and found, cases
+// ---------------------------------------------------------------------------
+
+export const REQUEST_STATUS_LABEL: Record<HousekeepingRequestStatus, string> = {
+  open: 'Open',
+  in_progress: 'In progress',
+  resolved: 'Resolved',
+  cancelled: 'Cancelled',
+};
+
+export const REQUEST_DEPARTMENT_LABEL: Record<HousekeepingRequestDepartment, string> = {
+  housekeeping: 'Housekeeping',
+  front_office: 'Front office',
+  maintenance: 'Maintenance',
+  food_beverage: 'Food and beverage',
+};
+
+export const LOST_STATUS_LABEL: Record<LostItemStatus, string> = {
+  found: 'Found',
+  handed_over: 'Handed over',
+  claimed: 'Claimed',
+  disposed: 'Disposed',
+  closed: 'Closed',
+};
+
+export const LOST_CATEGORY_LABEL: Record<LostItemCategory, string> = {
+  electronics: 'Electronics',
+  documents: 'Documents',
+  jewellery: 'Jewellery',
+  clothing: 'Clothing',
+  money: 'Money',
+  other: 'Other',
+};
+
+export const LOST_EVENT_LABEL: Record<LostItemEventKind, string> = {
+  found: 'Found',
+  edited: 'Details edited',
+  handed_over: 'Handed over',
+  claimed: 'Claimed',
+  disposed: 'Disposed',
+  closed: 'Closed',
+};
+
+export const CASE_KIND_LABEL: Record<HousekeepingCaseKind, string> = {
+  missing: 'Missing',
+  damaged: 'Damaged',
+};
+
+export const CASE_STATUS_LABEL: Record<HousekeepingCaseStatus, string> = {
+  open: 'Open',
+  closed: 'Closed',
+};
+
+export const RETURNED_STATUS_LABEL: Record<HousekeepingCaseReturned, string> = {
+  not_returned: 'Not returned',
+  returned: 'Returned',
+  partially_returned: 'Partly returned',
+  not_applicable: 'Not applicable',
+};
+
+export function requestTypeLabel(code: string, types: readonly HousekeepingRequestType[]): string {
+  return types.find((t) => t.code === code)?.label ?? humanise(code);
+}
+
+/** Look a label up in a record, falling back to a humanised code for a value added later. */
+export function wordFor<K extends string>(map: Record<K, string>, value: string): string {
+  return (map as Record<string, string>)[value] ?? humanise(value);
 }

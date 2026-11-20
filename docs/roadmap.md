@@ -717,6 +717,13 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Scope out:** auto-assign (R1.9 leftover); SLA and escalation; attendant mobile capture (**R4.10**).
 
 - [ ] **R4.11 Housekeeping depth**
+  - **Part A done (2026-11-20):** [spec](superpowers/specs/2026-11-20-housekeeping-depth-a-requests-lost-found-cases-design.md).
+    - **Guest requests:** `housekeeping_request` runs open → in progress → resolved, or cancelled. Its type comes from the DOMAIN key `pms.housekeeping.request_types`, and the type sets the default department. Desk *Guest request* buttons on the folio and the stay card raise one. It is not a maintenance ticket.
+    - **Lost and found:** custody in `housekeeping_lost_item` plus an append-only event table. The claimant is a `guestRef` picked through the directory search, never a typed name.
+    - **Missing and damaged cases:** `housekeeping_case`, closed only with a note. A "Post damage charge" link goes to the folio; there is no new money path.
+    - **Commands and reads:** six commands (`pms.core`, audit writers) and four reads. Housekeeping gains Requests, Lost & found and Cases tabs, the Board shows an open-request count per room, and Settings has a request-type editor. "Claimed this month" uses the property month.
+    - Pins: catalog 136, routes 224 (last `get_housekeeping_cases`), audit writers 102, `PROPERTY_SCHEMA_HEAD` 53, config +1.
+    - **Left:** Part B (scored inspections, cleaning stages, guest-count audit) and Part C (linen, minibar through the folio, amenities).
   - **Depends:** **R1.9**, **R4.30** (the task record). **R4.10** is no longer a dependency — the pilot needs this before the mobile app ships.
   - **Prototype:** `Housekeeping.tsx` Tools (BluePMS parity Phase 2).
   - **Scope (§16.6 *Core*):** lost and found custody — found, handed over, claimed or closed, never deleted, with item, location, room and guest; missing and damaged cases with reporter, inspection detail, returned-item status and closure; guest-count audit comparing front-office occupancy with housekeeping counts by room, floor and type, in dated sessions, with count adjustment, a variance reason and saved evidence; scored inspections from checklist templates that can be activated and deactivated (weighted items, required checks, defects, remarks, room score); cleaning stages (started, paused, resumed, inspected, completed, released) on the **R4.30** task; a linen item list and movements for issue, return, laundry, discard and adjustment by room and attendant; minibar pickup **posted through the folio contract**, never inserted, with a reconciliation view of pickup, folio charge and stock.

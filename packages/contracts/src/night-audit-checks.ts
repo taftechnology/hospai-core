@@ -8,6 +8,7 @@ export const NIGHT_AUDIT_CHECK_IDS = [
   'dirty_room_assigned',
   'departed_with_balance',
   'id_proof_missing',
+  'arrival_deposit_missing',
 ] as const;
 export type NightAuditCheckId = (typeof NIGHT_AUDIT_CHECK_IDS)[number];
 
@@ -29,6 +30,7 @@ export const NightAuditChecksSchema = z
     dirty_room_assigned: nightAuditCheckSeveritySchema.optional(),
     departed_with_balance: nightAuditCheckSeveritySchema.optional(),
     id_proof_missing: nightAuditCheckSeveritySchema.optional(),
+    arrival_deposit_missing: nightAuditCheckSeveritySchema.optional(),
   })
   .strict();
 export type NightAuditChecks = z.infer<typeof NightAuditChecksSchema>;
@@ -40,6 +42,7 @@ export const NIGHT_AUDIT_CHECKS_DEFAULT: { [K in NightAuditCheckId]: 'warn' } = 
   dirty_room_assigned: 'warn',
   departed_with_balance: 'warn',
   id_proof_missing: 'warn',
+  arrival_deposit_missing: 'warn',
 };
 
 /** Preview row from `evaluateNightAuditChecksSync` / `readNightAuditStatus`. */

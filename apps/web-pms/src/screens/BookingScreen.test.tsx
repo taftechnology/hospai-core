@@ -28,6 +28,10 @@ const overrideReservationNightRates = vi.fn();
 const getAvailableRooms = vi.fn();
 const assignRoom = vi.fn();
 const getProperty = vi.fn();
+const recordCashPayment = vi.fn();
+const recordUpiPayment = vi.fn();
+const authorizePayment = vi.fn();
+const getReservationProforma = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -64,6 +68,10 @@ vi.mock('../client.js', () => ({
     getAvailableRooms: (...a: unknown[]) => getAvailableRooms(...a),
     assignRoom: (...a: unknown[]) => assignRoom(...a),
     getProperty: (...a: unknown[]) => getProperty(...a),
+    recordCashPayment: (...a: unknown[]) => recordCashPayment(...a),
+    recordUpiPayment: (...a: unknown[]) => recordUpiPayment(...a),
+    authorizePayment: (...a: unknown[]) => authorizePayment(...a),
+    getReservationProforma: (...a: unknown[]) => getReservationProforma(...a),
   },
 }));
 
@@ -308,6 +316,17 @@ describe('BookingScreen', () => {
     getProperty.mockResolvedValue({
       ok: true,
       property: { propertyId: 'prop_demo', name: 'Demo Hotel', timeZone: 'UTC', currency: 'USD' },
+    });
+    recordCashPayment.mockResolvedValue({ ok: true });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    authorizePayment.mockResolvedValue({ ok: true });
+    getReservationProforma.mockResolvedValue({
+      ok: true,
+      totals: {
+        estimatedTotalMinor: 15_000,
+        advancePaidMinor: 0,
+        balanceMinor: 15_000,
+      },
     });
   });
 
@@ -1781,5 +1800,113 @@ describe('BookingScreen', () => {
     await waitFor(() => expect(screen.getByTestId('book-room-prefill-note')).toBeTruthy());
     expect(screen.getByTestId('book-room-prefill-note').textContent).toMatch(/no longer free/i);
     expect((screen.getByTestId('book-room') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('R4.25: draft advance rows post after Confirm with distinct advance op ids', async () => {
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    recordCashPayment.mockResolvedValue({ ok: true });
+    const { invalidateSpy } = renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
+    expect(screen.getByTestId('advance-panel-quote')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '10.00' } });
+    fireEvent.click(screen.getByTestId('advance-add-row'));
+    fireEvent.change(screen.getByLabelText('Amount, payment 2'), { target: { value: '5.00' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    await waitFor(() => expect(recordCashPayment).toHaveBeenCalledTimes(2));
+    expect(recordCashPayment.mock.invocationCallOrder[0]).toBeGreaterThan(
+      createReservation.mock.invocationCallOrder[0]!,
+    );
+    const reservationId = (createReservation.mock.calls[0]![1] as { reservationId: string })
+      .reservationId;
+    const op1 = recordCashPayment.mock.calls[0]![3] as string;
+    const op2 = recordCashPayment.mock.calls[1]![3] as string;
+    const advanceOpWithRes = new RegExp(`^advance:${reservationId}:`);
+    expect(op1).toMatch(advanceOpWithRes);
+    expect(op2).toMatch(advanceOpWithRes);
+    expect(op1).not.toMatch(/^advance::/);
+    expect(op2).not.toMatch(/^advance::/);
+    expect(op1).not.toBe(op2);
+    expect(recordCashPayment.mock.calls[0]![2]).toMatchObject({
+      paymentId: `pay_adv:${op1}`,
+      amountMinor: 1000,
+    });
+    expect(recordCashPayment.mock.calls[1]![2]).toMatchObject({
+      paymentId: `pay_adv:${op2}`,
+      amountMinor: 500,
+    });
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['folio', 'prop_demo', reservationId] }),
+      );
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['folio-payments', 'prop_demo', reservationId] }),
+      );
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['reservation-proforma', 'prop_demo', reservationId] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['open-shift', 'prop_demo'] }));
+    });
+  });
+
+  it('R4.25: one failing advance keeps booking and Retry reuses failed op id only', async () => {
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    recordCashPayment
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(
+        new ClassifiedError({
+          class: 'client_error',
+          status: 422,
+          body: { ok: false, error: 'invalid_amount' },
+          retryAfterMs: null,
+        }),
+      )
+      .mockResolvedValue({ ok: true });
+    getReservationProforma.mockResolvedValue({
+      ok: true,
+      totals: {
+        estimatedTotalMinor: 15_000,
+        advancePaidMinor: 1_000,
+        balanceMinor: 14_000,
+      },
+    });
+    renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '10.00' } });
+    fireEvent.click(screen.getByTestId('advance-add-row'));
+    fireEvent.change(screen.getByLabelText('Amount, payment 2'), { target: { value: '5.00' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Booking created — some advances could not be recorded/),
+      ).toBeTruthy(),
+    );
+    expect(createReservation).toHaveBeenCalledTimes(1);
+    const reservationId = (createReservation.mock.calls[0]![1] as { reservationId: string })
+      .reservationId;
+    expect(screen.getByTestId('book-message')).toBeTruthy();
+    expect(screen.getByTestId('location').getAttribute('data-pathname')).toBe('/book');
+    expect(recordCashPayment.mock.calls[0]![1]).toBe(reservationId);
+    await waitFor(() => expect(screen.getByTestId('advance-retry')).toBeTruthy());
+    const failedOp = recordCashPayment.mock.calls[1]![3] as string;
+    const okOp = recordCashPayment.mock.calls[0]![3] as string;
+    const advanceOpWithRes = new RegExp(`^advance:${reservationId}:`);
+    expect(okOp).toMatch(advanceOpWithRes);
+    expect(failedOp).toMatch(advanceOpWithRes);
+    expect(failedOp).not.toBe(okOp);
+    recordCashPayment.mockClear();
+    recordCashPayment.mockResolvedValue({ ok: true });
+    fireEvent.click(screen.getByTestId('advance-retry'));
+    await waitFor(() => expect(recordCashPayment).toHaveBeenCalledTimes(1));
+    expect(recordCashPayment.mock.calls[0]![3]).toBe(failedOp);
   });
 });

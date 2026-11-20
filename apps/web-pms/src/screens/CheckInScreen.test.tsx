@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +25,10 @@ const getReservationRateNights = vi.fn();
 const listPackages = vi.fn();
 const applyPackage = vi.fn();
 const getReservationRegistrationCard = vi.fn();
+const recordCashPayment = vi.fn();
+const recordUpiPayment = vi.fn();
+const authorizePayment = vi.fn();
+const getReservationProforma = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -60,6 +64,10 @@ vi.mock('../client.js', () => ({
     applyPackage: (...args: unknown[]) => applyPackage(...args),
     getReservationRegistrationCard: (...args: unknown[]) =>
       getReservationRegistrationCard(...args),
+    recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
+    recordUpiPayment: (...args: unknown[]) => recordUpiPayment(...args),
+    authorizePayment: (...args: unknown[]) => authorizePayment(...args),
+    getReservationProforma: (...args: unknown[]) => getReservationProforma(...args),
   },
 }));
 
@@ -101,6 +109,14 @@ function room(partial: {
 
 function checkInButton(): HTMLButtonElement {
   return screen.getByTestId('check-in') as HTMLButtonElement;
+}
+
+function invokeReactClick(el: HTMLElement) {
+  const key = Object.keys(el).find((k) => k.startsWith('__reactProps$'));
+  if (!key) throw new Error('missing __reactProps$ on element');
+  const props = (el as unknown as Record<string, { onClick?: (e: unknown) => void }>)[key];
+  if (!props || typeof props.onClick !== 'function') throw new Error('missing onClick');
+  props.onClick({ preventDefault() {}, stopPropagation() {} });
 }
 
 function renderCheckIn() {
@@ -239,6 +255,21 @@ describe('CheckInScreen', () => {
           oooRanges: [],
         },
       ],
+    });
+    getReservationProforma.mockResolvedValue({
+      ok: true,
+      totals: {
+        estimatedTotalMinor: 10_000,
+        advancePaidMinor: 0,
+        balanceMinor: 10_000,
+      },
+    });
+    recordCashPayment.mockResolvedValue({ ok: true });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    authorizePayment.mockResolvedValue({ ok: true });
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
+      ledgerCurrency: 'INR',
     });
   });
 
@@ -1047,5 +1078,74 @@ describe('CheckInScreen', () => {
     renderCheckIn();
     await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
     expect(screen.queryByTestId('check-in-apply-package')).toBeNull();
+  });
+
+  it('R4.25: require_prepayment with no guarantee shows block and AdvancePayments', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.booking.require_prepayment', value: true }],
+    });
+    renderCheckIn();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/requires a card hold or payment before check-in/),
+      ).toBeTruthy(),
+    );
+    expect(checkInButton().disabled).toBe(true);
+    expect(screen.getByTestId('advance-payments')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('advance-panel')).toBeTruthy());
+  });
+
+  it('R4.25: successful advance clears prepayment block without reload via folio-payments invalidate', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.booking.require_prepayment', value: true }],
+    });
+    getFolioPayments
+      .mockResolvedValueOnce({ ok: true, payments: [] })
+      .mockResolvedValue({
+        ok: true,
+        payments: [
+          {
+            paymentId: 'pay_adv_1',
+            reservationId: 'res_1',
+            amountMinor: 1000,
+            currency: 'INR',
+            status: 'captured',
+            purpose: 'STAY',
+            gatewayReference: null,
+            capturedAmountMinor: 1000,
+            refundedAmountMinor: 0,
+            createdAt: 1,
+            updatedAt: 1,
+            tenderType: 'CASH',
+            cardBrand: null,
+            cardLast4: null,
+          },
+        ],
+      });
+    const { invalidateSpy } = renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
+    expect(checkInButton().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '10.00' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-cash'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordCashPayment).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['folio-payments', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['folio', 'prop_demo', 'res_1'] }));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['reservation-proforma', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['open-shift', 'prop_demo'] }));
+    });
+    await waitFor(() => expect(checkInButton().disabled).toBe(false));
+    expect(screen.queryByText(/requires a card hold or payment before check-in/)).toBeNull();
+    expect(screen.getByTestId('check-in')).toBeTruthy();
   });
 });

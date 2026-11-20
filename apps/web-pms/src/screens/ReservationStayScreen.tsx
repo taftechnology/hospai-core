@@ -35,6 +35,7 @@ import { GuestDocumentBadges, GuestPreferenceBadges, useGuestPreferences } from 
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { GuestNameLink } from './guest-row.js';
+import { AdvancePayments } from './AdvancePayments.js';
 import {
   cancelChargeSentence,
   cancelCheckInOpId,
@@ -456,6 +457,23 @@ export function ReservationStayScreen() {
         holds={damageHolds}
         money={money}
       />
+      {res.status === 'pending' ||
+      res.status === 'confirmed' ||
+      res.status === 'checked_in' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Advance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AdvancePayments
+              propertyId={propertyId}
+              reservationId={reservationId}
+              context="stay"
+              status={res.status}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
       <FrontOfficeEditor
         reservationId={reservationId}
         frontOfficeComment={res.frontOfficeComment}

@@ -9,6 +9,7 @@ export const CHECK_LABELS: Record<NightAuditCheckId | NightAuditFixedCheckId, st
   dirty_room_assigned: 'Arrivals assigned a dirty room',
   departed_with_balance: 'Departed with a balance',
   id_proof_missing: 'In-house guests with no ID document recorded',
+  arrival_deposit_missing: 'Arrivals missing a required deposit',
 };
 
 /** What the check counts, in operator language. Settings shows this beside the select. */
@@ -24,6 +25,8 @@ export const CHECK_DESCRIPTIONS: Record<NightAuditCheckId | NightAuditFixedCheck
   departed_with_balance:
     'Stays checked out on the closing date whose guest window still has a balance.',
   id_proof_missing: 'In-house stays with no identity document recorded at this property.',
+  arrival_deposit_missing:
+    'Confirmed or pending arrivals on or before the closing date with no stay guarantee, only when require prepayment is on.',
 };
 
 export const SEVERITY_WORD: Record<NightAuditCheckSeverity | 'clear', string> = {

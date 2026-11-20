@@ -162,8 +162,9 @@ describe('config register', () => {
       'dirty_room_assigned',
       'departed_with_balance',
       'id_proof_missing',
+      'arrival_deposit_missing',
     ]);
-    expect(NIGHT_AUDIT_CHECK_IDS).toHaveLength(6);
+    expect(NIGHT_AUDIT_CHECK_IDS).toHaveLength(7);
     expect(NIGHT_AUDIT_FIXED_CHECK_IDS).toEqual(['queued_commands', 'open_exceptions']);
     expect(NIGHT_AUDIT_CHECK_SEVERITIES).toEqual(['off', 'fail', 'warn', 'info']);
     expect(NightAuditChecksSchema.safeParse(NIGHT_AUDIT_CHECKS_DEFAULT).success).toBe(true);

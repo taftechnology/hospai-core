@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -157,7 +157,11 @@ describe('BoardScreen folio links', () => {
       expect((screen.getByTestId('board-date') as HTMLInputElement).value).toBe('2026-09-14');
     });
     await waitFor(() => {
-      expect(screen.getByTestId('created-banner').textContent).toMatch(/res_x/);
+      const banner = screen.getByTestId('created-banner');
+      expect(banner.textContent).toMatch(/Booking created\./);
+      expect(banner.textContent).not.toMatch(/res_x/);
+      const open = within(banner).getByRole('link', { name: /Open reservation/i });
+      expect(open.getAttribute('href')).toBe('/reservations/res_x');
     });
     expect(getArrivals.mock.calls.some((c) => c[1] === '2026-09-14')).toBe(true);
   });

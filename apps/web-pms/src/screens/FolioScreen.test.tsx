@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -18,6 +18,7 @@ const earlyDepart = vi.fn();
 const postGuestsBatch = vi.fn();
 const recordCashPayment = vi.fn();
 const recordUpiPayment = vi.fn();
+const getReservationProforma = vi.fn();
 const splitFolioLine = vi.fn();
 const closeFolioWindow = vi.fn();
 const transferFolioLine = vi.fn();
@@ -96,6 +97,7 @@ vi.mock('../client.js', () => ({
     postGuestsBatch: (...args: unknown[]) => postGuestsBatch(...args),
     recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
     recordUpiPayment: (...args: unknown[]) => recordUpiPayment(...args),
+    getReservationProforma: (...args: unknown[]) => getReservationProforma(...args),
     capturePayment: (...args: unknown[]) => capturePayment(...args),
     splitFolioLine: (...args: unknown[]) => splitFolioLine(...args),
     closeFolioWindow: (...args: unknown[]) => closeFolioWindow(...args),
@@ -192,7 +194,8 @@ function fillChargeAmount(value = '10.00') {
 }
 
 function fillCashAmount(value = '10.00') {
-  fireEvent.change(screen.getByLabelText('cash-amount'), { target: { value } });
+  const root = screen.getByTestId('advance-payments');
+  fireEvent.change(within(root).getByLabelText('Amount'), { target: { value } });
 }
 
 function fillAuthAmount(value = '50.00') {
@@ -296,6 +299,14 @@ describe('FolioScreen wiring', () => {
       body: { ok: true },
     });
     getOpenShift.mockResolvedValue({ ok: true, shift: { shiftId: 's1' } });
+    getReservationProforma.mockResolvedValue({
+      ok: true,
+      totals: {
+        estimatedTotalMinor: 10_000,
+        advancePaidMinor: 0,
+        balanceMinor: 10_000,
+      },
+    });
     // Default: authority unknown → fail open (split not permission-gated)
     getMe.mockRejectedValue(
       new ClassifiedError({
@@ -736,11 +747,15 @@ describe('FolioScreen wiring', () => {
         </PropertyFormatProvider>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
+    // Wait until folio policy allows pay (AdvancePayments canPay), then exercise UPI validation.
+    await waitFor(() => {
+      fillCashAmount('1.00');
+      expect((screen.getByTestId('record-cash') as HTMLButtonElement).disabled).toBe(false);
+    });
     fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
     fillCashAmount();
-    const bad = screen.getByTestId('record-upi') as HTMLButtonElement;
-    expect(bad.disabled).toBe(true);
+    expect((screen.getByTestId('record-upi') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'no' } });
     expect(screen.getByTestId('upi-reference-invalid').textContent).toMatch(/6 to 35 letters or digits/);
     fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR123456' } });
@@ -754,10 +769,10 @@ describe('FolioScreen wiring', () => {
     expect(recordCashPayment).not.toHaveBeenCalled();
     const upiBody = recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string; reference: string };
     const upiKey = recordUpiPayment.mock.calls[0]?.[3] as string;
-    expect(upiBody.paymentId.startsWith('pay_upi:')).toBe(true);
+    expect(upiKey).toMatch(/^advance:[^:]+:[^:]+:/);
+    expect(upiBody.paymentId).toBe(`pay_adv:${upiKey}`);
+    expect(upiBody.reference).toBe('UTR123456');
     expect(upiBody.paymentId).not.toContain('UTR123456');
-    expect(upiBody.paymentId).not.toContain(upiBody.reference);
-    expect(upiKey).toContain('UTR123456');
     await waitFor(() => {
       const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
       expect(keys.some((k) => k.includes('"folio"') && k.includes('prop_demo') && k.includes('res_1'))).toBe(
@@ -767,6 +782,11 @@ describe('FolioScreen wiring', () => {
         true,
       );
       expect(keys.some((k) => k.includes('open-shift') && k.includes('prop_demo'))).toBe(true);
+      expect(
+        keys.some(
+          (k) => k.includes('reservation-proforma') && k.includes('prop_demo') && k.includes('res_1'),
+        ),
+      ).toBe(true);
     });
     expect(screen.getByText('UPI UTR123456')).toBeTruthy();
   });
@@ -784,7 +804,7 @@ describe('FolioScreen wiring', () => {
       }),
     );
     renderFolio();
-    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
     fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
     fillCashAmount();
     fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR123456' } });
@@ -793,19 +813,19 @@ describe('FolioScreen wiring', () => {
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(screen.getByTestId('folio-message').textContent).toBe(
+      expect(screen.getByTestId('advance-row-error-0').textContent).toBe(
         'This UPI reference is already recorded on another payment.',
       ),
     );
   });
 
-  it('two UPI payments on one mount send different keys and pay_upi: paymentIds', async () => {
+  it('two UPI payments on one mount send different advance opIds and pay_adv paymentIds', async () => {
     getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
     getReservation.mockResolvedValue(liveReservation);
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     recordUpiPayment.mockResolvedValue({ ok: true });
     renderFolio();
-    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
     fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
     fillCashAmount('10.00');
     fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR111111' } });
@@ -816,16 +836,18 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(1));
     const firstBody = recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string; reference: string };
     const firstKey = recordUpiPayment.mock.calls[0]?.[3] as string;
-    expect(firstBody.paymentId.startsWith('pay_upi:')).toBe(true);
-    expect(firstBody.paymentId).not.toContain('UTR111111');
-    expect(firstBody.paymentId).not.toContain(firstBody.reference);
-    expect(firstKey).toContain('UTR111111');
+    expect(firstKey).toMatch(/^advance:[^:]+:[^:]+:/);
+    expect(firstBody.paymentId).toBe(`pay_adv:${firstKey}`);
+    expect(firstBody.reference).toBe('UTR111111');
     await waitFor(() => {
-      expect((screen.getByLabelText('cash-amount') as HTMLInputElement).value).toBe('');
-      expect((screen.getByTestId('upi-reference') as HTMLInputElement).value).toBe('');
+      const advance = screen.getByTestId('advance-payments');
+      expect((within(advance).getByLabelText('Amount') as HTMLInputElement).value).toBe('');
     });
-    fillCashAmount('15.00');
-    fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR222222' } });
+    // Succeeded row removed; fill a second draft for another UPI capture.
+    fireEvent.click(screen.getByTestId('advance-add-row'));
+    fireEvent.change(screen.getByTestId('payment-tender-1'), { target: { value: 'UPI' } });
+    fireEvent.change(screen.getByLabelText('Amount, payment 2'), { target: { value: '15.00' } });
+    fireEvent.change(screen.getByTestId('upi-reference-1'), { target: { value: 'UTR222222' } });
     await act(async () => {
       invokeReactClick(screen.getByTestId('record-upi'));
       await Promise.resolve();
@@ -833,10 +855,9 @@ describe('FolioScreen wiring', () => {
     await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(2));
     const secondBody = recordUpiPayment.mock.calls[1]?.[2] as { paymentId: string; reference: string };
     const secondKey = recordUpiPayment.mock.calls[1]?.[3] as string;
-    expect(secondBody.paymentId.startsWith('pay_upi:')).toBe(true);
-    expect(secondBody.paymentId).not.toContain('UTR222222');
-    expect(secondBody.paymentId).not.toContain(secondBody.reference);
-    expect(secondKey).toContain('UTR222222');
+    expect(secondKey).toMatch(/^advance:[^:]+:[^:]+:/);
+    expect(secondBody.paymentId).toBe(`pay_adv:${secondKey}`);
+    expect(secondBody.reference).toBe('UTR222222');
     expect(secondKey).not.toBe(firstKey);
     expect(secondBody.paymentId).not.toBe(firstBody.paymentId);
   });
@@ -847,7 +868,7 @@ describe('FolioScreen wiring', () => {
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     recordUpiPayment.mockResolvedValue({ ok: true });
     renderFolio();
-    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
     fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
     fillCashAmount('12.00');
     fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR333333' } });
@@ -857,51 +878,50 @@ describe('FolioScreen wiring', () => {
     });
     await waitFor(() => expect(recordUpiPayment).toHaveBeenCalled());
     await waitFor(() => {
-      expect((screen.getByLabelText('cash-amount') as HTMLInputElement).value).toBe('');
-      expect((screen.getByTestId('upi-reference') as HTMLInputElement).value).toBe('');
+      const advance = screen.getByTestId('advance-payments');
+      expect((within(advance).getByLabelText('Amount') as HTMLInputElement).value).toBe('');
+      expect(within(advance).queryByTestId('upi-reference')).toBeNull();
     });
   });
 
-  it('same-inputs double submit before success uses the same idempotency key', async () => {
+  it('Retry failed UPI re-posts with the same advance opId', async () => {
     getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
     getReservation.mockResolvedValue(liveReservation);
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
-    let resolveFirst: ((value: { ok: true }) => void) | undefined;
-    recordUpiPayment.mockImplementation(
-      () =>
-        new Promise<{ ok: true }>((resolve) => {
-          if (!resolveFirst) resolveFirst = resolve;
-          else resolve( { ok: true });
+    recordUpiPayment
+      .mockRejectedValueOnce(
+        new ClassifiedError({
+          class: 'client_error',
+          status: 422,
+          body: { error: 'duplicate_upi_reference' },
+          retryAfterMs: null,
         }),
-    );
+      )
+      .mockResolvedValue({ ok: true });
     renderFolio();
-    await waitFor(() => expect(screen.getByTestId('payment-tender')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('advance-payments')).toBeTruthy());
     fireEvent.change(screen.getByTestId('payment-tender'), { target: { value: 'UPI' } });
     fillCashAmount('10.00');
     fireEvent.change(screen.getByTestId('upi-reference'), { target: { value: 'UTR444444' } });
-    const btn = screen.getByTestId('record-upi');
     await act(async () => {
-      invokeReactClick(btn);
+      invokeReactClick(screen.getByTestId('record-upi'));
       await Promise.resolve();
     });
     await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(1));
+    const key1 = recordUpiPayment.mock.calls[0]?.[3] as string;
+    const pay1 = (recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string }).paymentId;
+    expect(key1).toMatch(/^advance:[^:]+:[^:]+:/);
+    expect(pay1).toBe(`pay_adv:${key1}`);
+    await waitFor(() => expect(screen.getByTestId('advance-retry')).toBeTruthy());
     await act(async () => {
-      invokeReactClick(btn);
+      invokeReactClick(screen.getByTestId('advance-retry'));
       await Promise.resolve();
     });
     await waitFor(() => expect(recordUpiPayment).toHaveBeenCalledTimes(2));
-    const key1 = recordUpiPayment.mock.calls[0]?.[3] as string;
     const key2 = recordUpiPayment.mock.calls[1]?.[3] as string;
-    const pay1 = (recordUpiPayment.mock.calls[0]?.[2] as { paymentId: string }).paymentId;
     const pay2 = (recordUpiPayment.mock.calls[1]?.[2] as { paymentId: string }).paymentId;
-    expect(key1).toBe(key2);
-    expect(key1).toContain('UTR444444');
-    expect(pay1).toBe(pay2);
-    expect(pay1).not.toContain('UTR444444');
-    await act(async () => {
-      resolveFirst?.({ ok: true });
-      await Promise.resolve();
-    });
+    expect(key2).toBe(key1);
+    expect(pay2).toBe(pay1);
   });
 
   it('refund of UPI shows an optional reference and sends it when set', async () => {
@@ -2052,6 +2072,74 @@ describe('FolioScreen wiring', () => {
       'prop_demo',
       'res_1',
       expect.objectContaining({ currency: 'EUR' }),
+      expect.any(String),
+    );
+  });
+
+  it('41b: Advanced cash-currency is forwarded on AdvancePayments cash/UPI', async () => {
+    listFxRates.mockResolvedValue({
+      ledgerCurrency: 'USD',
+      rates: [
+        {
+          quoteId: 'q1',
+          fromCurrency: 'EUR',
+          toCurrency: 'USD',
+          rate: '1.10',
+          effectiveFrom: 1,
+          effectiveTo: null,
+          createdAt: 1,
+          createdBy: null,
+        },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: null,
+      balanceMinor: 0,
+      ledgerCurrency: 'USD',
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    recordCashPayment.mockResolvedValue({ ok: true });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    renderFolio();
+    openFxRatesEditor();
+    await waitFor(() => expect(listFxRates).toHaveBeenCalled());
+    await waitFor(() => {
+      const select = screen.getByTestId('cash-currency') as HTMLSelectElement;
+      expect([...select.options].map((o) => o.value)).toEqual(expect.arrayContaining(['USD', 'EUR']));
+    });
+    fireEvent.change(screen.getByTestId('cash-currency'), { target: { value: 'EUR' } });
+    await waitFor(() => {
+      fillCashAmount('1.00');
+      expect((screen.getByTestId('record-cash') as HTMLButtonElement).disabled).toBe(false);
+    });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-cash'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordCashPayment).toHaveBeenCalled());
+    expect(recordCashPayment).toHaveBeenCalledWith(
+      'prop_demo',
+      'res_1',
+      expect.objectContaining({ currency: 'EUR', amountMinor: 100 }),
+      expect.any(String),
+    );
+
+    fireEvent.click(screen.getByTestId('advance-add-row'));
+    fireEvent.change(screen.getByTestId('payment-tender-1'), { target: { value: 'UPI' } });
+    fireEvent.change(screen.getByLabelText('Amount, payment 2'), { target: { value: '2.00' } });
+    fireEvent.change(screen.getByTestId('upi-reference-1'), { target: { value: 'UTR999999' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('record-upi'));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(recordUpiPayment).toHaveBeenCalled());
+    expect(recordUpiPayment).toHaveBeenCalledWith(
+      'prop_demo',
+      'res_1',
+      expect.objectContaining({ currency: 'EUR', amountMinor: 200, reference: 'UTR999999' }),
       expect.any(String),
     );
   });

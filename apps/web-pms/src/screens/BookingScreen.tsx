@@ -8,7 +8,7 @@ import {
   stayNightsExceedAvailabilityCap,
   type NamedListEntry,
 } from '@hospai/client-core';
-import { addedInclusionsMinor as sumAddedInclusionsMinor } from '@hospai/contracts';
+import { addedInclusionsMinor as sumAddedInclusionsMinor, UPI_REFERENCE_RE } from '@hospai/contracts';
 import { SelectedGuestDocument } from './guest-identity.js';
 import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -40,7 +40,7 @@ import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { TaxInclusionNote } from './tax-inclusion-note.js';
 import { NightlyRatesEditor, rateOverrideOpId, type NightlyRateDraft } from './NightlyRatesEditor.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
-import { minorToMajorInput, parseMajorToMinor } from '../money.js';
+import { minorToMajorInput, parseAmountToMinor, parseMajorToMinor } from '../money.js';
 import { validAmount } from './board-dialogs.js';
 import { usePostableProducts } from './product-picker.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
@@ -59,6 +59,12 @@ import {
   type RecurringScheduleChoice,
   type RecurringWhenValue,
 } from './recurring-when.js';
+import {
+  AdvancePayments,
+  createAdvanceDraftRow,
+  ensureAdvanceOpIdForPost,
+  type AdvanceDraftRow,
+} from './AdvancePayments.js';
 
 const ASSIGN_LATER = '';
 
@@ -239,6 +245,10 @@ export function BookingScreen() {
   const [packageApplyFailure, setPackageApplyFailure] = useState<BookPackageFailure | null>(null);
   /** Created once per booking attempt (reservation + package); Retry reuses it. */
   const packageApplyOpIdRef = useRef<{ packageId: string; opId: string } | null>(null);
+  const [advanceDraftRows, setAdvanceDraftRows] = useState<AdvanceDraftRow[]>(() => [
+    createAdvanceDraftRow(reservationId),
+  ]);
+  const [advancePostCommit, setAdvancePostCommit] = useState(false);
 
   const postableProducts = usePostableProducts();
 
@@ -717,6 +727,92 @@ export function BookingScreen() {
     void queryClient.invalidateQueries({ queryKey: ['front-desk-summary', propertyId] });
   }
 
+  function advanceRowReady(row: AdvanceDraftRow): boolean {
+    if (row.status === 'ok' || row.status === 'pending') return false;
+    const amount = parseAmountToMinor(row.amountInput);
+    if (amount == null || amount <= 0) return false;
+    if (row.method === 'UPI' && !UPI_REFERENCE_RE.test(row.upiReference.trim())) return false;
+    return true;
+  }
+
+  async function postBookAdvances(
+    rows: AdvanceDraftRow[],
+  ): Promise<{ rows: AdvanceDraftRow[]; failureCount: number }> {
+    const working = rows.map((r) => ({ ...r }));
+    let failureCount = 0;
+    let touched = false;
+    for (let i = 0; i < working.length; i++) {
+      const row = working[i]!;
+      if (!advanceRowReady(row)) continue;
+      const amountMinor = parseAmountToMinor(row.amountInput);
+      if (amountMinor == null || amountMinor <= 0) continue;
+      // D3: draft Add-row before Confirm mints advance::… — rewrite once at first post.
+      const withOp = ensureAdvanceOpIdForPost(row, reservationId);
+      working[i] = { ...withOp, status: 'pending', errorMessage: undefined };
+      setAdvanceDraftRows([...working]);
+      const opId = working[i]!.opId;
+      const paymentId = `pay_adv:${opId}`;
+      try {
+        if (withOp.method === 'CASH') {
+          await api.recordCashPayment(
+            propertyId,
+            reservationId,
+            { paymentId, amountMinor },
+            opId,
+          );
+        } else if (withOp.method === 'UPI') {
+          await api.recordUpiPayment(
+            propertyId,
+            reservationId,
+            {
+              paymentId,
+              amountMinor,
+              reference: withOp.upiReference.trim(),
+            },
+            opId,
+          );
+        } else {
+          await api.authorizePayment(
+            propertyId,
+            reservationId,
+            { paymentId, amountMinor, purpose: 'STAY' },
+            opId,
+          );
+        }
+        touched = true;
+        working[i] = {
+          ...working[i]!,
+          status: 'ok',
+          errorMessage: undefined,
+          amountInput: '',
+          upiReference: '',
+        };
+        setAdvanceDraftRows([...working]);
+      } catch (err) {
+        failureCount += 1;
+        working[i] = {
+          ...working[i]!,
+          status: 'error',
+          errorMessage: classifiedUserMessage(asClassified(err), {
+            fallback: 'Advance payment failed.',
+          }),
+        };
+        setAdvanceDraftRows([...working]);
+      }
+    }
+    if (touched || failureCount > 0) {
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['folio-payments', propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['reservation-proforma', propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
+    }
+    return { rows: working, failureCount };
+  }
+
   async function postBookRoomAssign(
     roomId: string,
     opId: string,
@@ -976,6 +1072,12 @@ export function BookingScreen() {
         }
       }
 
+      const advancePosted =
+        (status === 'pending' || status === 'confirmed') &&
+        advanceDraftRows.some(advanceRowReady)
+          ? await postBookAdvances(advanceDraftRows)
+          : { rows: advanceDraftRows, failureCount: 0 };
+
       return {
         status,
         addonFailures: addonPosted.failures,
@@ -987,6 +1089,8 @@ export function BookingScreen() {
         roomAssignQueued,
         packageApply,
         packageApplyQueued,
+        advanceRows: advancePosted.rows,
+        advanceFailures: advancePosted.failureCount,
       };
     },
     onSuccess: (result) => {
@@ -1005,6 +1109,13 @@ export function BookingScreen() {
       } else {
         setPackageApplyFailure(null);
       }
+      if (result.advanceFailures > 0) {
+        setAdvanceDraftRows(result.advanceRows);
+        setAdvancePostCommit(true);
+      } else if (result.advanceRows.some((r) => r.status === 'ok')) {
+        setAdvanceDraftRows(result.advanceRows);
+        setAdvancePostCommit(false);
+      }
       if (result.addonQueued) {
         setFailedAddons(result.addonFailures);
         setQueuedNotice(
@@ -1017,6 +1128,10 @@ export function BookingScreen() {
       if (result.addonFailures.length > 0) {
         setFailedAddons(result.addonFailures);
         setMessage('Booking created — some add-ons could not be posted.');
+        return;
+      }
+      if (result.advanceFailures > 0) {
+        setMessage('Booking created — some advances could not be recorded.');
         return;
       }
       if (result.rateFailed) {
@@ -1800,6 +1915,23 @@ export function BookingScreen() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Advance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AdvancePayments
+            propertyId={propertyId}
+            reservationId={advancePostCommit ? reservationId : null}
+            context="book"
+            quoteTotalMinor={quoteTotalMinor}
+            draftRows={advanceDraftRows}
+            onDraftRowsChange={setAdvanceDraftRows}
+            postCommitMode={advancePostCommit}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>

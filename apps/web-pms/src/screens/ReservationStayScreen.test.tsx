@@ -24,6 +24,10 @@ const getMe = vi.fn();
 const getReservationRateNights = vi.fn();
 const changeInHouseStay = vi.fn();
 const getAvailableRooms = vi.fn();
+const getReservationProforma = vi.fn();
+const recordCashPayment = vi.fn();
+const recordUpiPayment = vi.fn();
+const authorizePayment = vi.fn();
 
 const businessDate = { current: '2026-11-09' };
 
@@ -58,6 +62,10 @@ vi.mock('../client.js', () => ({
     getReservationRateNights: (...args: unknown[]) => getReservationRateNights(...args),
     changeInHouseStay: (...args: unknown[]) => changeInHouseStay(...args),
     getAvailableRooms: (...args: unknown[]) => getAvailableRooms(...args),
+    getReservationProforma: (...args: unknown[]) => getReservationProforma(...args),
+    recordCashPayment: (...args: unknown[]) => recordCashPayment(...args),
+    recordUpiPayment: (...args: unknown[]) => recordUpiPayment(...args),
+    authorizePayment: (...args: unknown[]) => authorizePayment(...args),
   },
 }));
 
@@ -171,6 +179,17 @@ describe('ReservationStayScreen', () => {
         },
       ],
     });
+    getReservationProforma.mockResolvedValue({
+      ok: true,
+      totals: {
+        estimatedTotalMinor: 10_000,
+        advancePaidMinor: 0,
+        balanceMinor: 10_000,
+      },
+    });
+    recordCashPayment.mockResolvedValue({ ok: true });
+    recordUpiPayment.mockResolvedValue({ ok: true });
+    authorizePayment.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => cleanup());
@@ -208,6 +227,40 @@ describe('ReservationStayScreen', () => {
     expect(screen.getByRole('link', { name: 'Registration card' }).getAttribute('href')).toBe(
       '/reservations/res_1/registration-card',
     );
+  });
+
+  it('R4.25: Advance card for pending/confirmed/checked_in; hidden when checked_out or cancelled', async () => {
+    getReservation.mockResolvedValue(stay('confirmed'));
+    renderStay();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Advance' })).toBeTruthy());
+    expect(screen.getByTestId('advance-payments')).toBeTruthy();
+    expect(screen.getByTestId('advance-panel')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Receipt' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Receipt' })).toBeNull();
+    cleanup();
+
+    getReservation.mockResolvedValue(stay('pending'));
+    renderStay();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Advance' })).toBeTruthy());
+    cleanup();
+
+    getReservation.mockResolvedValue(stay('checked_in'));
+    renderStay();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Advance' })).toBeTruthy());
+    cleanup();
+
+    getReservation.mockResolvedValue(stay('checked_out'));
+    renderStay();
+    await waitFor(() => expect(screen.getByTestId('stay-documents')).toBeTruthy());
+    expect(screen.queryByRole('heading', { name: 'Advance' })).toBeNull();
+    expect(screen.queryByTestId('advance-payments')).toBeNull();
+    cleanup();
+
+    getReservation.mockResolvedValue(stay('cancelled'));
+    renderStay();
+    await waitFor(() => expect(screen.getByTestId('stay-documents')).toBeTruthy());
+    expect(screen.queryByRole('heading', { name: 'Advance' })).toBeNull();
+    expect(screen.queryByTestId('advance-payments')).toBeNull();
   });
 
   it('pending explains that check-in waits on confirm', async () => {

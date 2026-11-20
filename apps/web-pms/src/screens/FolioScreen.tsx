@@ -72,6 +72,7 @@ import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { GuestNameLink } from './guest-row.js';
 import { usePostableProducts } from './product-picker.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
+import { AdvancePayments } from './AdvancePayments.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
 import {
@@ -700,9 +701,6 @@ export function FolioScreen() {
   };
   const [chargeCode, setChargeCode] = useState('MISC');
   const [chargeAmount, setChargeAmount] = useState('');
-  const [cashAmount, setCashAmount] = useState('');
-  const [payTender, setPayTender] = useState<'CASH' | 'UPI'>('CASH');
-  const [upiReference, setUpiReference] = useState('');
   const [refundReferences, setRefundReferences] = useState<Record<string, string>>({});
   const [authAmount, setAuthAmount] = useState('');
   const [authPurpose, setAuthPurpose] = useState<'STAY' | 'DAMAGE'>('STAY');
@@ -722,9 +720,6 @@ export function FolioScreen() {
   const [captureAmounts, setCaptureAmounts] = useState<Record<string, string>>({});
   const [refundAmounts, setRefundAmounts] = useState<Record<string, string>>({});
   const [chargeOpId] = useState(() => `charge:${reservationId}:${crypto.randomUUID()}`);
-  const [payOpBase, setPayOpBase] = useState(
-    () => `${reservationId}:${crypto.randomUUID()}`,
-  );
   const [authOpId] = useState(() => `auth:${reservationId}:${crypto.randomUUID()}`);
   const [payCurrency, setPayCurrency] = useState('');
   const [chargebackPaymentId, setChargebackPaymentId] = useState('');
@@ -927,7 +922,6 @@ export function FolioScreen() {
   const folioLive = folioQ.isSuccess && paymentsQ.isSuccess;
   const ledgerCurrency = folioQ.data?.ledgerCurrency ?? fxRatesQ.data?.ledgerCurrency ?? 'USD';
   const chargeMinor = parseAmountToMinor(chargeAmount);
-  const cashMinor = parseAmountToMinor(cashAmount);
   const authMinor = parseAmountToMinor(authAmount);
   const fxAmountMinor = parseAmountToMinor(fxAmount);
   const fxRateTrimmed = fxRate.trim();
@@ -1098,63 +1092,6 @@ export function FolioScreen() {
         setSettledNotice('Charge posted.');
       }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
-    },
-  });
-
-  const cashPay = useFolioActionMutation({
-    fallback: 'Cash failed',
-    setMessage,
-    onLocalError: (err) => {
-      if (err instanceof Error && err.message === 'policy_blocked_pay') {
-        setMessage(policy.reasons.pay ?? 'Payment refused.');
-        return true;
-      }
-      return false;
-    },
-    mutationFn: () => {
-      if (!policy.canPay) throw new Error('policy_blocked_pay');
-      const amountMinor = parseAmountToMinor(cashAmount);
-      if (amountMinor == null) throw new Error('invalid_amount');
-      const currency =
-        selectedPayCurrency !== ledgerCurrency ? { currency: selectedPayCurrency } : {};
-      if (payTender === 'UPI') {
-        const reference = upiReference.trim();
-        if (!UPI_REFERENCE_RE.test(reference)) {
-          throw new ClassifiedError({
-            class: 'client_error',
-            status: 422,
-            body: { error: 'invalid_upi_reference' },
-            retryAfterMs: null,
-          });
-        }
-        const derivedKey = `${payOpBase}:${payTender}:${amountMinor}:${selectedPayCurrency}:${reference}`;
-        const paymentId = `pay_upi:${payOpBase}:${amountMinor}:${selectedPayCurrency}`;
-        return api.recordUpiPayment(
-          propertyId,
-          reservationId,
-          { paymentId, amountMinor, reference, ...currency },
-          derivedKey,
-        );
-      }
-      const derivedKey = `${payOpBase}:${payTender}:${amountMinor}:${selectedPayCurrency}`;
-      const paymentId = `pay_cash:${derivedKey}`;
-      return api.recordCashPayment(
-        propertyId,
-        reservationId,
-        { paymentId, amountMinor, ...currency },
-        derivedKey,
-      );
-    },
-    onSuccess: () => {
-      setSettledNotice(payTender === 'UPI' ? 'UPI payment recorded.' : 'Cash payment recorded.');
-      setPayOpBase(`${reservationId}:${crypto.randomUUID()}`);
-      setCashAmount('');
-      setUpiReference('');
-      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
-      void queryClient.invalidateQueries({
-        queryKey: ['folio-payments', propertyId, reservationId],
-      });
-      void queryClient.invalidateQueries({ queryKey: ['open-shift', propertyId] });
     },
   });
 
@@ -2242,79 +2179,17 @@ export function FolioScreen() {
                   No open cashier shift.
                 </p>
               ) : null}
-              <div className="ui-row">
-                <Field
-                  size="xs"
-                  label="Tender"
-                  control={
-                    <NativeSelect
-                      aria-label="payment-tender"
-                      data-testid="payment-tender"
-                      value={payTender}
-                      disabled={!policy.canPay}
-                      onChange={(e) => setPayTender(e.target.value === 'UPI' ? 'UPI' : 'CASH')}
-                    >
-                      <option value="CASH">Cash</option>
-                      <option value="UPI">UPI</option>
-                    </NativeSelect>
-                  }
-                />
-                <Field
-                  size="xs"
-                  label="Amount"
-                  control={
-                    <Input
-                      aria-label="cash-amount"
-                      value={cashAmount}
-                      onChange={(e) => setCashAmount(e.target.value)}
-                      disabled={!policy.canPay}
-                    />
-                  }
-                />
-                {payTender === 'UPI' ? (
-                  <Field
-                    size="sm"
-                    label="UPI reference"
-                    control={
-                      <Input
-                        aria-label="upi-reference"
-                        data-testid="upi-reference"
-                        value={upiReference}
-                        onChange={(e) => setUpiReference(e.target.value)}
-                        disabled={!policy.canPay}
-                      />
-                    }
-                  />
-                ) : null}
-                <Button
-                  type="button"
-                  data-testid={payTender === 'UPI' ? 'record-upi' : 'record-cash'}
-                  disabled={
-                    !policy.canPay ||
-                    cashPay.isPending ||
-                    cashMinor == null ||
-                    (payTender === 'UPI' && !UPI_REFERENCE_RE.test(upiReference.trim()))
-                  }
-                  onClick={() => cashPay.mutate()}
-                >
-                  {payTender === 'UPI' ? 'Record UPI' : 'Record cash'}
-                </Button>
-              </div>
-              {payTender === 'UPI' &&
-              upiReference.trim() !== '' &&
-              !UPI_REFERENCE_RE.test(upiReference.trim()) ? (
-                <Alert intent="exception" data-testid="upi-reference-invalid">
-                  {classifiedUserMessage(
-                    {
-                      class: 'client_error',
-                      status: 422,
-                      body: { error: 'invalid_upi_reference' },
-                      retryAfterMs: null,
-                    },
-                    { fallback: 'UPI reference is not valid.' },
-                  )}
-                </Alert>
-              ) : null}
+              <AdvancePayments
+                propertyId={propertyId}
+                reservationId={reservationId}
+                context="folio"
+                status={reservationQ.data?.status}
+                canPay={policy.canPay}
+                payBlockedReason={policy.reasons.pay}
+                payCurrency={
+                  selectedPayCurrency !== ledgerCurrency ? selectedPayCurrency : undefined
+                }
+              />
               <div className="ui-row">
                 <Field
                   size="xs"

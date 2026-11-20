@@ -646,7 +646,10 @@ export function BoardScreen({ mode }: { mode: BoardMode }) {
     <div className="board-page">
       {createdBanner ? (
         <Card role="status" data-testid="created-banner">
-          Reservation {createdBanner} created
+          Booking created.{' '}
+          <Link className="ui-link-btn" to={`/reservations/${createdBanner}`}>
+            Open reservation
+          </Link>
         </Card>
       ) : null}
 

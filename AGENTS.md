@@ -229,7 +229,7 @@ After roadmap R4.13 (packages + documents, 2026-11-20) — update this table whe
 | `PROPERTY_SCHEMA_HEAD` | **49** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
-| `NIGHT_AUDIT_CHECK_IDS` | length 6, includes **`id_proof_missing`** | `packages/contracts/src/register.test.ts` |
+| `NIGHT_AUDIT_CHECK_IDS` | length 7, includes **`arrival_deposit_missing`** | `packages/contracts/src/register.test.ts` |
 
 Part B also registered **+2** `PRESENTATION` keys (`pms.documents.registration_card`, `pms.documents.proforma`) — asserted in `register.test.ts` only (no numeric CONFIG_REGISTER pin).
 

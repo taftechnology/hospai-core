@@ -3936,6 +3936,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
              ) > 0`,
           businessDate,
         );
+      case 'arrival_deposit_missing': {
+        const require = this.readConfigValueSync('pms.booking.require_prepayment') === true;
+        if (!require) return 0;
+        const candidates = this.ctx.storage.sql
+          .exec(
+            `SELECT reservation_id FROM reservation
+             WHERE status IN ('confirmed', 'pending') AND arrival_date <= ?`,
+            businessDate,
+          )
+          .toArray() as Array<{ reservation_id: string }>;
+        let n = 0;
+        for (const row of candidates) {
+          if (!this.hasStayGuaranteeSync(row.reservation_id)) n += 1;
+        }
+        return n;
+      }
       default: {
         const _exhaustive: never = checkId;
         return _exhaustive;

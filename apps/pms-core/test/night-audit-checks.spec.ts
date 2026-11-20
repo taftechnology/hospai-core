@@ -260,6 +260,7 @@ describe('night audit checks', () => {
       'dirty_room_assigned',
       'departed_with_balance',
       'id_proof_missing',
+      'arrival_deposit_missing',
     ]);
     expect(checkCount(checks, 'arrivals_not_checked_in')).toMatchObject({ severity: 'warn', count: 4 });
     expect(checkCount(checks, 'departures_not_checked_out')).toMatchObject({ severity: 'warn', count: 2 });

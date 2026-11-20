@@ -40,6 +40,7 @@ import {
   useGuestPreferences,
 } from './guest-identity.js';
 import { isStayGuarantee, stayGuaranteeText } from './tender-label.js';
+import { AdvancePayments } from './AdvancePayments.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -624,6 +625,28 @@ export function CheckInScreen() {
             <p data-testid="check-in-guarantee">
               Guarantee{guaranteeText ? `: ${guaranteeText}` : ''}
             </p>
+            {status === 'pending' || status === 'confirmed' || status === 'checked_in' ? (
+              <AdvancePayments
+                propertyId={tenant.propertyId}
+                reservationId={reservationId}
+                context="check-in"
+                status={status}
+                onAdvanceSuccess={() => {
+                  void queryClient.invalidateQueries({
+                    queryKey: ['folio-payments', tenant.propertyId, reservationId],
+                  });
+                  void queryClient.invalidateQueries({
+                    queryKey: ['folio', tenant.propertyId, reservationId],
+                  });
+                  void queryClient.invalidateQueries({
+                    queryKey: ['reservation-proforma', tenant.propertyId, reservationId],
+                  });
+                  void queryClient.invalidateQueries({
+                    queryKey: ['open-shift', tenant.propertyId],
+                  });
+                }}
+              />
+            ) : null}
             <div className="ui-row">
               {roomsQ.isSuccess ? (
                 <Field

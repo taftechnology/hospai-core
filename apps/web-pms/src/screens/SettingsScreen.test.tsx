@@ -106,6 +106,17 @@ const WARN_CHECKS = {
   departed_with_balance: 'warn',
   id_proof_missing: 'warn',
   arrival_deposit_missing: 'warn',
+  open_folio_unsettled: 'warn',
+  open_folio_past_close_by: 'warn',
+  open_folio_zero_balance: 'warn',
+};
+
+const OPEN_FOLIO_DEFAULT = {
+  enabled: false,
+  followUpDays: 3,
+  closeByDays: 14,
+  autoOpenOnDepartWithBalance: false,
+  autoCloseAtZeroAfterDays: null as number | null,
 };
 
 function configureMe(permissions: string[]) {
@@ -139,6 +150,7 @@ describe('SettingsScreen', () => {
         domain('pms.folio.configs', {}),
         domain('pms.time.time_zone', 'UTC'),
         domain('pms.payments.auth_hold_hours', 72),
+        domain('pms.folio.open_folio', OPEN_FOLIO_DEFAULT),
       ],
     });
     putDomainConfig.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
@@ -898,6 +910,61 @@ describe('SettingsScreen', () => {
       expect(screen.getByRole('link', { name: 'Tax rules' })).toHaveProperty('pathname', '/settings/tax');
       expect(screen.getByRole('link', { name: 'City ledger' })).toHaveProperty('pathname', '/city-ledger');
     });
+  });
+
+  it('R4.23: Open folio group saves the whole object with reason; blank auto-close is null', async () => {
+    renderSettings('/settings/property');
+    const folioCard = (await screen.findByRole('heading', { name: 'Folio' })).closest('.ui-card') as HTMLElement | null;
+    expect(folioCard).toBeTruthy();
+    expect(within(folioCard!).getByText('Open folio')).toBeTruthy();
+    const enabled = within(folioCard!).getByLabelText('Enable open folio') as HTMLInputElement;
+    expect(enabled.checked).toBe(false);
+    fireEvent.click(enabled);
+    fireEvent.change(within(folioCard!).getByLabelText('Follow-up days'), {
+      target: { value: '5' },
+    });
+    fireEvent.change(within(folioCard!).getByLabelText('Close-by days'), {
+      target: { value: '21' },
+    });
+    fireEvent.click(within(folioCard!).getByLabelText('Auto-open on depart with balance'));
+    fireEvent.change(within(folioCard!).getByLabelText('Auto-close at zero after days'), {
+      target: { value: '' },
+    });
+    expect(putDomainConfig).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:open-folio' },
+    });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls.at(-1)?.[1]).toEqual({
+      key: 'pms.folio.open_folio',
+      value: {
+        enabled: true,
+        followUpDays: 5,
+        closeByDays: 21,
+        autoOpenOnDepartWithBalance: true,
+        autoCloseAtZeroAfterDays: null,
+      },
+      reason: 'ops:open-folio',
+    });
+  });
+
+  it('R4.23: Open folio enable hint when auto invoices disallow pending', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        domain('pms.folio.open_folio', OPEN_FOLIO_DEFAULT),
+        domain('pms.invoice.gen_mode', 'Automatically'),
+        domain('pms.invoice.allow_pending', false),
+        domain('pms.money.currency_code', 'USD'),
+        domain('pms.time.time_zone', 'UTC'),
+      ],
+    });
+    renderSettings('/settings/property');
+    const folioCard = (await screen.findByRole('heading', { name: 'Folio' })).closest(
+      '.ui-card',
+    ) as HTMLElement | null;
+    expect(folioCard).toBeTruthy();
+    expect(within(folioCard!).getByText(/Departing on an open folio needs pending invoices/)).toBeTruthy();
   });
 
   it('FAIL_CLOSED is not an empty settings form', async () => {

@@ -94,6 +94,10 @@ function clearChecks() {
     'dirty_room_assigned',
     'departed_with_balance',
     'id_proof_missing',
+    'arrival_deposit_missing',
+    'open_folio_unsettled',
+    'open_folio_past_close_by',
+    'open_folio_zero_balance',
   ].map((checkId) => ({ checkId, severity: 'warn' as const, count: 0 }));
 }
 
@@ -419,6 +423,31 @@ describe('NightAuditScreen', () => {
       'pathname',
       '/settings/property',
     );
+  });
+
+  it('R4.23: open-folio checks show labels and link to Open folios', async () => {
+    getNightAudit.mockResolvedValue(
+      statusPayload({
+        checks: clearChecks().map((row) =>
+          row.checkId.startsWith('open_folio_')
+            ? { ...row, severity: 'warn' as const, count: 2 }
+            : row,
+        ),
+      }),
+    );
+    renderScreen();
+    const card = await screen.findByTestId('night-audit-checks');
+    for (const label of [
+      'Open folios with a balance',
+      'Open folios past close-by',
+      'Open folios at zero balance',
+    ]) {
+      const row = within(card).getByRole('row', { name: new RegExp(label) });
+      expect(within(row).getByText('2')).toBeTruthy();
+      expect(within(row).getByText('Warn')).toBeTruthy();
+      const link = within(row).getByRole('link', { name: 'Open folios' });
+      expect(link.getAttribute('href')).toBe('/folios#open-folios');
+    }
   });
 
   it('14: Run is disabled for a Fail or fixed row above 0, and a Warn shows an Alert without disabling', async () => {

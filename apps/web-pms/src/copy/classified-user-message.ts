@@ -96,7 +96,7 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     'That room does not match the booked room type — pick another room.',
   hold_expired: () => 'This hold has expired — create a new booking.',
   inquiry_expired: () => 'This inquiry has expired — create a new booking.',
-  invoice_required: () => 'Generate an invoice before checkout.',
+  invoice_required: () => 'An invoice is required before checkout.',
   invoice_number_invalid: () =>
     'That invoice number is not valid for this series. Shorten the prefix or suffix, or switch back to one continuous series.',
   not_modifiable: () => 'This reservation cannot be changed in its current status.',
@@ -199,6 +199,12 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     }
     return 'No availability — pick another room type or date.';
   },
+  open_folio_disabled: () =>
+    'Open folio is off for this property. Turn it on in Settings → Folio.',
+  hold_already_active: () => 'This stay already has an open-folio hold.',
+  no_active_hold: () => 'There is no active open-folio hold on this stay.',
+  checked_out_requires_hold: () =>
+    'Place an open-folio hold to post charges after checkout.',
 };
 
 export function classifiedUserMessage(

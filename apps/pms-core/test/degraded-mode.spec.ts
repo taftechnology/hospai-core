@@ -1,7 +1,14 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PendingCommandMessage, ProvisionalExceptionRow } from '@hospai/contracts';
-import { BUSINESS_DATE_CLOSED, OOO_VIA_RANGE, ROOM_ALREADY_ASSIGNED, ROOM_REQUIRED, BALANCE_DUE } from '@hospai/contracts';
+import {
+  BUSINESS_DATE_CLOSED,
+  OOO_VIA_RANGE,
+  ROOM_ALREADY_ASSIGNED,
+  ROOM_REQUIRED,
+  BALANCE_DUE,
+  CHECKED_OUT_REQUIRES_HOLD,
+} from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import {
@@ -1296,7 +1303,12 @@ describe('degraded mode §4.6 fault injection', () => {
     };
     await dispatchPendingBatch([checkoutMsgB, chargeMsgB]);
     expect(await outFirst.stub.getReservationStatus('res_deg_39b')).toBe('checked_out');
-    expect(await outFirst.stub.countFolioLinesForReservation('res_deg_39b')).toBe(1);
+    // R4.23 D4: post-checkout charge without ACTIVE hold is refused.
+    expect(await outFirst.stub.countFolioLinesForReservation('res_deg_39b')).toBe(0);
+    const { exceptions: exceptionsB } = (await outFirst.stub.listProvisionalExceptions()) as {
+      exceptions: ProvisionalExceptionRow[];
+    };
+    expect(exceptionsB.some((e) => e.reason === CHECKED_OUT_REQUIRES_HOLD)).toBe(true);
     const window = await outFirst.stub.readGuestFolioWindowForTest('res_deg_39b');
     expect(window?.status).toBe('OPEN');
   });

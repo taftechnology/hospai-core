@@ -152,6 +152,50 @@ describe('folio API', () => {
     expect(paths[1]).toBe('/v1/properties/p/reservations/res_1/folio/capture-due');
   });
 
+  it('place/extend/release folio hold send x-idempotency-key', async () => {
+    const paths: string[] = [];
+    const bodies: string[] = [];
+    const headersSeen: Array<string | null> = [];
+    const { client } = clientWith(async (path, init) => {
+      paths.push(path);
+      bodies.push(typeof init?.body === 'string' ? init.body : '');
+      const headers = new Headers(init?.headers);
+      headersSeen.push(headers.get('x-idempotency-key'));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.placeFolioHold('p', 'res_1', { reason: 'bill pending' }, 'op-place');
+    await client.extendFolioHold(
+      'p',
+      'res_1',
+      { reason: 'need more time', followUpDate: '2026-12-01' },
+      'op-extend',
+    );
+    await client.releaseFolioHold('p', 'res_1', { reason: 'settled' }, 'op-release');
+    expect(paths[0]).toBe('/v1/properties/p/reservations/res_1/folio-hold');
+    expect(paths[1]).toBe('/v1/properties/p/reservations/res_1/folio-hold/extend');
+    expect(paths[2]).toBe('/v1/properties/p/reservations/res_1/folio-hold/release');
+    expect(headersSeen.every((k) => !!k)).toBe(true);
+    expect(JSON.parse(bodies[0]!).reason).toBe('bill pending');
+    expect(JSON.parse(bodies[1]!).followUpDate).toBe('2026-12-01');
+    expect(JSON.parse(bodies[2]!).reason).toBe('settled');
+  });
+
+  it('getFolioHold and listOpenFolios hit GET read routes', async () => {
+    const paths: string[] = [];
+    const methods: Array<string | undefined> = [];
+    const { client } = clientWith(async (path, init) => {
+      paths.push(path);
+      methods.push(init?.method);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    await client.getFolioHold('p', 'res_1');
+    await client.listOpenFolios('p');
+    expect(paths[0]).toBe('/v1/properties/p/reservations/res_1/folio-hold');
+    expect(paths[1]).toBe('/v1/properties/p/open-folios');
+    expect(methods[0] === undefined || methods[0] === 'GET').toBe(true);
+    expect(methods[1] === undefined || methods[1] === 'GET').toBe(true);
+  });
+
   it('authorizePayment and recordCashPayment send optional currency', async () => {
     const bodies: string[] = [];
     const { client } = clientWith(async (_path, init) => {

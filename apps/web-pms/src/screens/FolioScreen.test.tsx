@@ -51,6 +51,10 @@ const listDomainConfig = vi.fn();
 const listOperationalConfig = vi.fn();
 const fetchCityLedgerAccounts = vi.fn();
 const validateCityLedgerBilledParty = vi.fn();
+const getFolioHold = vi.fn();
+const placeFolioHold = vi.fn();
+const extendFolioHold = vi.fn();
+const releaseFolioHold = vi.fn();
 
 const { queuedStore, businessDateForTest } = vi.hoisted(() => ({
   queuedStore: {
@@ -130,10 +134,15 @@ vi.mock('../client.js', () => ({
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
     fetchCityLedgerAccounts: (...args: unknown[]) => fetchCityLedgerAccounts(...args),
     validateCityLedgerBilledParty: (...args: unknown[]) => validateCityLedgerBilledParty(...args),
+    getFolioHold: (...args: unknown[]) => getFolioHold(...args),
+    placeFolioHold: (...args: unknown[]) => placeFolioHold(...args),
+    extendFolioHold: (...args: unknown[]) => extendFolioHold(...args),
+    releaseFolioHold: (...args: unknown[]) => releaseFolioHold(...args),
   },
 }));
 
 import { formatDate, propertyFormat } from '@hospai/client-core';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { PropertyFormatProvider } from '../shell/PropertyFormat.js';
 import { FolioScreen } from './FolioScreen.js';
 
@@ -237,11 +246,54 @@ const ownerMe = {
     'folio:read',
     'folio:post',
     'folio:adjust',
+    'folio:hold',
     'reservations:read',
     'reservations:write',
     'settings:configure',
   ],
   orgPermissions: ['org:read'],
+};
+
+const openFolioConfigEnabled = {
+  enabled: true,
+  followUpDays: 3,
+  closeByDays: 14,
+  autoOpenOnDepartWithBalance: false,
+  autoCloseAtZeroAfterDays: null,
+};
+
+const openFolioConfigDisabled = {
+  ...openFolioConfigEnabled,
+  enabled: false,
+};
+
+const activeHoldBody = {
+  ok: true as const,
+  hold: {
+    holdId: 'hold_1',
+    reservationId: 'res_1',
+    folioWindowId: 'res_1:GUEST',
+    status: 'ACTIVE',
+    reason: 'Company invoice pending',
+    notes: 'AP batch',
+    followUpDate: '2026-08-15',
+    closeByDate: '2026-08-26',
+    expectedSettlement: 'Wire',
+    approvedBy: 'user_owner',
+    placedAt: Date.parse('2026-08-12T10:00:00Z'),
+  },
+  history: [
+    {
+      eventId: 'ev_1',
+      holdId: 'hold_1',
+      kind: 'placed',
+      reason: 'Company invoice pending',
+      beforeJson: null,
+      afterJson: null,
+      actor: 'user_owner',
+      at: Date.parse('2026-08-12T10:00:00Z'),
+    },
+  ],
 };
 
 const staffMe = {
@@ -334,7 +386,21 @@ describe('FolioScreen wiring', () => {
       keys: [
         { key: 'pms.invoice.gen_mode', value: 'Manually' },
         { key: 'pms.invoice.allow_pending', value: false },
+        { key: 'pms.folio.open_folio', value: openFolioConfigEnabled },
       ],
+    });
+    getFolioHold.mockResolvedValue({ ok: true, hold: null, history: [] });
+    placeFolioHold.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: { ok: true }, retryAfterMs: null },
+      body: { ok: true },
+    });
+    extendFolioHold.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: { ok: true }, retryAfterMs: null },
+      body: { ok: true },
+    });
+    releaseFolioHold.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: { ok: true }, retryAfterMs: null },
+      body: { ok: true },
     });
     fetchCityLedgerAccounts.mockResolvedValue({
       body: { accounts: [{ accountId: 'a1', name: 'Acme Corp', status: 'active' }] },
@@ -355,6 +421,7 @@ describe('FolioScreen wiring', () => {
     listChargeCodes.mockClear();
     listFxRates.mockClear();
     listDomainConfig.mockClear();
+    getFolioHold.mockClear();
     fetchCityLedgerAccounts.mockClear();
     getFolio.mockResolvedValue({
       ok: true,
@@ -362,7 +429,8 @@ describe('FolioScreen wiring', () => {
       balanceMinor: 0,
       lines: [],
     });
-    getReservation.mockResolvedValue(liveReservation);
+    // confirmed / non-open-folio statuses keep domain config + folio-hold lazy
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'confirmed' });
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     renderFolio();
     await waitFor(() => expect(getFolio).toHaveBeenCalled());
@@ -370,6 +438,7 @@ describe('FolioScreen wiring', () => {
     expect(listChargeCodes).not.toHaveBeenCalled();
     expect(listFxRates).not.toHaveBeenCalled();
     expect(listDomainConfig).not.toHaveBeenCalled();
+    expect(getFolioHold).not.toHaveBeenCalled();
     expect(fetchCityLedgerAccounts).not.toHaveBeenCalled();
   });
 
@@ -3188,5 +3257,326 @@ describe('FolioScreen wiring', () => {
     expect(text).toContain('PIN 411001');
     expect(text).toContain('State code 27');
     expect(getInvoiceBuyer).toHaveBeenCalledWith('prop_demo', 'inv_ind');
+  });
+
+  it('R4.23: open folio card is absent when status is not checked_in/checked_out', async () => {
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'confirmed' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(getFolio).toHaveBeenCalled());
+    expect(screen.queryByTestId('open-folio-card')).toBeNull();
+    expect(getFolioHold).not.toHaveBeenCalled();
+  });
+
+  it('R4.23: Place hold dialog requires reason; success settles and invalidates keys', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    const { invalidateSpy } = renderFolio();
+    expect(await screen.findByTestId('open-folio-place')).toBeTruthy();
+    screen.getByTestId('open-folio-place').click();
+    expect(await screen.findByRole('dialog', { name: /Place open-folio hold/i })).toBeTruthy();
+    expect((screen.getByTestId('open-folio-place-submit') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.change(screen.getByLabelText('open-folio-place-reason'), {
+      target: { value: 'Bill pending' },
+    });
+    expect((screen.getByTestId('open-folio-place-submit') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    screen.getByTestId('open-folio-place-submit').click();
+    await waitFor(() => expect(placeFolioHold).toHaveBeenCalled());
+    expect(placeFolioHold.mock.calls[0]![2]).toMatchObject({ reason: 'Bill pending' });
+    const firstOp = placeFolioHold.mock.calls[0]![3] as string;
+    await waitFor(() => {
+      const alert = screen.getByTestId('folio-message');
+      expect(alert.textContent).toMatch(/Open-folio hold placed/);
+      expect(alert.className).toContain('ui-alert--settled');
+    });
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"folio-hold"') && k.includes('"res_1"'))).toBe(true);
+      expect(
+        keys.some((k) => k.includes('"open-folios"') && k.includes('"prop_demo"')),
+      ).toBe(true);
+      expect(keys.some((k) => k.includes('"folio"') && k.includes('"res_1"'))).toBe(true);
+      expect(keys.some((k) => k.includes('"board"'))).toBe(true);
+    });
+    getFolioHold.mockResolvedValue({ ok: true, hold: null, history: [] });
+    // reopen place after release-shaped empty: second place rotates op id
+    await waitFor(() => expect(screen.getByTestId('open-folio-place')).toBeTruthy());
+    screen.getByTestId('open-folio-place').click();
+    fireEvent.change(await screen.findByLabelText('open-folio-place-reason'), {
+      target: { value: 'Again' },
+    });
+    screen.getByTestId('open-folio-place-submit').click();
+    await waitFor(() => expect(placeFolioHold.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(placeFolioHold.mock.calls[1]![3]).not.toBe(firstOp);
+  });
+
+  it('R4.23: active hold shows details, Extend dialog, Release destructive with reason', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolioHold.mockResolvedValue(activeHoldBody);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    const { invalidateSpy } = renderFolio();
+    const card = await screen.findByTestId('open-folio-active');
+    expect(card.textContent).toMatch(/Company invoice pending/);
+    expect(card.textContent).not.toMatch(/hold_1/);
+    expect(screen.getByTestId('open-folio-history').textContent).toMatch(/Placed/);
+
+    screen.getByTestId('open-folio-extend').click();
+    expect(await screen.findByRole('dialog', { name: /Extend open-folio hold/i })).toBeTruthy();
+    expect((screen.getByTestId('open-folio-extend-submit') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.change(screen.getByLabelText('open-folio-extend-reason'), {
+      target: { value: 'Need more time' },
+    });
+    screen.getByTestId('open-folio-extend-submit').click();
+    await waitFor(() => expect(extendFolioHold).toHaveBeenCalled());
+    expect(extendFolioHold.mock.calls[0]![2]).toMatchObject({ reason: 'Need more time' });
+
+    screen.getByTestId('open-folio-release').click();
+    expect(await screen.findByRole('dialog', { name: /Release open-folio hold/i })).toBeTruthy();
+    const releaseSubmit = screen.getByTestId('open-folio-release-submit');
+    expect(releaseSubmit.className).toMatch(/destructive|ui-btn/);
+    expect((releaseSubmit as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('open-folio-release-reason'), {
+      target: { value: 'Settled' },
+    });
+    releaseSubmit.click();
+    await waitFor(() => expect(releaseFolioHold).toHaveBeenCalled());
+    expect(releaseFolioHold.mock.calls[0]![2]).toEqual({ reason: 'Settled' });
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"folio-hold"'))).toBe(true);
+      expect(
+        keys.some((k) => k.includes('"open-folios"') && k.includes('"prop_demo"')),
+      ).toBe(true);
+    });
+  });
+
+  it('R4.23: disabled config copy and Settings link when settings:configure', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        { key: 'pms.invoice.gen_mode', value: 'Manually' },
+        { key: 'pms.folio.open_folio', value: openFolioConfigDisabled },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    expect(await screen.findByTestId('open-folio-disabled')).toBeTruthy();
+    expect(screen.getByTestId('open-folio-disabled').textContent).toMatch(
+      /Open folio is off for this property/,
+    );
+    expect(screen.getByRole('link', { name: /Settings → Folio/i }).getAttribute('href')).toBe(
+      '/settings/property',
+    );
+    expect(screen.queryByTestId('open-folio-place')).toBeNull();
+  });
+
+  it('R4.23: checkout with hold labels Check out on open folio and skips override', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolioHold.mockResolvedValue(activeHoldBody);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderFolio();
+    const btn = await screen.findByTestId('check-out');
+    expect(btn.textContent).toBe('Check out on open folio');
+    btn.click();
+    await waitFor(() => expect(checkOut).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog', { name: /Depart with open balance/i })).toBeNull();
+    expect(checkOut.mock.calls[0]![3]).toBeUndefined();
+  });
+
+  it('R4.23: auto invoice without pending disables checkout on open folio with balance', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolioHold.mockResolvedValue(activeHoldBody);
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        { key: 'pms.invoice.gen_mode', value: 'Automatically' },
+        { key: 'pms.invoice.allow_pending', value: false },
+        { key: 'pms.folio.open_folio', value: openFolioConfigEnabled },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    const btn = await screen.findByTestId('check-out');
+    expect(btn.textContent).toBe('Check out on open folio');
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    const alert = await screen.findByTestId('checkout-invoice-config-blocked');
+    expect(alert.textContent).toMatch(
+      /Invoices are issued at checkout and cannot carry a balance here/,
+    );
+    expect(within(alert).getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe(
+      '/settings/finance',
+    );
+    btn.click();
+    expect(checkOut).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: /Depart with open balance/i })).toBeNull();
+  });
+
+  it('R4.23: auto invoice with allow_pending keeps open-folio checkout enabled', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolioHold.mockResolvedValue(activeHoldBody);
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        { key: 'pms.invoice.gen_mode', value: 'Automatically' },
+        { key: 'pms.invoice.allow_pending', value: true },
+        { key: 'pms.folio.open_folio', value: openFolioConfigEnabled },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_checkout' },
+      classified: { class: 'live' },
+    });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderFolio();
+    const btn = await screen.findByTestId('check-out');
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('checkout-invoice-config-blocked')).toBeNull();
+    btn.click();
+    await waitFor(() => expect(checkOut).toHaveBeenCalled());
+  });
+
+  it('R4.23: auto invoice without pending disables depart-with-balance override path', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolioHold.mockResolvedValue({ ok: true, hold: null, history: [] });
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        { key: 'pms.invoice.gen_mode', value: 'Automatically' },
+        { key: 'pms.invoice.allow_pending', value: false },
+        { key: 'pms.folio.open_folio', value: openFolioConfigEnabled },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 5000,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    const btn = await screen.findByTestId('check-out');
+    expect(btn.textContent).toBe('Check out');
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(await screen.findByTestId('checkout-invoice-config-blocked')).toBeTruthy();
+    btn.click();
+    expect(checkOut).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: /Depart with open balance/i })).toBeNull();
+  });
+
+  it('R4.23: auto invoice without pending still allows zero-balance checkout', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolioHold.mockResolvedValue(activeHoldBody);
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        { key: 'pms.invoice.gen_mode', value: 'Automatically' },
+        { key: 'pms.invoice.allow_pending', value: false },
+        { key: 'pms.folio.open_folio', value: openFolioConfigEnabled },
+      ],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_zero' },
+      classified: { class: 'live' },
+    });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderFolio();
+    const btn = await screen.findByTestId('check-out');
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('checkout-invoice-config-blocked')).toBeNull();
+    btn.click();
+    await waitFor(() => expect(checkOut).toHaveBeenCalled());
+  });
+
+  it('R4.23: checked-out without hold disables post charge with hold copy', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => {
+      expect(screen.getByTestId('post-charge-hold-copy').textContent).toBe(
+        classifiedUserMessage(
+          {
+            class: 'client_error',
+            status: 422,
+            body: { error: 'checked_out_requires_hold' },
+            retryAfterMs: null,
+          },
+          {},
+        ),
+      );
+    });
+    expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(true);
   });
 });

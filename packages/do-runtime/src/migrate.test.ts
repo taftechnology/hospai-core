@@ -293,17 +293,17 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 49', () => {
+  it('applies property migrations through version 50', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(49);
+    expect(v1).toBe(50);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(49);
-    expect(sql.schemaVersion).toHaveLength(49);
+    expect(v2).toBe(50);
+    expect(sql.schemaVersion).toHaveLength(50);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49,
+      49, 50,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -790,9 +790,20 @@ describe('packages schedules v49', () => {
   });
 });
 
+describe('folio hold v50', () => {
+  it('creates folio_hold and folio_hold_event with one-active index', () => {
+    const v50 = PROPERTY_MIGRATIONS.find((m) => m.version === 50);
+    expect(v50?.name).toBe('folio_hold');
+    expect(v50?.statements.some((s) => s.includes('CREATE TABLE folio_hold ('))).toBe(true);
+    expect(v50?.statements.some((s) => s.includes('CREATE TABLE folio_hold_event ('))).toBe(true);
+    expect(v50?.statements.some((s) => s.includes('folio_hold_one_active'))).toBe(true);
+    expect(v50?.statements.some((s) => s.includes("status IN ('ACTIVE','RELEASED','CLOSED')"))).toBe(true);
+  });
+});
+
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(49);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(50);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

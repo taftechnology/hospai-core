@@ -264,14 +264,15 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
         await idemFor('co-fw6', { reservationId: 'res_fw6' }),
       ),
     ).toMatchObject({ ok: true });
-    const line = {
+    // Seed balance without desk charge path — checked_out without hold is refused (R4.23 D4).
+    await stub.insertFolioLineRawForTest({
       folioLineId: 'fl_fw6',
+      folioWindowId: 'res_fw6:GUEST',
       reservationId: 'res_fw6',
       chargeCode: 'MISC',
       amountMinor: 800,
-    };
-    expect(await stub.tryAddFolioLine(TEST_OWNER_ACTOR, line, await idemFor('fl-fw6', line))).toMatchObject({
-      ok: true,
+      source: 'desk',
+      businessDate: arrival,
     });
     const result = await stub.tryCloseFolioWindow(
       TEST_OWNER_ACTOR,
@@ -365,6 +366,19 @@ describe('folio windows — open, close, reopen, check-out auto-close', () => {
     const win = await stub.readFolioWindowForTest('res_fw9:GUEST');
     expect(win).toMatchObject({ status: 'OPEN', closedAt: null });
     expect(await stub.listOutboxEventTypes()).toContain('folio.window_reopened');
+    await stub.writeConfigValueForTest('pms.folio.open_folio', {
+      enabled: true,
+      followUpDays: 3,
+      closeByDays: 14,
+      autoOpenOnDepartWithBalance: false,
+      autoCloseAtZeroAfterDays: null,
+    });
+    const place = await stub.tryPlaceFolioHold(
+      TEST_OWNER_ACTOR,
+      { reservationId: 'res_fw9', reason: 'reopen late charge' },
+      await idemFor('hold-fw9', { reservationId: 'res_fw9', reason: 'reopen late charge' }),
+    );
+    expect(place).toMatchObject({ ok: true });
     const late = {
       folioLineId: 'fl_fw9_late',
       reservationId: 'res_fw9',

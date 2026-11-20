@@ -243,6 +243,29 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     consumersExempt: true,
   }),
   entry({
+    key: 'pms.folio.open_folio',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        followUpDays: z.number().int().min(0).max(60),
+        closeByDays: z.number().int().min(1).max(180),
+        autoOpenOnDepartWithBalance: z.boolean(),
+        autoCloseAtZeroAfterDays: z.number().int().min(0).max(30).nullable(),
+      })
+      .strict()
+      .refine((v) => v.closeByDays >= v.followUpDays, { message: 'closeByDays_lt_followUpDays' }),
+    default: {
+      enabled: false,
+      followUpDays: 3,
+      closeByDays: 14,
+      autoOpenOnDepartWithBalance: false,
+      autoCloseAtZeroAfterDays: null,
+    },
+    consumersExempt: true, // DO reads inside txn; no ARI/night-schedule consumer flags required
+  }),
+  entry({
     key: 'pms.reservations.pending_hold_hours',
     prototypeKey: 'pms_res_pending_hold_hours',
     class: 'DOMAIN',

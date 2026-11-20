@@ -94,6 +94,7 @@ if (process.argv.includes('--self-test')) {
   let RATE_OVERRIDE_V47_SQL;
   let UPI_TENDER_V48_SQL;
   let PACKAGES_SCHEDULES_V49_SQL;
+  let FOLIO_HOLD_V50_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -163,6 +164,7 @@ if (process.argv.includes('--self-test')) {
       RATE_OVERRIDE_V47_SQL,
       UPI_TENDER_V48_SQL,
       PACKAGES_SCHEDULES_V49_SQL,
+      FOLIO_HOLD_V50_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -648,6 +650,15 @@ const doPropertyTargets = [
 
 `,
     sql: PACKAGES_SCHEDULES_V49_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0050_folio_hold.sql'),
+    header: `-- PropertyDO open folio (bill on hold) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: FOLIO_HOLD_V50_SQL,
   },
 ];
 

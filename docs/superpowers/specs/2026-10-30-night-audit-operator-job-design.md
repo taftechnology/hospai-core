@@ -20,7 +20,7 @@ The client ticked *Night audit (customisable)*, and every tick is a must-have. O
 | Close only after blockers are cleared | Fail stops PRE_CHECK (§5.3) |
 | A log of past closes and validation results | Close-out stage (§5.5, §6) |
 | Pre-close, post-roll and mandatory check groups | Pre-close checks only. The rest is sorted in §3 |
-| Open folio auto-open and auto-close | Not here: **R4.23** (§3) |
+| Open folio auto-open and auto-close | Shipped in **R4.23** (§3): three configurable checks + automation inside `POST_ROOM_CHARGES`; steps do not grow |
 | Revenue report, daily statistics, end-of-day control report | **R4.14** (§3) |
 
 ## 2. Decisions (locked)
@@ -54,14 +54,18 @@ The client ticked *Night audit (customisable)*, and every tick is a must-have. O
 | `cashier_shift_open` | Cashier shifts still open | `shift` with `business_date = D` and `status = 'OPEN'`, the same rows the Close cashier shifts step closes | Shift |
 | `dirty_room_assigned` | Arrivals assigned a dirty room | The arrivals above with `room_id` set and `room.status = 'dirty'` | Housekeeping |
 | `departed_with_balance` | Departed with a balance | `status = 'checked_out'`, `checked_out_business_date = D`, guest window `SUM(ledger_amount_minor) > 0` | Departures |
+| `open_folio_unsettled` | Open folios with a balance | ACTIVE open-folio holds whose GUEST window balance > 0 | Open folios |
+| `open_folio_past_close_by` | Open folios past close-by | ACTIVE open-folio holds with `closeByDate` < `D` | Open folios |
+| `open_folio_zero_balance` | Open folios at zero balance | ACTIVE open-folio holds whose GUEST window balance = 0 | Open folios |
 
 `departed_with_balance` catches checkouts taken with the balance override. It reads the guest window only (AGENTS §2). It is **not** BluePMS's open folio. Checkout moves neither `departure_date` nor any other date, so overstays and plain early checkouts would slip past a `departure_date` filter; v40 adds `checked_out_business_date` for this (§5.4). Stays checked out before v40 have it null and are not counted.
+
+**R4.23 open folio (shipped).** The three `open_folio_*` ids above are counts only (same evaluator as the rest). Auto-open and auto-close run inside the existing `POST_ROOM_CHARGES` step (per-row try/catch); they do **not** add a night-audit step. `NIGHT_AUDIT_STEPS` stays length 8.
 
 **BluePMS checks not in this build:**
 
 | BluePMS check | Why not now | Where it lands |
 |---|---|---|
-| Open folios and open folio holds, auto-open, auto-close | HospAI has no bill-on-hold yet | R4.23, which adds the check |
 | Arrival deposits | No rule yet says a deposit is required, so a count would be noise | R4.25, reading the R1.20 rule |
 | ID proof completeness | Built by R4.15 as `id_proof_missing` (warn). Counts in-house stays with `id_document_on_file = 0`. | R4.15 |
 | Country/state | Guest details live in OrgDO; PropertyDO cannot count them, and events carry no PII | R4.15 or R6.2 |
@@ -172,11 +176,11 @@ None of these blocks the build; the answers set values or add later checks.
 
 1. In BluePMS's Night Audit Check Configuration, which checks do you have on, and which are set to Fail, Warn or Info?
 2. Do you rely on any listed check that this build leaves out, especially arrival deposits, rate mismatch or weather/notes? ID proof completeness is now the `id_proof_missing` check from R4.15.
-3. Do you use open folio holds? This decides whether the open folio slice comes before cut-over.
+3. Open folio holds shipped in R4.23 (checks + `POST_ROOM_CHARGES` automation). Confirm preferred default severities for the three `open_folio_*` checks.
 
 ## 9. Out
 
-New or reordered steps; a post-roll check phase; a Fail override; bill on hold; deposit rules; a bespoke audit schedule; aggregate balances; money before SNAPSHOT_REPORTS; the BluePMS night audit reports (R4.14); printing; tax theatre; a new overlay; mobile widths (desktop only).
+New or reordered steps; a post-roll check phase; a Fail override; deposit rules; a bespoke audit schedule; aggregate balances; money before SNAPSHOT_REPORTS; the BluePMS night audit reports (R4.14); printing; tax theatre; a new overlay; mobile widths (desktop only). (Bill on hold / open folio is R4.23 — not grown into new steps.)
 
 ## 10. Tests
 

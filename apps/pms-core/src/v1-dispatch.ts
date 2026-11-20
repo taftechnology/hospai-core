@@ -8271,6 +8271,193 @@ async function handlePostFolioWindowClose(ctx: V1DispatchContext): Promise<Respo
   });
 }
 
+async function handleGetFolioHold(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readFolioHold(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetOpenFolios(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listOpenFolios();
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostFolioHold(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<{
+    reason?: string;
+    notes?: string;
+    followUpDate?: string;
+    closeByDate?: string;
+    expectedSettlement?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body.reason !== 'string') return json({ error: 'invalid_body' }, 400);
+
+  const commandPayload: {
+    reservationId: string;
+    reason: string;
+    notes?: string;
+    followUpDate?: string;
+    closeByDate?: string;
+    expectedSettlement?: string;
+  } = { reservationId, reason: body.reason };
+  if (body.notes !== undefined) commandPayload.notes = body.notes;
+  if (body.followUpDate !== undefined) commandPayload.followUpDate = body.followUpDate;
+  if (body.closeByDate !== undefined) commandPayload.closeByDate = body.closeByDate;
+  if (body.expectedSettlement !== undefined) {
+    commandPayload.expectedSettlement = body.expectedSettlement;
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await commandFingerprint('folio.place_hold', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryPlaceFolioHold']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.place_hold',
+      routeId: 'post_folio_hold',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryPlaceFolioHold(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:hold',
+    successStatus: 200,
+    onFailure: () => null,
+  });
+}
+
+async function handlePostFolioHoldExtend(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<{
+    reason?: string;
+    followUpDate?: string;
+    closeByDate?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body.reason !== 'string') return json({ error: 'invalid_body' }, 400);
+
+  const commandPayload: {
+    reservationId: string;
+    reason: string;
+    followUpDate?: string;
+    closeByDate?: string;
+  } = { reservationId, reason: body.reason };
+  if (body.followUpDate !== undefined) commandPayload.followUpDate = body.followUpDate;
+  if (body.closeByDate !== undefined) commandPayload.closeByDate = body.closeByDate;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await commandFingerprint('folio.extend_hold', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryExtendFolioHold']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.extend_hold',
+      routeId: 'post_folio_hold_extend',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryExtendFolioHold(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:hold',
+    successStatus: 200,
+    onFailure: () => null,
+  });
+}
+
+async function handlePostFolioHoldRelease(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<{ reason?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body.reason !== 'string') return json({ error: 'invalid_body' }, 400);
+
+  const commandPayload = { reservationId, reason: body.reason };
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await commandFingerprint('folio.release_hold', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryReleaseFolioHold']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.release_hold',
+      routeId: 'post_folio_hold_release',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryReleaseFolioHold(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:hold',
+    successStatus: 200,
+    onFailure: () => null,
+  });
+}
+
 async function handlePostFolioWindowReopen(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const folioWindowId = decodeURIComponent(ctx.match[2]!);
@@ -11505,6 +11692,54 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     handler: handleGetReservationRegistrationCard,
+  },
+  {
+    id: 'post_folio_hold',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio-hold$/,
+    permission: 'folio:hold',
+    commandId: 'folio.place_hold',
+    entitlement: 'pms.core',
+    handler: handlePostFolioHold,
+  },
+  {
+    id: 'post_folio_hold_extend',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio-hold\/extend$/,
+    permission: 'folio:hold',
+    commandId: 'folio.extend_hold',
+    entitlement: 'pms.core',
+    handler: handlePostFolioHoldExtend,
+  },
+  {
+    id: 'post_folio_hold_release',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio-hold\/release$/,
+    permission: 'folio:hold',
+    commandId: 'folio.release_hold',
+    entitlement: 'pms.core',
+    handler: handlePostFolioHoldRelease,
+  },
+  {
+    id: 'get_folio_hold',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/folio-hold$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetFolioHold,
+  },
+  {
+    id: 'get_open_folios',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/open-folios$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetOpenFolios,
   },
 ];
 

@@ -9,6 +9,8 @@ import {
   Card,
   CardContent,
   CardFooter,
+  CardHeader,
+  CardTitle,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -98,9 +100,10 @@ function OpenFolio({ reservationId }: { reservationId: string }) {
  */
 export function FoliosDirectoryScreen() {
   const timeZone = usePropertyTimeZone();
-  const { dateRange } = useFormat();
+  const { dateRange, date, money } = useFormat();
   const today = timeZone ? propertyLocalToday(timeZone) : null;
   const { subtitle } = usePropertySubtitle('In-house and due-out stays');
+  const propertyId = tenant.propertyId;
   const [cursor, setCursor] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -109,6 +112,13 @@ export function FoliosDirectoryScreen() {
     const t = window.setTimeout(() => setDebounced(q.trim()), 250);
     return () => window.clearTimeout(t);
   }, [q]);
+
+  const openFoliosQ = useQuery({
+    queryKey: ['open-folios', propertyId],
+    queryFn: () => api.listOpenFolios(propertyId),
+    retry: (n, err) => n < 2 && asClassified(err).class === 'read_stale',
+    retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
+  });
 
   const listQ = useQuery({
     queryKey: ['board', 'in-house', tenant.propertyId, null, cursor],
@@ -139,11 +149,19 @@ export function FoliosDirectoryScreen() {
     return map;
   }, [roomsQ.data]);
 
-  const refs = useMemo(() => [...new Set(items.map((i) => i.guestRef))], [items]);
+  const openFolioItems = openFoliosQ.data?.items ?? [];
+  const refs = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) set.add(i.guestRef);
+    for (const i of openFolioItems) {
+      if (i.guestRef) set.add(i.guestRef);
+    }
+    return [...set];
+  }, [items, openFolioItems]);
   const batchQ = useQuery({
     queryKey: ['guests-batch', tenant.propertyId, refs.join('|')],
     queryFn: () => fetchGuestStatesChunked(api.postGuestsBatch, tenant.propertyId, refs),
-    enabled: refs.length > 0 && listQ.isSuccess,
+    enabled: refs.length > 0 && (listQ.isSuccess || openFoliosQ.isSuccess),
     retry: false,
   });
   const states = batchQ.data?.states ?? {};
@@ -282,9 +300,79 @@ export function FoliosDirectoryScreen() {
     );
   }
 
+  let openBody: ReactNode;
+  let openFlush = false;
+  if (openFoliosQ.isError) {
+    openBody = (
+      <Alert data-testid="open-folios-error">
+        {errorCopy(openFoliosQ.error, 'Could not load open folios.')}
+      </Alert>
+    );
+  } else if (!openFoliosQ.isSuccess) {
+    openBody = <Skeleton />;
+  } else if ((openFoliosQ.data.items ?? []).length === 0) {
+    openBody = <EmptyState data-testid="open-folios-empty" title="No open folios" />;
+  } else {
+    openFlush = true;
+    openBody = (
+      <DataTable>
+        <DataTableHead>
+          <DataTableRow>
+            <DataTableHeaderCell>Guest</DataTableHeaderCell>
+            <DataTableHeaderCell>Room</DataTableHeaderCell>
+            <DataTableHeaderCell>Departure</DataTableHeaderCell>
+            <DataTableHeaderCell>Balance</DataTableHeaderCell>
+            <DataTableHeaderCell>Follow-up</DataTableHeaderCell>
+            <DataTableHeaderCell>Close-by</DataTableHeaderCell>
+            <DataTableHeaderCell>Status</DataTableHeaderCell>
+            <DataTableHeaderCell align="right">
+              <VisuallyHidden>Actions</VisuallyHidden>
+            </DataTableHeaderCell>
+          </DataTableRow>
+        </DataTableHead>
+        <DataTableBody>
+          {openFoliosQ.data.items.map((row) => (
+            <DataTableRow key={row.holdId}>
+              <DataTableCell>
+                <GuestNameLink state={states[row.guestRef]} guestRef={row.guestRef} />
+              </DataTableCell>
+              <DataTableCell>
+                {row.roomCode == null ? <span className="muted">Unassigned</span> : row.roomCode}
+              </DataTableCell>
+              <DataTableCell>
+                <span className="ui-num">{date(row.departureDate)}</span>
+              </DataTableCell>
+              <DataTableCell>
+                <span className="ui-num">{money(row.balanceMinor)}</span>
+              </DataTableCell>
+              <DataTableCell>
+                <span className="ui-num">{date(row.followUpDate)}</span>
+              </DataTableCell>
+              <DataTableCell>
+                <span className="ui-num">{date(row.closeByDate)}</span>
+              </DataTableCell>
+              <DataTableCell>
+                {row.overdue ? <Badge rung="exception">Overdue</Badge> : null}
+              </DataTableCell>
+              <DataTableCell align="right">
+                <OpenFolio reservationId={row.reservationId} />
+              </DataTableCell>
+            </DataTableRow>
+          ))}
+        </DataTableBody>
+      </DataTable>
+    );
+  }
+
   return (
     <div className="board-page">
       <PageHeader title="Folios" subtitle={subtitle} />
+      <Card id="open-folios" data-testid="open-folios">
+        <CardHeader>
+          <CardTitle>Open folios</CardTitle>
+        </CardHeader>
+        <CardContent flush={openFlush}>{openBody}</CardContent>
+      </Card>
       <Card>
         <div className="ui-toolbar">
           <div className="directory-search">

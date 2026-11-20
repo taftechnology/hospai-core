@@ -10,6 +10,9 @@ export const CHECK_LABELS: Record<NightAuditCheckId | NightAuditFixedCheckId, st
   departed_with_balance: 'Departed with a balance',
   id_proof_missing: 'In-house guests with no ID document recorded',
   arrival_deposit_missing: 'Arrivals missing a required deposit',
+  open_folio_unsettled: 'Open folios with a balance',
+  open_folio_past_close_by: 'Open folios past close-by',
+  open_folio_zero_balance: 'Open folios at zero balance',
 };
 
 /** What the check counts, in operator language. Settings shows this beside the select. */
@@ -27,6 +30,9 @@ export const CHECK_DESCRIPTIONS: Record<NightAuditCheckId | NightAuditFixedCheck
   id_proof_missing: 'In-house stays with no identity document recorded at this property.',
   arrival_deposit_missing:
     'Confirmed or pending arrivals on or before the closing date with no stay guarantee, only when require prepayment is on.',
+  open_folio_unsettled: 'Active open-folio holds whose guest window balance is greater than zero.',
+  open_folio_past_close_by: 'Active open-folio holds whose close-by date is before the closing date.',
+  open_folio_zero_balance: 'Active open-folio holds whose guest window balance is zero.',
 };
 
 export const SEVERITY_WORD: Record<NightAuditCheckSeverity | 'clear', string> = {

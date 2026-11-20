@@ -77,7 +77,7 @@ describe('domain code messages', () => {
     ['room_type_mismatch', {}, /does not match the booked room type/],
     ['hold_expired', {}, /hold has expired/],
     ['inquiry_expired', {}, /inquiry has expired/],
-    ['invoice_required', {}, /Generate an invoice before checkout/],
+    ['invoice_required', {}, /An invoice is required before checkout/],
     [
       'invoice_number_invalid',
       {},
@@ -92,6 +92,18 @@ describe('domain code messages', () => {
     ['package_already_applied', {}, /already has a package/],
     ['package_mismatch', {}, /do not match the package/],
     ['package_nights_posted', {}, /already posted/],
+    [
+      'open_folio_disabled',
+      {},
+      /Open folio is off for this property\. Turn it on in Settings → Folio/,
+    ],
+    ['hold_already_active', {}, /already has an open-folio hold/],
+    ['no_active_hold', {}, /no active open-folio hold/],
+    [
+      'checked_out_requires_hold',
+      {},
+      /Place an open-folio hold to post charges after checkout/,
+    ],
   ] as const)('%s', (code, extra, pattern) => {
     const msg = classifiedUserMessage(classifiedWithCode(code, extra), { fallback: 'X' });
     expect(msg).toMatch(pattern);

@@ -28,6 +28,9 @@ import {
   NIGHT_AUDIT_CHECKS_DEFAULT,
   NIGHT_AUDIT_FIXED_CHECK_IDS,
   NightAuditChecksSchema,
+  PROPERTY_SCOPED_PERMISSIONS,
+  ROLE_GRANTS,
+  GRANTABLE_PERMISSIONS,
   requiredPermissionForKey,
 } from './index.js';
 
@@ -163,8 +166,14 @@ describe('config register', () => {
       'departed_with_balance',
       'id_proof_missing',
       'arrival_deposit_missing',
+      'open_folio_unsettled',
+      'open_folio_past_close_by',
+      'open_folio_zero_balance',
     ]);
-    expect(NIGHT_AUDIT_CHECK_IDS).toHaveLength(7);
+    expect(NIGHT_AUDIT_CHECK_IDS).toHaveLength(10);
+    expect(NIGHT_AUDIT_CHECKS_DEFAULT.open_folio_unsettled).toBe('warn');
+    expect(NIGHT_AUDIT_CHECKS_DEFAULT.open_folio_past_close_by).toBe('warn');
+    expect(NIGHT_AUDIT_CHECKS_DEFAULT.open_folio_zero_balance).toBe('warn');
     expect(NIGHT_AUDIT_FIXED_CHECK_IDS).toEqual(['queued_commands', 'open_exceptions']);
     expect(NIGHT_AUDIT_CHECK_SEVERITIES).toEqual(['off', 'fail', 'warn', 'info']);
     expect(NightAuditChecksSchema.safeParse(NIGHT_AUDIT_CHECKS_DEFAULT).success).toBe(true);
@@ -367,7 +376,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(88);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(91);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -970,9 +979,12 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_reservation_registration_card');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(199);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_open_folios');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_folio_hold');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('post_folio_hold_release');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_reservation_registration_card');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('get_reservation_proforma');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(204);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1034,8 +1046,57 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(88);
-    expect(COMMAND_CATALOG).toHaveLength(122);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(91);
+    expect(COMMAND_CATALOG).toHaveLength(125);
+    expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
+      id: 'post_folio_hold',
+      scope: 'property',
+      permission: 'folio:hold',
+      commandId: 'folio.place_hold',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[200]).toMatchObject({
+      id: 'post_folio_hold_extend',
+      scope: 'property',
+      permission: 'folio:hold',
+      commandId: 'folio.extend_hold',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[201]).toMatchObject({
+      id: 'post_folio_hold_release',
+      scope: 'property',
+      permission: 'folio:hold',
+      commandId: 'folio.release_hold',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[202]).toMatchObject({
+      id: 'get_folio_hold',
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[202] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[203]).toMatchObject({
+      id: 'get_open_folios',
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[203] ?? {})).toBe(false);
+    for (const id of ['folio.place_hold', 'folio.extend_hold', 'folio.release_hold'] as const) {
+      const c = COMMAND_CATALOG.find((x) => x.id === id);
+      expect(c).toMatchObject({
+        lane: 'INTERACTIVE',
+        degraded: 'FAIL_CLOSED',
+        idempotent: true,
+        entitlement: 'pms.core',
+        permission: 'folio:hold',
+        events: [],
+      });
+      expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(true);
+    }
     const applyPackage = COMMAND_CATALOG.find((c) => c.id === 'reservations.apply_package');
     expect(applyPackage).toMatchObject({
       lane: 'INTERACTIVE',
@@ -1494,6 +1555,26 @@ describe('command catalog', () => {
       expect(e?.default).toBe(false);
       expect(e?.consumersExempt).toBe(true);
     }
+  });
+
+  it('folio:hold is property-scoped; admin + owner grantable; not staff', () => {
+    expect(PROPERTY_SCOPED_PERMISSIONS).toContain('folio:hold');
+    expect(ROLE_GRANTS.admin).toContain('folio:hold');
+    expect(ROLE_GRANTS.staff).not.toContain('folio:hold');
+    expect(GRANTABLE_PERMISSIONS).toContain('folio:hold');
+  });
+
+  it('pms.folio.open_folio is DOMAIN with D3 defaults and consumersExempt', () => {
+    const openFolio = CONFIG_REGISTER.find((x) => x.key === 'pms.folio.open_folio');
+    expect(openFolio?.class).toBe('DOMAIN');
+    expect(openFolio?.consumersExempt).toBe(true);
+    expect(openFolio?.default).toEqual({
+      enabled: false,
+      followUpDays: 3,
+      closeByDays: 14,
+      autoOpenOnDepartWithBalance: false,
+      autoCloseAtZeroAfterDays: null,
+    });
   });
 
   it('invoice numbering DOMAIN keys are consumersExempt and audited', () => {

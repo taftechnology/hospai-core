@@ -190,6 +190,10 @@ function actionFor(
       return { to: '/shift', label: 'Shift' };
     case 'id_proof_missing':
       return { to: '/in-house', label: 'In house' };
+    case 'open_folio_unsettled':
+    case 'open_folio_past_close_by':
+    case 'open_folio_zero_balance':
+      return { to: '/folios#open-folios', label: 'Open folios' };
     default:
       return null;
   }

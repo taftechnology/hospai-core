@@ -14,6 +14,7 @@ const listRooms = vi.fn();
 const searchReservations = vi.fn();
 const getMe = vi.fn();
 const getProperty = vi.fn();
+const listOpenFolios = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -33,6 +34,7 @@ vi.mock('../client.js', () => ({
     searchReservations: (...args: unknown[]) => searchReservations(...args),
     getMe: (...args: unknown[]) => getMe(...args),
     getProperty: (...args: unknown[]) => getProperty(...args),
+    listOpenFolios: (...args: unknown[]) => listOpenFolios(...args),
   },
 }));
 
@@ -124,6 +126,7 @@ describe('FoliosDirectoryScreen', () => {
       ok: true,
       property: { propertyId: 'prop_demo', name: 'Lakeview Residency' },
     });
+    listOpenFolios.mockResolvedValue({ ok: true, items: [] });
   });
 
   afterEach(() => cleanup());
@@ -237,5 +240,100 @@ describe('FoliosDirectoryScreen', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
     expect(src).toMatch(/path="folios" element=\{<PermissionRoute permission="folio:read" \/>\}/);
     expect(src).toContain('<FoliosDirectoryScreen');
+  });
+
+  describe('R4.23 Open folios section', () => {
+    const openRows = [
+      {
+        holdId: 'hold_a',
+        reservationId: 'res_open_a',
+        guestRef: 'g_open_a',
+        roomCode: '201',
+        departureDate: '2026-10-20',
+        balanceMinor: 45000,
+        followUpDate: '2026-10-23',
+        closeByDate: '2026-11-03',
+        overdue: true,
+      },
+      {
+        holdId: 'hold_b',
+        reservationId: 'res_open_b',
+        guestRef: 'g_open_b',
+        roomCode: null,
+        departureDate: '2026-10-27',
+        balanceMinor: 0,
+        followUpDate: '2026-10-30',
+        closeByDate: '2026-11-10',
+        overdue: false,
+      },
+    ];
+
+    it('lists open folios with overdue Badge and links to each folio', async () => {
+      postGuestsBatch.mockResolvedValue({
+        ok: true,
+        guests: {},
+        states: {
+          g_due: { kind: 'resolved', displayName: 'Asha Rao' },
+          g_stay: { kind: 'resolved', displayName: 'Ravi Kumar' },
+          g_over: { kind: 'resolved', displayName: 'Meera Iyer' },
+          g_open_a: { kind: 'resolved', displayName: 'Priya Shah' },
+          g_open_b: { kind: 'resolved', displayName: 'Omar Khan' },
+        },
+      });
+      listOpenFolios.mockResolvedValue({ ok: true, items: openRows });
+      renderDirectory();
+      const section = await screen.findByTestId('open-folios');
+      expect(within(section).getByRole('heading', { name: 'Open folios' })).toBeInTheDocument();
+      await waitFor(() => expect(listOpenFolios).toHaveBeenCalledWith('prop_demo'));
+      expect(await within(section).findByText('Priya Shah')).toBeInTheDocument();
+      expect(within(section).getByText('Omar Khan')).toBeInTheDocument();
+      expect(section.textContent).not.toMatch(/g_open_a|g_open_b/);
+      const overdueRow = (await within(section).findByText('201')).closest('tr');
+      expect(overdueRow).toBeTruthy();
+      expect(within(overdueRow!).getByText('Priya Shah')).toBeInTheDocument();
+      expect(within(overdueRow!).getByText('Overdue')).toBeInTheDocument();
+      const open = within(overdueRow!).getByRole('link', { name: /Open folio/i });
+      expect(open.getAttribute('href')).toBe('/folio/res_open_a');
+      expect(section.textContent).not.toMatch(/hold_a|hold_b/);
+      const currentRow = within(section).getByText('Unassigned').closest('tr');
+      expect(within(currentRow!).getByText('Omar Khan')).toBeInTheDocument();
+      expect(within(currentRow!).queryByText('Overdue')).toBeNull();
+      expect(within(currentRow!).getByRole('link', { name: /Open folio/i }).getAttribute('href')).toBe(
+        '/folio/res_open_b',
+      );
+    });
+
+    it('shows EmptyState when there are no open folios', async () => {
+      listOpenFolios.mockResolvedValue({ ok: true, items: [] });
+      renderDirectory();
+      const section = await screen.findByTestId('open-folios');
+      expect(await within(section).findByTestId('open-folios-empty')).toHaveTextContent(
+        /No open folios/,
+      );
+    });
+
+    it('reports a failed open-folios read in an Alert, not as empty', async () => {
+      listOpenFolios.mockRejectedValue(
+        new ClassifiedError({
+          class: 'fail_closed',
+          status: 503,
+          body: { error: 'property_unreachable' },
+          retryAfterMs: null,
+        }),
+      );
+      renderDirectory();
+      const section = await screen.findByTestId('open-folios');
+      const alert = await within(section).findByTestId('open-folios-error');
+      expect(alert).toHaveTextContent('Property unreachable.');
+      expect(within(section).queryByTestId('open-folios-empty')).toBeNull();
+    });
+
+    it('uses the open-folios query key with propertyId', () => {
+      const src = readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), './FoliosDirectoryScreen.tsx'),
+        'utf8',
+      );
+      expect(src).toMatch(/queryKey:\s*\['open-folios',\s*(?:tenant\.)?propertyId\]/);
+    });
   });
 });

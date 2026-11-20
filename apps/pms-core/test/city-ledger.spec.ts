@@ -906,19 +906,22 @@ describe('city ledger close hook', () => {
       status: 'checked_out',
     });
     const guestLineId = crypto.randomUUID();
-    expect(
-      await stub.tryAddFolioLine(
-        TEST_OWNER_ACTOR,
-        {
-          folioLineId: guestLineId,
-          reservationId: guestResId,
-          chargeCode: 'MISC',
-          amountMinor: 100,
-          businessDate,
-        },
-        await idemFor('guest-misc-hook', { folioLineId: guestLineId }),
-      ),
-    ).toMatchObject({ ok: true });
+    // Seed GUEST balance without desk charge path — checked_out without hold is refused (R4.23 D4).
+    await stub.execSqlForTest(
+      `INSERT INTO folio_window (folio_window_id, reservation_id, kind, status)
+       VALUES (?, ?, 'GUEST', 'OPEN')`,
+      `${guestResId}:GUEST`,
+      guestResId,
+    );
+    await stub.insertFolioLineRawForTest({
+      folioLineId: guestLineId,
+      folioWindowId: `${guestResId}:GUEST`,
+      reservationId: guestResId,
+      chargeCode: 'MISC',
+      amountMinor: 100,
+      source: 'desk',
+      businessDate,
+    });
     await stub.insertFolioLineRawForTest({
       folioLineId: crypto.randomUUID(),
       folioWindowId: `${guestResId}:GUEST`,

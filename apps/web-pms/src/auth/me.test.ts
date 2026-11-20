@@ -96,7 +96,7 @@ describe('me authority helpers', () => {
   });
 
   it('#8 filterNavEntries: staff role grants lack staff:read → hide Staff', () => {
-    // Mirrors ROLE_GRANTS.staff property-scoped set used by /me (no staff:*).
+    // Mirrors ROLE_GRANTS.staff property-scoped set used by /me (no staff:*; no folio:hold).
     const me: PropertyMe = {
       ...baseMe,
       role: 'staff',
@@ -119,6 +119,8 @@ describe('me authority helpers', () => {
       ],
       orgPermissions: ['org:read'],
     };
+    expect(me.permissions).not.toContain('folio:hold');
+    expect(hasPropertyPermission(me, 'folio:hold')).toBe(false);
     const filtered = filterNavEntries(NAV_ENTRIES, { kind: 'live', me });
     expect(filtered.map((e) => e.id)).not.toContain('staff');
     expect(filtered.map((e) => e.id)).not.toContain('night-audit');
@@ -227,6 +229,24 @@ describe('me authority helpers', () => {
       permissions: ['folio:post', 'folio:read'],
     };
     expect(hasPropertyPermission(me, 'folio:adjust')).toBe(false);
+  });
+
+  it('hasPropertyPermission: staff-shaped lacks folio:hold; admin-shaped includes it', () => {
+    const staffMe: PropertyMe = {
+      ...baseMe,
+      role: 'staff',
+      permissions: ['folio:post', 'folio:read'],
+    };
+    expect(staffMe.permissions).not.toContain('folio:hold');
+    expect(hasPropertyPermission(staffMe, 'folio:hold')).toBe(false);
+
+    const adminMe: PropertyMe = {
+      ...baseMe,
+      role: 'admin',
+      permissions: ['folio:read', 'folio:post', 'folio:adjust', 'folio:hold'],
+    };
+    expect(adminMe.permissions).toContain('folio:hold');
+    expect(hasPropertyPermission(adminMe, 'folio:hold')).toBe(true);
   });
 
   it('filterNavEntries: live with housekeeping:read includes housekeeping from ALL_NAV', () => {

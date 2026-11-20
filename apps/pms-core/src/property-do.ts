@@ -203,6 +203,10 @@ import {
   DOMAIN_ERROR,
   LIMIT_EXCEEDED,
   INVALID_REQUEST,
+  OPEN_FOLIO_DISABLED,
+  HOLD_ALREADY_ACTIVE,
+  NO_ACTIVE_HOLD,
+  CHECKED_OUT_REQUIRES_HOLD,
   REASON_REQUIRED,
   RATE_OVERRIDE_NOT_ALLOWED,
   NIGHT_OUTSIDE_STAY,
@@ -474,6 +478,8 @@ const FRONT_OFFICE_OUTBOX_TYPES = new Set([
   'room.ooo_changed',
 ]);
 const FRONT_OFFICE_MAX_SOCKETS = 50;
+/** Cap for `get_open_folios` ACTIVE hold list (R4.23 §4). */
+const OPEN_FOLIOS_LIST_CAP = 200;
 const FRONT_OFFICE_REAUTH_INTERVAL_MS = 30_000;
 const FRONT_OFFICE_WS_CLOSE_POLICY = 4403;
 const FRONT_OFFICE_WS_CLOSE_REASON = 'policy_violation';
@@ -1243,6 +1249,13 @@ class WindowClosedError extends Error {
   }
 }
 
+class CheckedOutRequiresHoldError extends Error {
+  constructor() {
+    super(CHECKED_OUT_REQUIRES_HOLD);
+    this.name = 'CheckedOutRequiresHoldError';
+  }
+}
+
 class FolioWindowError extends Error {
   constructor(
     readonly code:
@@ -1785,6 +1798,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'city_ledger_account',
   'city_ledger_entry',
   'event_consumer_exception',
+  'folio_hold',
+  'folio_hold_event',
   'folio_routing_rule',
   'folio_line',
   'folio_window',
@@ -1844,6 +1859,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM city_ledger_account) +
       (SELECT COUNT(*) FROM city_ledger_entry) +
       (SELECT COUNT(*) FROM event_consumer_exception) +
+      (SELECT COUNT(*) FROM folio_hold) +
+      (SELECT COUNT(*) FROM folio_hold_event) +
       (SELECT COUNT(*) FROM folio_routing_rule) +
       (SELECT COUNT(*) FROM folio_line) +
       (SELECT COUNT(*) FROM folio_window) +
@@ -3258,6 +3275,98 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
   }
 
+  async readActiveFolioHoldForTest(folioWindowId: string): Promise<{
+    holdId: string;
+    status: string;
+    reason: string;
+    followUpDate: string;
+    closeByDate: string;
+    approvedBy: string;
+    endedAt: number | null;
+    endedReason: string | null;
+  } | null> {
+    this.assertUnsafeLocal('readActiveFolioHoldForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT hold_id, status, reason, follow_up_date, close_by_date, approved_by, ended_at, ended_reason
+         FROM folio_hold
+         WHERE folio_window_id = ? AND status = 'ACTIVE'
+         LIMIT 1`,
+        folioWindowId,
+      )
+      .toArray() as Array<{
+      hold_id: string;
+      status: string;
+      reason: string;
+      follow_up_date: string;
+      close_by_date: string;
+      approved_by: string;
+      ended_at: number | null;
+      ended_reason: string | null;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      holdId: row.hold_id,
+      status: row.status,
+      reason: row.reason,
+      followUpDate: row.follow_up_date,
+      closeByDate: row.close_by_date,
+      approvedBy: row.approved_by,
+      endedAt: row.ended_at,
+      endedReason: row.ended_reason,
+    };
+  }
+
+  async readFolioHoldByIdForTest(holdId: string): Promise<{
+    holdId: string;
+    status: string;
+    reason: string;
+    followUpDate: string;
+    closeByDate: string;
+    endedAt: number | null;
+    endedReason: string | null;
+  } | null> {
+    this.assertUnsafeLocal('readFolioHoldByIdForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT hold_id, status, reason, follow_up_date, close_by_date, ended_at, ended_reason
+         FROM folio_hold WHERE hold_id = ?`,
+        holdId,
+      )
+      .toArray() as Array<{
+      hold_id: string;
+      status: string;
+      reason: string;
+      follow_up_date: string;
+      close_by_date: string;
+      ended_at: number | null;
+      ended_reason: string | null;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      holdId: row.hold_id,
+      status: row.status,
+      reason: row.reason,
+      followUpDate: row.follow_up_date,
+      closeByDate: row.close_by_date,
+      endedAt: row.ended_at,
+      endedReason: row.ended_reason,
+    };
+  }
+
+  async listFolioHoldEventsForTest(holdId: string): Promise<Array<{ kind: string; reason: string | null }>> {
+    this.assertUnsafeLocal('listFolioHoldEventsForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT kind, reason FROM folio_hold_event WHERE hold_id = ? ORDER BY at ASC, event_id ASC`,
+        holdId,
+      )
+      .toArray() as Array<{ kind: string; reason: string | null }>;
+    return rows.map((r) => ({ kind: r.kind, reason: r.reason }));
+  }
+
   private auditActorSync(actor: ActorContext): string {
     return actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
   }
@@ -3821,6 +3930,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.runAutoExtendSync(businessDate);
           }
           this.postRoomChargesSync(businessDate);
+          this.runOpenFolioNightAuditAutomationSync(businessDate);
         } else if (step === 'CLOSE_CASHIER_SHIFTS') {
           this.forceCloseCashierShiftsSync(businessDate);
         } else if (step === 'PROCESS_NO_SHOWS') {
@@ -3952,6 +4062,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }
         return n;
       }
+      case 'open_folio_unsettled':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM folio_hold h
+           INNER JOIN folio_window fw ON fw.folio_window_id = h.folio_window_id AND fw.kind = 'GUEST'
+           WHERE h.status = 'ACTIVE'
+             AND (
+               SELECT COALESCE(SUM(fl.ledger_amount_minor), 0)
+               FROM folio_line fl
+               WHERE fl.folio_window_id = h.folio_window_id
+             ) > 0`,
+        );
+      case 'open_folio_past_close_by':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM folio_hold h
+           WHERE h.status = 'ACTIVE' AND h.close_by_date < ?`,
+          businessDate,
+        );
+      case 'open_folio_zero_balance':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM folio_hold h
+           INNER JOIN folio_window fw ON fw.folio_window_id = h.folio_window_id AND fw.kind = 'GUEST'
+           WHERE h.status = 'ACTIVE'
+             AND (
+               SELECT COALESCE(SUM(fl.ledger_amount_minor), 0)
+               FROM folio_line fl
+               WHERE fl.folio_window_id = h.folio_window_id
+             ) = 0`,
+        );
       default: {
         const _exhaustive: never = checkId;
         return _exhaustive;
@@ -4537,6 +4675,143 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
 
     return { extendedCount, skippedCount };
+  }
+
+  /**
+   * R4.23 D9 — auto-open / auto-close inside POST_ROOM_CHARGES only.
+   * Per-row try/catch; failure logs and continues; never aborts the step.
+   */
+  private runOpenFolioNightAuditAutomationSync(businessDate: string): void {
+    const cfg = this.readOpenFolioConfigSync();
+    if (cfg.autoOpenOnDepartWithBalance) {
+      this.runOpenFolioAutoOpenSync(businessDate, cfg);
+    }
+    if (cfg.autoCloseAtZeroAfterDays !== null) {
+      this.runOpenFolioAutoCloseSync(businessDate, cfg.autoCloseAtZeroAfterDays);
+    }
+  }
+
+  private runOpenFolioAutoOpenSync(
+    businessDate: string,
+    cfg: { followUpDays: number; closeByDays: number },
+  ): void {
+    const candidates = this.ctx.storage.sql
+      .exec(
+        `SELECT r.reservation_id AS reservation_id
+         FROM reservation r
+         WHERE r.status = 'checked_out'
+           AND r.checked_out_business_date = ?
+           AND (
+             SELECT COALESCE(SUM(fl.ledger_amount_minor), 0)
+             FROM folio_line fl
+             INNER JOIN folio_window fw ON fw.folio_window_id = fl.folio_window_id
+             WHERE fw.reservation_id = r.reservation_id
+               AND fw.kind = 'GUEST'
+           ) > 0
+           AND NOT EXISTS (
+             SELECT 1 FROM folio_hold h
+             WHERE h.folio_window_id = r.reservation_id || ':GUEST'
+               AND h.status = 'ACTIVE'
+           )
+         ORDER BY r.reservation_id ASC`,
+        businessDate,
+      )
+      .toArray() as Array<{ reservation_id: string }>;
+
+    const followUpDate = this.shiftRecurringDate(businessDate, cfg.followUpDays);
+    const closeByDate = this.shiftRecurringDate(businessDate, cfg.closeByDays);
+    const actor: ActorContext = { kind: 'system', reason: 'night_audit' };
+
+    for (const row of candidates) {
+      try {
+        this.placeHoldSync({
+          reservationId: row.reservation_id,
+          reason: 'auto_open',
+          notes: null,
+          followUpDate,
+          closeByDate,
+          expectedSettlement: null,
+          approvedBy: 'system:night_audit',
+          actor,
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.appendAuditLogSync({
+          actor: 'system:night_audit',
+          commandId: 'night_audit.run',
+          entityType: 'reservation',
+          entityId: row.reservation_id,
+          reservationId: row.reservation_id,
+          afterJson: {
+            step: 'POST_ROOM_CHARGES',
+            reason: 'open_folio_auto_open_failed',
+            businessDate,
+            error: message,
+          },
+        });
+      }
+    }
+  }
+
+  private runOpenFolioAutoCloseSync(businessDate: string, afterDays: number): void {
+    const threshold = this.shiftRecurringDate(businessDate, -afterDays);
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return;
+
+    const candidates = this.ctx.storage.sql
+      .exec(
+        `SELECT h.hold_id AS hold_id,
+                h.folio_window_id AS folio_window_id,
+                h.reservation_id AS reservation_id
+         FROM folio_hold h
+         INNER JOIN folio_window fw ON fw.folio_window_id = h.folio_window_id AND fw.kind = 'GUEST'
+         WHERE h.status = 'ACTIVE'
+           AND (
+             SELECT COALESCE(SUM(fl.ledger_amount_minor), 0)
+             FROM folio_line fl
+             WHERE fl.folio_window_id = h.folio_window_id
+           ) = 0
+           AND (
+             SELECT MAX(fl.business_date)
+             FROM folio_line fl
+             WHERE fl.folio_window_id = h.folio_window_id
+           ) IS NOT NULL
+           AND (
+             SELECT MAX(fl.business_date)
+             FROM folio_line fl
+             WHERE fl.folio_window_id = h.folio_window_id
+           ) <= ?
+         ORDER BY h.hold_id ASC`,
+        threshold,
+      )
+      .toArray() as Array<{
+      hold_id: string;
+      folio_window_id: string;
+      reservation_id: string;
+    }>;
+
+    for (const row of candidates) {
+      try {
+        this.closeFolioWindowSync(row.folio_window_id, Date.now(), propertyId, row.reservation_id, {
+          holdEndedBy: 'system:night_audit',
+        });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.appendAuditLogSync({
+          actor: 'system:night_audit',
+          commandId: 'night_audit.run',
+          entityType: 'folio_hold',
+          entityId: row.hold_id,
+          reservationId: row.reservation_id,
+          afterJson: {
+            step: 'POST_ROOM_CHARGES',
+            reason: 'open_folio_auto_close_failed',
+            businessDate,
+            error: message,
+          },
+        });
+      }
+    }
   }
 
   private runAutoTransferSync(businessDate: string): { transferredCount: number; skippedCount: number } {
@@ -9783,6 +10058,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!ledgerCurrency) throw new Error(CURRENCY_UNSET);
     this.ensureGuestFolioWindowSync(reservationId);
     const folioWindowId = this.readGuestFolioWindowIdSync(reservationId);
+    this.assertFolioWindowOpenSync(folioWindowId);
+    this.assertGuestChargeAllowedSync(reservationId, folioWindowId);
     const fxRateAt = Date.now();
     const posted: PostedLineAmount = {
       amountMinor,
@@ -12670,7 +12947,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             this.readConfigValueSync('pms.reservations.check_out_require_zero_balance') !== false;
           const allowOverride =
             this.readConfigValueSync('pms.reservations.allow_balance_override') !== false;
-          if (requireZero && balanceMinor > 0 && !(input.overrideBalance === true && allowOverride)) {
+          const activeHold = this.readActiveHoldSync(guestWindowId);
+          const heldOpen = activeHold !== null;
+          if (
+            requireZero &&
+            balanceMinor > 0 &&
+            !heldOpen &&
+            !(input.overrideBalance === true && allowOverride)
+          ) {
             throw new BalanceDueError(balanceMinor);
           }
 
@@ -12718,6 +13002,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 balanceMinor,
                 currency,
                 overridden: Boolean(input.overrideBalance && allowOverride),
+                ...(heldOpen ? { held: true } : {}),
               },
             });
           }
@@ -12732,6 +13017,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               status: 'checked_out',
               roomId: reservation.room_id,
               ...(input.overrideBalance ? { overrideBalance: true } : {}),
+              ...(heldOpen && activeHold ? { heldBy: activeHold.holdId } : {}),
             },
             reservationId: input.reservationId,
           });
@@ -19466,17 +19752,252 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     now: number,
     propertyId: string,
     reservationId: string,
+    opts?: { holdEndedBy?: string },
   ): void {
     this.ctx.storage.sql.exec(
       `UPDATE folio_window SET status = 'CLOSED', closed_at = ? WHERE folio_window_id = ?`,
       now,
       folioWindowId,
     );
+    const activeHold = this.readActiveHoldSync(folioWindowId);
+    if (activeHold) {
+      this.ctx.storage.sql.exec(
+        `UPDATE folio_hold
+         SET status = 'CLOSED', ended_at = ?, ended_reason = ?
+         WHERE hold_id = ? AND status = 'ACTIVE'`,
+        now,
+        'window_closed',
+        activeHold.holdId,
+      );
+      this.insertHoldEventSync({
+        holdId: activeHold.holdId,
+        kind: 'closed',
+        reason: 'window_closed',
+        beforeJson: {
+          status: 'ACTIVE',
+          followUpDate: activeHold.followUpDate,
+          closeByDate: activeHold.closeByDate,
+        },
+        afterJson: { status: 'CLOSED', endedReason: 'window_closed' },
+        actor: opts?.holdEndedBy ?? 'system:window_close',
+        at: now,
+      });
+    }
     this.appendPropertyOutbox({
       eventId: crypto.randomUUID(),
       eventType: 'folio.window_closed',
       payload: { propertyId, reservationId, folioWindowId },
     });
+  }
+
+  private readOpenFolioConfigSync(): {
+    enabled: boolean;
+    followUpDays: number;
+    closeByDays: number;
+    autoOpenOnDepartWithBalance: boolean;
+    autoCloseAtZeroAfterDays: number | null;
+  } {
+    const entry = getConfigEntry('pms.folio.open_folio');
+    const defaults = (entry?.default ?? {
+      enabled: false,
+      followUpDays: 3,
+      closeByDays: 14,
+      autoOpenOnDepartWithBalance: false,
+      autoCloseAtZeroAfterDays: null,
+    }) as {
+      enabled: boolean;
+      followUpDays: number;
+      closeByDays: number;
+      autoOpenOnDepartWithBalance: boolean;
+      autoCloseAtZeroAfterDays: number | null;
+    };
+    const raw = this.readConfigValueSync('pms.folio.open_folio');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+    const o = raw as Record<string, unknown>;
+    return {
+      enabled: typeof o.enabled === 'boolean' ? o.enabled : defaults.enabled,
+      followUpDays:
+        typeof o.followUpDays === 'number' && Number.isInteger(o.followUpDays)
+          ? o.followUpDays
+          : defaults.followUpDays,
+      closeByDays:
+        typeof o.closeByDays === 'number' && Number.isInteger(o.closeByDays)
+          ? o.closeByDays
+          : defaults.closeByDays,
+      autoOpenOnDepartWithBalance:
+        typeof o.autoOpenOnDepartWithBalance === 'boolean'
+          ? o.autoOpenOnDepartWithBalance
+          : defaults.autoOpenOnDepartWithBalance,
+      autoCloseAtZeroAfterDays:
+        o.autoCloseAtZeroAfterDays === null
+          ? null
+          : typeof o.autoCloseAtZeroAfterDays === 'number' &&
+              Number.isInteger(o.autoCloseAtZeroAfterDays)
+            ? o.autoCloseAtZeroAfterDays
+            : defaults.autoCloseAtZeroAfterDays,
+    };
+  }
+
+  /**
+   * Throws CheckedOutRequiresHoldError → CHECKED_OUT_REQUIRES_HOLD when:
+   *  reservation.status === 'checked_out'
+   *  AND target window is GUEST
+   *  AND no ACTIVE hold on that window.
+   *  CLOSED window still throws WindowClosedError first (call after assertFolioWindowOpenSync).
+   */
+  private assertGuestChargeAllowedSync(reservationId: string, folioWindowId: string): void {
+    const window = this.readFolioWindowRowSync(folioWindowId);
+    if (!window || window.kind !== 'GUEST') return;
+
+    const resRows = this.ctx.storage.sql
+      .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ status: string }>;
+    if (resRows[0]?.status !== 'checked_out') return;
+
+    if (this.readActiveHoldSync(folioWindowId) === null) {
+      throw new CheckedOutRequiresHoldError();
+    }
+  }
+
+  private readActiveHoldSync(folioWindowId: string): {
+    holdId: string;
+    reservationId: string;
+    folioWindowId: string;
+    status: string;
+    reason: string;
+    notes: string | null;
+    followUpDate: string;
+    closeByDate: string;
+    expectedSettlement: string | null;
+    approvedBy: string;
+    placedAt: number;
+  } | null {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT hold_id, reservation_id, folio_window_id, status, reason, notes,
+                follow_up_date, close_by_date, expected_settlement, approved_by, placed_at
+         FROM folio_hold
+         WHERE folio_window_id = ? AND status = 'ACTIVE'
+         LIMIT 1`,
+        folioWindowId,
+      )
+      .toArray() as Array<{
+      hold_id: string;
+      reservation_id: string;
+      folio_window_id: string;
+      status: string;
+      reason: string;
+      notes: string | null;
+      follow_up_date: string;
+      close_by_date: string;
+      expected_settlement: string | null;
+      approved_by: string;
+      placed_at: number;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      holdId: row.hold_id,
+      reservationId: row.reservation_id,
+      folioWindowId: row.folio_window_id,
+      status: row.status,
+      reason: row.reason,
+      notes: row.notes,
+      followUpDate: row.follow_up_date,
+      closeByDate: row.close_by_date,
+      expectedSettlement: row.expected_settlement,
+      approvedBy: row.approved_by,
+      placedAt: row.placed_at,
+    };
+  }
+
+  private insertHoldEventSync(args: {
+    holdId: string;
+    kind: 'placed' | 'extended' | 'released' | 'closed';
+    reason: string | null;
+    beforeJson: unknown;
+    afterJson: unknown;
+    actor: string;
+    at: number;
+  }): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO folio_hold_event
+         (event_id, hold_id, kind, reason, before_json, after_json, actor, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      crypto.randomUUID(),
+      args.holdId,
+      args.kind,
+      args.reason,
+      args.beforeJson == null ? null : JSON.stringify(args.beforeJson),
+      args.afterJson == null ? null : JSON.stringify(args.afterJson),
+      args.actor,
+      args.at,
+    );
+  }
+
+  private placeHoldSync(args: {
+    reservationId: string;
+    reason: string;
+    notes: string | null;
+    followUpDate: string;
+    closeByDate: string;
+    expectedSettlement: string | null;
+    approvedBy: string;
+    actor: ActorContext;
+  }): { holdId: string } {
+    const folioWindowId = `${args.reservationId}:GUEST`;
+    this.assertFolioWindowOpenSync(folioWindowId);
+    if (this.readActiveHoldSync(folioWindowId)) {
+      throw new Error(HOLD_ALREADY_ACTIVE);
+    }
+    const holdId = crypto.randomUUID();
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO folio_hold (
+         hold_id, reservation_id, folio_window_id, status, reason, notes,
+         follow_up_date, close_by_date, expected_settlement, approved_by, placed_at,
+         ended_at, ended_reason
+       ) VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+      holdId,
+      args.reservationId,
+      folioWindowId,
+      args.reason,
+      args.notes,
+      args.followUpDate,
+      args.closeByDate,
+      args.expectedSettlement,
+      args.approvedBy,
+      now,
+    );
+    const after = {
+      holdId,
+      status: 'ACTIVE',
+      reason: args.reason,
+      notes: args.notes,
+      followUpDate: args.followUpDate,
+      closeByDate: args.closeByDate,
+      expectedSettlement: args.expectedSettlement,
+      approvedBy: args.approvedBy,
+    };
+    this.insertHoldEventSync({
+      holdId,
+      kind: 'placed',
+      reason: args.reason,
+      beforeJson: null,
+      afterJson: after,
+      actor: this.auditActorSync(args.actor),
+      at: now,
+    });
+    this.appendAuditLogSync({
+      actor: this.auditActorSync(args.actor),
+      commandId: 'folio.place_hold',
+      entityType: 'folio_hold',
+      entityId: holdId,
+      beforeJson: null,
+      afterJson: after,
+      reservationId: args.reservationId,
+    });
+    return { holdId };
   }
 
   async tryOpenFolioWindow(
@@ -19620,7 +20141,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           const now = Date.now();
-          this.closeFolioWindowSync(input.folioWindowId, now, propertyId, window.reservationId);
+          this.closeFolioWindowSync(input.folioWindowId, now, propertyId, window.reservationId, {
+            holdEndedBy: this.auditActorSync(actor),
+          });
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'folio.close_window',
@@ -19639,6 +20162,527 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
       return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryPlaceFolioHold(
+    actor: ActorContext,
+    input: {
+      reservationId: string;
+      reason: string;
+      notes?: string;
+      followUpDate?: string;
+      closeByDate?: string;
+      expectedSettlement?: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; holdId: string }
+    | { ok: false; error: typeof OPEN_FOLIO_DISABLED }
+    | { ok: false; error: typeof HOLD_ALREADY_ACTIVE }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof INVALID_REQUEST }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:hold');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const cfg = this.readOpenFolioConfigSync();
+          if (!cfg.enabled) throw new Error(OPEN_FOLIO_DISABLED);
+
+          const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+          if (reason.length < 1 || reason.length > 200) throw new Error(INVALID_REQUEST);
+
+          const notesRaw = input.notes;
+          let notes: string | null = null;
+          if (notesRaw !== undefined) {
+            if (typeof notesRaw !== 'string' || notesRaw.length > 1000) {
+              throw new Error(INVALID_REQUEST);
+            }
+            notes = notesRaw;
+          }
+
+          const settlementRaw = input.expectedSettlement;
+          let expectedSettlement: string | null = null;
+          if (settlementRaw !== undefined) {
+            if (typeof settlementRaw !== 'string' || settlementRaw.length > 120) {
+              throw new Error(INVALID_REQUEST);
+            }
+            expectedSettlement = settlementRaw;
+          }
+
+          const resRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+            .toArray() as Array<{ status: string }>;
+          const reservation = resRows[0];
+          if (!reservation) throw new FolioWindowError(NOT_FOUND);
+          if (reservation.status !== 'checked_in' && reservation.status !== 'checked_out') {
+            throw new Error(INVALID_REQUEST);
+          }
+
+          const businessDate = this.readBusinessDateSync();
+          if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+
+          const followUpDate =
+            input.followUpDate !== undefined
+              ? input.followUpDate
+              : this.shiftRecurringDate(businessDate, cfg.followUpDays);
+          const closeByDate =
+            input.closeByDate !== undefined
+              ? input.closeByDate
+              : this.shiftRecurringDate(businessDate, cfg.closeByDays);
+
+          if (!this.isRecurringCalendarDate(followUpDate) || !this.isRecurringCalendarDate(closeByDate)) {
+            throw new Error(INVALID_REQUEST);
+          }
+          if (followUpDate < businessDate) throw new Error(INVALID_REQUEST);
+          if (closeByDate < followUpDate) throw new Error(INVALID_REQUEST);
+
+          const approvedBy = actor.kind === 'user' ? actor.userId : this.auditActorSync(actor);
+          return {
+            ok: true as const,
+            ...this.placeHoldSync({
+              reservationId: input.reservationId,
+              reason,
+              notes,
+              followUpDate,
+              closeByDate,
+              expectedSettlement,
+              approvedBy,
+              actor,
+            }),
+          };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryExtendFolioHold(
+    actor: ActorContext,
+    input: {
+      reservationId: string;
+      reason: string;
+      followUpDate?: string;
+      closeByDate?: string;
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; holdId: string }
+    | { ok: false; error: typeof NO_ACTIVE_HOLD }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof INVALID_REQUEST }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:hold');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+          if (reason.length < 1 || reason.length > 200) throw new Error(INVALID_REQUEST);
+          if (input.followUpDate === undefined && input.closeByDate === undefined) {
+            throw new Error(INVALID_REQUEST);
+          }
+
+          const resRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+            .toArray() as Array<{ status: string }>;
+          if (!resRows[0]) throw new FolioWindowError(NOT_FOUND);
+
+          const folioWindowId = `${input.reservationId}:GUEST`;
+          this.assertFolioWindowOpenSync(folioWindowId);
+          const active = this.readActiveHoldSync(folioWindowId);
+          if (!active) throw new Error(NO_ACTIVE_HOLD);
+
+          const businessDate = this.readBusinessDateSync();
+          if (!businessDate) throw new Error(BUSINESS_DATE_UNSET);
+
+          const followUpDate = input.followUpDate ?? active.followUpDate;
+          const closeByDate = input.closeByDate ?? active.closeByDate;
+          if (!this.isRecurringCalendarDate(followUpDate) || !this.isRecurringCalendarDate(closeByDate)) {
+            throw new Error(INVALID_REQUEST);
+          }
+          if (followUpDate < businessDate) throw new Error(INVALID_REQUEST);
+          if (closeByDate < followUpDate) throw new Error(INVALID_REQUEST);
+
+          const before = {
+            followUpDate: active.followUpDate,
+            closeByDate: active.closeByDate,
+          };
+          const after = { followUpDate, closeByDate };
+          this.ctx.storage.sql.exec(
+            `UPDATE folio_hold SET follow_up_date = ?, close_by_date = ? WHERE hold_id = ?`,
+            followUpDate,
+            closeByDate,
+            active.holdId,
+          );
+          const now = Date.now();
+          this.insertHoldEventSync({
+            holdId: active.holdId,
+            kind: 'extended',
+            reason,
+            beforeJson: before,
+            afterJson: after,
+            actor: this.auditActorSync(actor),
+            at: now,
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.extend_hold',
+            entityType: 'folio_hold',
+            entityId: active.holdId,
+            beforeJson: before,
+            afterJson: after,
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, holdId: active.holdId };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryReleaseFolioHold(
+    actor: ActorContext,
+    input: { reservationId: string; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; holdId: string }
+    | { ok: false; error: typeof NO_ACTIVE_HOLD }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof INVALID_REQUEST }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:hold');
+    if (permDenied) return permDenied;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+          if (reason.length < 1 || reason.length > 200) throw new Error(INVALID_REQUEST);
+
+          const resRows = this.ctx.storage.sql
+            .exec(`SELECT status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+            .toArray() as Array<{ status: string }>;
+          if (!resRows[0]) throw new FolioWindowError(NOT_FOUND);
+
+          const folioWindowId = `${input.reservationId}:GUEST`;
+          this.assertFolioWindowOpenSync(folioWindowId);
+          const active = this.readActiveHoldSync(folioWindowId);
+          if (!active) throw new Error(NO_ACTIVE_HOLD);
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE folio_hold
+             SET status = 'RELEASED', ended_at = ?, ended_reason = ?
+             WHERE hold_id = ? AND status = 'ACTIVE'`,
+            now,
+            reason,
+            active.holdId,
+          );
+          this.insertHoldEventSync({
+            holdId: active.holdId,
+            kind: 'released',
+            reason,
+            beforeJson: { status: 'ACTIVE' },
+            afterJson: { status: 'RELEASED', endedReason: reason },
+            actor: this.auditActorSync(actor),
+            at: now,
+          });
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.release_hold',
+            entityType: 'folio_hold',
+            entityId: active.holdId,
+            beforeJson: { status: 'ACTIVE' },
+            afterJson: { status: 'RELEASED', endedReason: reason },
+            reservationId: input.reservationId,
+          });
+          return { ok: true as const, holdId: active.holdId };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * `get_folio_hold` — ACTIVE hold on GUEST window (or null) plus that hold's event history.
+   */
+  async readFolioHold(reservationId: string): Promise<
+    | {
+        ok: true;
+        hold: {
+          holdId: string;
+          reservationId: string;
+          folioWindowId: string;
+          status: string;
+          reason: string;
+          notes: string | null;
+          followUpDate: string;
+          closeByDate: string;
+          expectedSettlement: string | null;
+          approvedBy: string;
+          placedAt: number;
+        } | null;
+        history: Array<{
+          eventId: string;
+          holdId: string;
+          kind: string;
+          reason: string | null;
+          beforeJson: unknown;
+          afterJson: unknown;
+          actor: string;
+          at: number;
+        }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const stay = this.ctx.storage.sql
+      .exec(`SELECT reservation_id FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ reservation_id: string }>;
+    if (!stay[0]) return { ok: false, error: NOT_FOUND };
+
+    const folioWindowId = `${reservationId}:GUEST`;
+    const hold = this.readActiveHoldSync(folioWindowId);
+    if (!hold) {
+      return { ok: true, hold: null, history: [] };
+    }
+
+    const eventRows = this.ctx.storage.sql
+      .exec(
+        `SELECT event_id, hold_id, kind, reason, before_json, after_json, actor, at
+         FROM folio_hold_event
+         WHERE hold_id = ?
+         ORDER BY at ASC, event_id ASC`,
+        hold.holdId,
+      )
+      .toArray() as Array<{
+      event_id: string;
+      hold_id: string;
+      kind: string;
+      reason: string | null;
+      before_json: string | null;
+      after_json: string | null;
+      actor: string;
+      at: number;
+    }>;
+
+    const parseJson = (raw: string | null): unknown => {
+      if (raw == null) return null;
+      try {
+        return JSON.parse(raw) as unknown;
+      } catch {
+        return null;
+      }
+    };
+
+    return {
+      ok: true,
+      hold: {
+        holdId: hold.holdId,
+        reservationId: hold.reservationId,
+        folioWindowId: hold.folioWindowId,
+        status: hold.status,
+        reason: hold.reason,
+        notes: hold.notes,
+        followUpDate: hold.followUpDate,
+        closeByDate: hold.closeByDate,
+        expectedSettlement: hold.expectedSettlement,
+        approvedBy: hold.approvedBy,
+        placedAt: hold.placedAt,
+      },
+      history: eventRows.map((row) => ({
+        eventId: row.event_id,
+        holdId: row.hold_id,
+        kind: row.kind,
+        reason: row.reason,
+        beforeJson: parseJson(row.before_json),
+        afterJson: parseJson(row.after_json),
+        actor: row.actor,
+        at: row.at,
+      })),
+    };
+  }
+
+  /**
+   * `get_open_folios` — ACTIVE holds with stay/room/balance; ordered by close-by; capped at 200.
+   */
+  async listOpenFolios(): Promise<{
+    ok: true;
+    items: Array<{
+      holdId: string;
+      reservationId: string;
+      guestRef: string;
+      roomCode: string | null;
+      departureDate: string;
+      balanceMinor: number;
+      followUpDate: string;
+      closeByDate: string;
+      overdue: boolean;
+      reason: string;
+      approvedBy: string;
+    }>;
+  }> {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT h.hold_id, h.reservation_id, h.reason, h.approved_by,
+                h.follow_up_date, h.close_by_date, h.folio_window_id,
+                r.guest_ref, r.departure_date, rm.code AS room_code,
+                COALESCE((
+                  SELECT SUM(fl.ledger_amount_minor)
+                  FROM folio_line fl
+                  WHERE fl.folio_window_id = h.folio_window_id
+                ), 0) AS balance_minor
+         FROM folio_hold h
+         JOIN reservation r ON r.reservation_id = h.reservation_id
+         LEFT JOIN room rm ON rm.room_id = r.room_id
+         WHERE h.status = 'ACTIVE'
+         ORDER BY h.close_by_date ASC, h.hold_id ASC
+         LIMIT ?`,
+        OPEN_FOLIOS_LIST_CAP,
+      )
+      .toArray() as Array<{
+      hold_id: string;
+      reservation_id: string;
+      guest_ref: string;
+      reason: string;
+      approved_by: string;
+      follow_up_date: string;
+      close_by_date: string;
+      folio_window_id: string;
+      departure_date: string;
+      room_code: string | null;
+      balance_minor: number;
+    }>;
+
+    return {
+      ok: true,
+      items: rows.map((row) => ({
+        holdId: row.hold_id,
+        reservationId: row.reservation_id,
+        guestRef: row.guest_ref,
+        roomCode: row.room_code ?? null,
+        departureDate: row.departure_date,
+        balanceMinor: Number(row.balance_minor),
+        followUpDate: row.follow_up_date,
+        closeByDate: row.close_by_date,
+        overdue: businessDate != null && row.close_by_date < businessDate,
+        reason: row.reason,
+        approvedBy: row.approved_by,
+      })),
+    };
+  }
+
+  /**
+   * Seed many ACTIVE holds for list-cap characterization (skips place_hold validation).
+   */
+  async seedActiveFolioHoldsForTest(
+    rows: Array<{
+      reservationId: string;
+      closeByDate: string;
+      followUpDate: string;
+      reason?: string;
+    }>,
+  ): Promise<void> {
+    this.assertUnsafeLocal('seedActiveFolioHoldsForTest');
+    const now = Date.now();
+    for (const row of rows) {
+      const folioWindowId = `${row.reservationId}:GUEST`;
+      const holdId = crypto.randomUUID();
+      this.ctx.storage.sql.exec(
+        `INSERT INTO reservation (
+           reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date,
+           status, created_at, updated_at
+         ) VALUES (?, 'rt_king', 'guest_seed', 'pii_seed', ?, ?, 'checked_out', ?, ?)`,
+        row.reservationId,
+        row.followUpDate,
+        row.closeByDate,
+        now,
+        now,
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO folio_window (folio_window_id, reservation_id, kind, status)
+         VALUES (?, ?, 'GUEST', 'OPEN')`,
+        folioWindowId,
+        row.reservationId,
+      );
+      this.ctx.storage.sql.exec(
+        `INSERT INTO folio_hold (
+           hold_id, reservation_id, folio_window_id, status, reason, notes,
+           follow_up_date, close_by_date, expected_settlement, approved_by, placed_at,
+           ended_at, ended_reason
+         ) VALUES (?, ?, ?, 'ACTIVE', ?, NULL, ?, ?, NULL, 'user_seed', ?, NULL, NULL)`,
+        holdId,
+        row.reservationId,
+        folioWindowId,
+        row.reason ?? 'seed',
+        row.followUpDate,
+        row.closeByDate,
+        now,
+      );
     }
   }
 
@@ -21542,6 +22586,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof IDEM_KEY_REUSED }
     | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof CHECKED_OUT_REQUIRES_HOLD }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
     this.assertRpcAvailable();
@@ -21580,6 +22625,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           this.ensureGuestFolioWindowSync(input.reservationId);
           const folioWindowId = this.readGuestFolioWindowIdSync(input.reservationId);
+          this.assertFolioWindowOpenSync(folioWindowId);
+          this.assertGuestChargeAllowedSync(input.reservationId, folioWindowId);
 
           this.assertChargeCodeSync(input.chargeCode, { requireActive: true });
           const postingDate = this.resolvePostingBusinessDateSync(provisional);
@@ -21622,6 +22669,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof ChargeCodeNotFoundError) return { ok: false, error: CHARGE_CODE_NOT_FOUND };
       if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof CheckedOutRequiresHoldError) return { ok: false, error: CHECKED_OUT_REQUIRES_HOLD };
       return { ok: false, error: INTERNAL_ERROR };
     }
   }

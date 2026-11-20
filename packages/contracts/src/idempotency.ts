@@ -98,6 +98,11 @@ export const WINDOW_BALANCE_DUE = 'window_balance_due' as const;
 export const WINDOW_NOT_REOPENABLE = 'window_not_reopenable' as const;
 export const WINDOW_NOT_OPENABLE = 'window_not_openable' as const;
 export const GUEST_WINDOW_NOT_OPENABLE = 'guest_window_not_openable' as const;
+/** Open folio (R4.23) — hold place/extend/release + post-checkout charge gate */
+export const OPEN_FOLIO_DISABLED = 'open_folio_disabled' as const;
+export const HOLD_ALREADY_ACTIVE = 'hold_already_active' as const;
+export const NO_ACTIVE_HOLD = 'no_active_hold' as const;
+export const CHECKED_OUT_REQUIRES_HOLD = 'checked_out_requires_hold' as const;
 export const TRANSFER_CROSS_RESERVATION = 'transfer_cross_reservation' as const;
 export const TRANSFER_SAME_WINDOW = 'transfer_same_window' as const;
 export const LINE_NOT_TRANSFERABLE = 'line_not_transferable' as const;

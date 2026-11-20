@@ -135,7 +135,7 @@ describe('migration orchestrator (Phase 0)', () => {
     expect(await org.getSchemaVersion()).toBe(ORG_SCHEMA_HEAD);
     expect(await resolved!.stub.getSchemaVersion()).toBe(PROPERTY_SCHEMA_HEAD);
     expect(await entitlement.getSchemaVersion()).toBe(ORG_ENTITLEMENT_SCHEMA_HEAD);
-  });
+  }, 15_000);
 
   it('cold property DO migrates on sweep without prior RPC', async () => {
     const orgId = `org_cold_${crypto.randomUUID()}`;

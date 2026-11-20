@@ -261,7 +261,11 @@ describe('night audit checks', () => {
       'departed_with_balance',
       'id_proof_missing',
       'arrival_deposit_missing',
+      'open_folio_unsettled',
+      'open_folio_past_close_by',
+      'open_folio_zero_balance',
     ]);
+    expect(checks).toHaveLength(10);
     expect(checkCount(checks, 'arrivals_not_checked_in')).toMatchObject({ severity: 'warn', count: 4 });
     expect(checkCount(checks, 'departures_not_checked_out')).toMatchObject({ severity: 'warn', count: 2 });
     expect(checkCount(checks, 'dirty_room_assigned')).toMatchObject({ severity: 'warn', count: 1 });
@@ -294,7 +298,22 @@ describe('night audit checks', () => {
       departureDate: addCalendarDays(d, -2),
       status: 'checked_out',
     });
-    await postMisc(stub, 'out_null_date', 'fl_null', 4000);
+    // Seed balance without desk charge path — checked_out without hold is refused (R4.23 D4).
+    await stub.execSqlForTest(
+      `INSERT INTO folio_window (folio_window_id, reservation_id, kind, status)
+       VALUES (?, ?, 'GUEST', 'OPEN')`,
+      'out_null_date:GUEST',
+      'out_null_date',
+    );
+    await stub.insertFolioLineRawForTest({
+      folioLineId: 'fl_null',
+      folioWindowId: 'out_null_date:GUEST',
+      reservationId: 'out_null_date',
+      chargeCode: 'MISC',
+      amountMinor: 4000,
+      source: 'ADJUSTMENT',
+      businessDate: d,
+    });
     expect(checkCount(await checksOn(stub), 'departed_with_balance').count).toBe(0);
 
     await bookCheckedIn(stub, guestRef, 'res_company', 'rm_co', d, addCalendarDays(d, 2));

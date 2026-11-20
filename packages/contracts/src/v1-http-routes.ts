@@ -1229,6 +1229,41 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_folio_hold',
+    scope: 'property',
+    permission: 'folio:hold',
+    commandId: 'folio.place_hold',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_folio_hold_extend',
+    scope: 'property',
+    permission: 'folio:hold',
+    commandId: 'folio.extend_hold',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_folio_hold_release',
+    scope: 'property',
+    permission: 'folio:hold',
+    commandId: 'folio.release_hold',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_folio_hold',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_open_folios',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

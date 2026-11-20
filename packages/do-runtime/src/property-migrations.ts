@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 49. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 50. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1670,6 +1670,38 @@ export const PACKAGES_SCHEDULES_V49_STATEMENTS: string[] = [
 
 export const PACKAGES_SCHEDULES_V49_SQL = PACKAGES_SCHEDULES_V49_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v50 — R4.23 open folio (bill on hold): folio_hold + folio_hold_event. */
+export const FOLIO_HOLD_V50_STATEMENTS: string[] = [
+  `CREATE TABLE folio_hold (
+  hold_id TEXT PRIMARY KEY,
+  reservation_id TEXT NOT NULL,
+  folio_window_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('ACTIVE','RELEASED','CLOSED')),
+  reason TEXT NOT NULL,
+  notes TEXT,
+  follow_up_date TEXT NOT NULL,
+  close_by_date TEXT NOT NULL,
+  expected_settlement TEXT,
+  approved_by TEXT NOT NULL,
+  placed_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  ended_reason TEXT
+)`,
+  `CREATE UNIQUE INDEX folio_hold_one_active ON folio_hold (folio_window_id) WHERE status = 'ACTIVE'`,
+  `CREATE TABLE folio_hold_event (
+  event_id TEXT PRIMARY KEY,
+  hold_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('placed','extended','released','closed')),
+  reason TEXT,
+  before_json TEXT,
+  after_json TEXT,
+  actor TEXT NOT NULL,
+  at INTEGER NOT NULL
+)`,
+];
+
+export const FOLIO_HOLD_V50_SQL = FOLIO_HOLD_V50_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1915,5 +1947,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 49,
     name: 'packages_schedules',
     statements: PACKAGES_SCHEDULES_V49_STATEMENTS,
+  },
+  {
+    version: 50,
+    name: 'folio_hold',
+    statements: FOLIO_HOLD_V50_STATEMENTS,
   },
 ] as const;

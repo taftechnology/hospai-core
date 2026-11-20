@@ -8,6 +8,7 @@ import {
   type GstBuyerFields,
 } from '@hospai/contracts';
 import {
+  addCalendarDays,
   foldFolioLines,
   folioActionPolicy,
   partitionQueuedByReservation,
@@ -150,6 +151,504 @@ function configStr(
 ): string {
   const row = keys?.find((k) => k.key === key);
   return typeof row?.value === 'string' ? row.value : fallback;
+}
+
+const OPEN_FOLIO_DEFAULTS = {
+  enabled: false,
+  followUpDays: 3,
+  closeByDays: 14,
+  autoOpenOnDepartWithBalance: false,
+  autoCloseAtZeroAfterDays: null as number | null,
+};
+
+type OpenFolioConfig = {
+  enabled: boolean;
+  followUpDays: number;
+  closeByDays: number;
+};
+
+function readOpenFolioConfig(
+  keys: Array<{ key: string; value: unknown }> | undefined,
+): OpenFolioConfig {
+  const row = keys?.find((k) => k.key === 'pms.folio.open_folio');
+  const v = row?.value;
+  if (!v || typeof v !== 'object') {
+    return {
+      enabled: OPEN_FOLIO_DEFAULTS.enabled,
+      followUpDays: OPEN_FOLIO_DEFAULTS.followUpDays,
+      closeByDays: OPEN_FOLIO_DEFAULTS.closeByDays,
+    };
+  }
+  const o = v as Record<string, unknown>;
+  return {
+    enabled: typeof o.enabled === 'boolean' ? o.enabled : OPEN_FOLIO_DEFAULTS.enabled,
+    followUpDays:
+      typeof o.followUpDays === 'number' && Number.isInteger(o.followUpDays)
+        ? o.followUpDays
+        : OPEN_FOLIO_DEFAULTS.followUpDays,
+    closeByDays:
+      typeof o.closeByDays === 'number' && Number.isInteger(o.closeByDays)
+        ? o.closeByDays
+        : OPEN_FOLIO_DEFAULTS.closeByDays,
+  };
+}
+
+function holdEventKindLabel(kind: string): string {
+  switch (kind) {
+    case 'placed':
+      return 'Placed';
+    case 'extended':
+      return 'Extended';
+    case 'released':
+      return 'Released';
+    case 'closed':
+      return 'Closed';
+    default:
+      return 'Updated';
+  }
+}
+
+type FolioHoldRow = {
+  reason: string;
+  notes: string | null;
+  followUpDate: string;
+  closeByDate: string;
+  expectedSettlement: string | null;
+  placedAt: number;
+};
+
+type FolioHoldHistoryRow = {
+  kind: string;
+  reason: string | null;
+  at: number;
+};
+
+function OpenFolioCard(props: {
+  propertyId: string;
+  reservationId: string;
+  businessDate: string | null;
+  config: OpenFolioConfig;
+  configLoaded: boolean;
+  hold: FolioHoldRow | null;
+  history: FolioHoldHistoryRow[];
+  canHold: boolean;
+  canConfigure: boolean;
+  setSettledNotice: (text: string) => void;
+  setMessage: (text: string | null) => void;
+}) {
+  const {
+    propertyId,
+    reservationId,
+    businessDate,
+    config,
+    configLoaded,
+    hold,
+    history,
+    canHold,
+    canConfigure,
+    setSettledNotice,
+    setMessage,
+  } = props;
+  const { date, instantDate } = useFormat();
+  const queryClient = useQueryClient();
+  const [placeOpen, setPlaceOpen] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [placeReason, setPlaceReason] = useState('');
+  const [placeNotes, setPlaceNotes] = useState('');
+  const [placeFollowUp, setPlaceFollowUp] = useState('');
+  const [placeCloseBy, setPlaceCloseBy] = useState('');
+  const [placeSettlement, setPlaceSettlement] = useState('');
+  const [extendReason, setExtendReason] = useState('');
+  const [extendFollowUp, setExtendFollowUp] = useState('');
+  const [extendCloseBy, setExtendCloseBy] = useState('');
+  const [releaseReason, setReleaseReason] = useState('');
+  const [placeOpId, setPlaceOpId] = useState(
+    () => `folio-hold-place:${reservationId}:${crypto.randomUUID()}`,
+  );
+  const [extendOpId, setExtendOpId] = useState(
+    () => `folio-hold-extend:${reservationId}:${crypto.randomUUID()}`,
+  );
+  const [releaseOpId, setReleaseOpId] = useState(
+    () => `folio-hold-release:${reservationId}:${crypto.randomUUID()}`,
+  );
+
+  function invalidateHoldCaches() {
+    void queryClient.invalidateQueries({
+      queryKey: ['folio-hold', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['open-folios', propertyId] });
+    void queryClient.invalidateQueries({
+      queryKey: ['folio', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['board'] });
+  }
+
+  function prefillPlaceDates() {
+    if (!businessDate) {
+      setPlaceFollowUp('');
+      setPlaceCloseBy('');
+      return;
+    }
+    setPlaceFollowUp(addCalendarDays(businessDate, config.followUpDays));
+    setPlaceCloseBy(addCalendarDays(businessDate, config.closeByDays));
+  }
+
+  const placeHold = useFolioActionMutation({
+    fallback: 'Could not place open-folio hold',
+    setMessage,
+    mutationFn: () =>
+      api.placeFolioHold(
+        propertyId,
+        reservationId,
+        {
+          reason: placeReason.trim(),
+          notes: placeNotes.trim() || undefined,
+          followUpDate: placeFollowUp.trim() || undefined,
+          closeByDate: placeCloseBy.trim() || undefined,
+          expectedSettlement: placeSettlement.trim() || undefined,
+        },
+        placeOpId,
+      ),
+    onSuccess: () => {
+      setPlaceOpen(false);
+      setPlaceReason('');
+      setPlaceNotes('');
+      setPlaceSettlement('');
+      setPlaceOpId(`folio-hold-place:${reservationId}:${crypto.randomUUID()}`);
+      setSettledNotice('Open-folio hold placed.');
+      invalidateHoldCaches();
+    },
+  });
+
+  const extendHold = useFolioActionMutation({
+    fallback: 'Could not extend open-folio hold',
+    setMessage,
+    mutationFn: () =>
+      api.extendFolioHold(
+        propertyId,
+        reservationId,
+        {
+          reason: extendReason.trim(),
+          followUpDate: extendFollowUp.trim() || undefined,
+          closeByDate: extendCloseBy.trim() || undefined,
+        },
+        extendOpId,
+      ),
+    onSuccess: () => {
+      setExtendOpen(false);
+      setExtendReason('');
+      setExtendOpId(`folio-hold-extend:${reservationId}:${crypto.randomUUID()}`);
+      setSettledNotice('Open-folio hold extended.');
+      invalidateHoldCaches();
+    },
+  });
+
+  const releaseHold = useFolioActionMutation({
+    fallback: 'Could not release open-folio hold',
+    setMessage,
+    mutationFn: () =>
+      api.releaseFolioHold(
+        propertyId,
+        reservationId,
+        { reason: releaseReason.trim() },
+        releaseOpId,
+      ),
+    onSuccess: () => {
+      setReleaseOpen(false);
+      setReleaseReason('');
+      setReleaseOpId(`folio-hold-release:${reservationId}:${crypto.randomUUID()}`);
+      setSettledNotice('Open-folio hold released.');
+      invalidateHoldCaches();
+    },
+  });
+
+  return (
+    <>
+      <Card data-testid="open-folio-card">
+        <CardHeader>
+          <CardTitle>Open folio</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {configLoaded && !config.enabled ? (
+            <div className="ui-stack" data-testid="open-folio-disabled">
+              <p>Open folio is off for this property.</p>
+              {canConfigure ? (
+                <Link className="ui-link-btn" to="/settings/property">
+                  Settings → Folio
+                </Link>
+              ) : null}
+            </div>
+          ) : hold ? (
+            <div className="ui-stack" data-testid="open-folio-active">
+              <p>
+                Hold reason: {hold.reason}
+                {hold.notes ? ` · ${hold.notes}` : ''}
+              </p>
+              <p>
+                Follow-up {date(hold.followUpDate)} · Close by {date(hold.closeByDate)}
+              </p>
+              {hold.expectedSettlement ? <p>Expected settlement: {hold.expectedSettlement}</p> : null}
+              <p className="muted">Placed {instantDate(hold.placedAt)}</p>
+              {history.length > 0 ? (
+                <ul data-testid="open-folio-history">
+                  {history.map((ev, i) => (
+                    <li key={`${ev.kind}-${ev.at}-${i}`}>
+                      {holdEventKindLabel(ev.kind)}
+                      {ev.reason ? ` — ${ev.reason}` : ''} · {instantDate(ev.at)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {canHold ? (
+                <div className="ui-row">
+                  <Button
+                    type="button"
+                    data-testid="open-folio-extend"
+                    onClick={() => {
+                      setExtendFollowUp(hold.followUpDate);
+                      setExtendCloseBy(hold.closeByDate);
+                      setExtendReason('');
+                      setExtendOpen(true);
+                    }}
+                  >
+                    Extend
+                  </Button>
+                  <Button
+                    type="button"
+                    intent="destructive"
+                    data-testid="open-folio-release"
+                    onClick={() => {
+                      setReleaseReason('');
+                      setReleaseOpen(true);
+                    }}
+                  >
+                    Release
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="ui-stack" data-testid="open-folio-empty">
+              {!configLoaded ? (
+                <p className="muted">Loading open-folio settings…</p>
+              ) : canHold && config.enabled ? (
+                <Button
+                  type="button"
+                  data-testid="open-folio-place"
+                  onClick={() => {
+                    setPlaceReason('');
+                    setPlaceNotes('');
+                    setPlaceSettlement('');
+                    prefillPlaceDates();
+                    setPlaceOpen(true);
+                  }}
+                >
+                  Place hold
+                </Button>
+              ) : (
+                <p className="muted">No open-folio hold on this stay.</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {placeOpen ? (
+        <FormDialog
+          title="Place open-folio hold"
+          onClose={() => {
+            if (placeHold.isPending) return;
+            setPlaceOpen(false);
+          }}
+          actions={
+            <>
+              <Button
+                type="button"
+                disabled={placeHold.isPending}
+                onClick={() => setPlaceOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="primary"
+                data-testid="open-folio-place-submit"
+                disabled={placeHold.isPending || !placeReason.trim()}
+                onClick={() => placeHold.mutate()}
+              >
+                Place hold
+              </Button>
+            </>
+          }
+        >
+          <div className="ui-stack">
+            <Field
+              label="Reason"
+              control={
+                <Input
+                  aria-label="open-folio-place-reason"
+                  value={placeReason}
+                  onChange={(e) => setPlaceReason(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Notes"
+              control={
+                <Input
+                  aria-label="open-folio-place-notes"
+                  value={placeNotes}
+                  onChange={(e) => setPlaceNotes(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Follow-up date"
+              control={
+                <Input
+                  aria-label="open-folio-place-follow-up"
+                  type="date"
+                  value={placeFollowUp}
+                  onChange={(e) => setPlaceFollowUp(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Close-by date"
+              control={
+                <Input
+                  aria-label="open-folio-place-close-by"
+                  type="date"
+                  value={placeCloseBy}
+                  onChange={(e) => setPlaceCloseBy(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Expected settlement"
+              control={
+                <Input
+                  aria-label="open-folio-place-settlement"
+                  value={placeSettlement}
+                  onChange={(e) => setPlaceSettlement(e.target.value)}
+                />
+              }
+            />
+          </div>
+        </FormDialog>
+      ) : null}
+
+      {extendOpen ? (
+        <FormDialog
+          title="Extend open-folio hold"
+          onClose={() => {
+            if (extendHold.isPending) return;
+            setExtendOpen(false);
+          }}
+          actions={
+            <>
+              <Button
+                type="button"
+                disabled={extendHold.isPending}
+                onClick={() => setExtendOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="primary"
+                data-testid="open-folio-extend-submit"
+                disabled={extendHold.isPending || !extendReason.trim()}
+                onClick={() => extendHold.mutate()}
+              >
+                Extend
+              </Button>
+            </>
+          }
+        >
+          <div className="ui-stack">
+            <Field
+              label="Reason"
+              control={
+                <Input
+                  aria-label="open-folio-extend-reason"
+                  value={extendReason}
+                  onChange={(e) => setExtendReason(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Follow-up date"
+              control={
+                <Input
+                  aria-label="open-folio-extend-follow-up"
+                  type="date"
+                  value={extendFollowUp}
+                  onChange={(e) => setExtendFollowUp(e.target.value)}
+                />
+              }
+            />
+            <Field
+              label="Close-by date"
+              control={
+                <Input
+                  aria-label="open-folio-extend-close-by"
+                  type="date"
+                  value={extendCloseBy}
+                  onChange={(e) => setExtendCloseBy(e.target.value)}
+                />
+              }
+            />
+          </div>
+        </FormDialog>
+      ) : null}
+
+      {releaseOpen ? (
+        <FormDialog
+          title="Release open-folio hold?"
+          onClose={() => {
+            if (releaseHold.isPending) return;
+            setReleaseOpen(false);
+          }}
+          actions={
+            <>
+              <Button
+                type="button"
+                disabled={releaseHold.isPending}
+                onClick={() => setReleaseOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="destructive"
+                data-testid="open-folio-release-submit"
+                disabled={releaseHold.isPending || !releaseReason.trim()}
+                onClick={() => releaseHold.mutate()}
+              >
+                Release
+              </Button>
+            </>
+          }
+        >
+          <div className="ui-stack">
+            <p className="muted">This ends the open-folio hold. Give a reason to continue.</p>
+            <Field
+              label="Reason"
+              control={
+                <Input
+                  aria-label="open-folio-release-reason"
+                  value={releaseReason}
+                  onChange={(e) => setReleaseReason(e.target.value)}
+                />
+              }
+            />
+          </div>
+        </FormDialog>
+      ) : null}
+    </>
+  );
 }
 
 type InvoiceSnapshotLine = {
@@ -802,16 +1301,30 @@ export function FolioScreen() {
     queryFn: () => api.listChargeCodes(propertyId, { status: 'all' }),
     enabled: Boolean(propertyId) && chargeCodesRequested,
   });
+  const reservationStatusForOpenFolio = reservationQ.data?.status ?? null;
+  const openFolioEligible =
+    reservationStatusForOpenFolio === 'checked_in' ||
+    reservationStatusForOpenFolio === 'checked_out';
+
   const domainConfigQ = useQuery({
     queryKey: ['domain-config', propertyId],
     queryFn: () => api.listDomainConfig(propertyId),
-    enabled: Boolean(propertyId) && domainConfigRequested,
+    enabled: Boolean(propertyId) && (domainConfigRequested || openFolioEligible),
     retry: false,
   });
 
   const configKeys = domainConfigQ.data?.keys as Array<{ key: string; value: unknown }> | undefined;
   const invoiceGenMode = configStr(configKeys, 'pms.invoice.gen_mode', 'Automatically');
   const invoiceAllowPending = configBool(configKeys, 'pms.invoice.allow_pending', false);
+  const openFolioConfig = readOpenFolioConfig(configKeys);
+
+  const folioHoldQ = useQuery({
+    queryKey: ['folio-hold', propertyId, reservationId],
+    queryFn: () => api.getFolioHold(propertyId, reservationId),
+    enabled: Boolean(propertyId && reservationId) && openFolioEligible,
+  });
+  const activeFolioHold = folioHoldQ.data?.hold ?? null;
+  const folioHoldHistory = folioHoldQ.data?.history ?? [];
 
   const activeInvoiceKey = ['invoice-active', propertyId, reservationId] as const;
   const activeInvoiceQ = useQuery<string | null>({
@@ -874,6 +1387,11 @@ export function FolioScreen() {
     meShell.authority.kind === 'live' &&
     !hasPropertyPermission(meShell.authority.me, 'settings:configure');
   const canConfigureFx = !configureDenied;
+  const holdDenied =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    !hasPropertyPermission(meShell.authority.me, 'folio:hold');
+  const canHold = !holdDenied;
 
   const cityLedgerAccountsQ = useQuery({
     queryKey: ['city-ledger-accounts-active', propertyId],
@@ -1894,7 +2412,20 @@ export function FolioScreen() {
   const ledgerChargesMinor = ledgerRows.reduce((sum, r) => sum + r.chargeMinor, 0);
   const ledgerPaymentsMinor = ledgerRows.reduce((sum, r) => sum + Math.max(0, -r.paymentMinor), 0);
   const folioBack = folioBackTarget(reservationQ.data?.status);
-  const checkoutNeedsOverride = typeof balanceMinor === 'number' && balanceMinor > 0;
+  const hasActiveOpenFolioHold = activeFolioHold != null;
+  const checkoutNeedsOverride =
+    typeof balanceMinor === 'number' && balanceMinor > 0 && !hasActiveOpenFolioHold;
+  const checkoutBlockedByInvoiceConfig =
+    invoiceGenMode === 'Automatically' &&
+    !invoiceAllowPending &&
+    typeof balanceMinor === 'number' &&
+    balanceMinor > 0;
+  const checkedOutNeedsHold =
+    reservationStatus === 'checked_out' && !hasActiveOpenFolioHold;
+  const canPostChargeNow = policy.canPostCharge && !checkedOutNeedsHold;
+  const chargeBlockReason = checkedOutNeedsHold
+    ? 'Place an open-folio hold to post charges after checkout.'
+    : policy.reasons.charge;
 
   return (
     <>
@@ -1936,21 +2467,24 @@ export function FolioScreen() {
               </Link>
             ) : null}
             {policy.canCheckout ? (
-              <Button
-                type="button"
-                intent="primary"
-                data-testid="check-out"
-                disabled={checkOut.isPending}
-                onClick={() => {
-                  if (checkoutNeedsOverride) {
-                    setCheckoutOverrideOpen(true);
-                    return;
-                  }
-                  checkOut.mutate(false);
-                }}
-              >
-                Check out
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  intent="primary"
+                  data-testid="check-out"
+                  disabled={checkOut.isPending || checkoutBlockedByInvoiceConfig}
+                  onClick={() => {
+                    if (checkoutBlockedByInvoiceConfig) return;
+                    if (checkoutNeedsOverride) {
+                      setCheckoutOverrideOpen(true);
+                      return;
+                    }
+                    checkOut.mutate(false);
+                  }}
+                >
+                  {hasActiveOpenFolioHold ? 'Check out on open folio' : 'Check out'}
+                </Button>
+              </>
             ) : null}
             {showRemainingNightsWarn ? (
               <Button
@@ -1990,6 +2524,21 @@ export function FolioScreen() {
         </Alert>
       ) : null}
 
+      {policy.canCheckout && checkoutBlockedByInvoiceConfig ? (
+        <Alert data-testid="checkout-invoice-config-blocked">
+          Invoices are issued at checkout and cannot carry a balance here. Settle the balance, or
+          allow pending invoices in Settings.
+          {!configureDenied ? (
+            <>
+              {' '}
+              <Link className="ui-link-btn" to="/settings/finance">
+                Settings
+              </Link>
+            </>
+          ) : null}
+        </Alert>
+      ) : null}
+
       {typeof balanceMinor === 'number' && balanceMinor < 0 ? (
         <Alert intent="informational" data-testid="folio-credit-notice">
           <AlertTitle>Guest credit {money(Math.abs(balanceMinor))}</AlertTitle>
@@ -2002,6 +2551,37 @@ export function FolioScreen() {
           {policy.reasons.checkout ??
             'Folio unavailable; checking out will not settle any balance.'}
         </Alert>
+      ) : null}
+
+      {openFolioEligible ? (
+        <OpenFolioCard
+          propertyId={propertyId}
+          reservationId={reservationId}
+          businessDate={businessDate}
+          config={openFolioConfig}
+          configLoaded={domainConfigQ.isSuccess}
+          hold={
+            activeFolioHold
+              ? {
+                  reason: activeFolioHold.reason,
+                  notes: activeFolioHold.notes,
+                  followUpDate: activeFolioHold.followUpDate,
+                  closeByDate: activeFolioHold.closeByDate,
+                  expectedSettlement: activeFolioHold.expectedSettlement,
+                  placedAt: activeFolioHold.placedAt,
+                }
+              : null
+          }
+          history={folioHoldHistory.map((ev) => ({
+            kind: ev.kind,
+            reason: ev.reason,
+            at: ev.at,
+          }))}
+          canHold={canHold}
+          canConfigure={!configureDenied}
+          setSettledNotice={setSettledNotice}
+          setMessage={setMessage}
+        />
       ) : null}
 
       <Card>
@@ -2075,7 +2655,7 @@ export function FolioScreen() {
                     <NativeSelect
                       aria-label="charge-product"
                       value={chargeProductId}
-                      disabled={!policy.canPostCharge}
+                      disabled={!canPostChargeNow}
                       onChange={(e) => {
                         const item = products.byId.get(e.target.value);
                         setChargeProductId(e.target.value);
@@ -2111,7 +2691,7 @@ export function FolioScreen() {
                     value={chargeCode}
                     onChange={(e) => setChargeCode(e.target.value)}
                     onFocus={() => setChargeCodesRequested(true)}
-                    disabled={!policy.canPostCharge}
+                    disabled={!canPostChargeNow}
                   >
                     {(chargeCodes.length > 0 ? chargeCodes : [{ code: chargeCode, name: chargeCode }]).map((c) => (
                       <option key={c.code} value={c.code}>
@@ -2130,14 +2710,14 @@ export function FolioScreen() {
                     aria-label="charge-amount"
                     value={chargeAmount}
                     onChange={(e) => setChargeAmount(e.target.value)}
-                    disabled={!policy.canPostCharge}
+                    disabled={!canPostChargeNow}
                   />
                 }
               />
               <Button
                 type="button"
                 data-testid="add-charge"
-                disabled={!policy.canPostCharge || addCharge.isPending || chargeMinor == null}
+                disabled={!canPostChargeNow || addCharge.isPending || chargeMinor == null}
                 onFocus={() => setChargeCodesRequested(true)}
                 onClick={() => {
                   setChargeCodesRequested(true);
@@ -2147,8 +2727,10 @@ export function FolioScreen() {
                 Post charge
               </Button>
             </div>
-            {!policy.canPostCharge && policy.reasons.charge ? (
-              <p className="muted">{policy.reasons.charge}</p>
+            {!canPostChargeNow && chargeBlockReason ? (
+              <p className="muted" data-testid="post-charge-hold-copy">
+                {chargeBlockReason}
+              </p>
             ) : null}
           </CardContent>
         </Card>

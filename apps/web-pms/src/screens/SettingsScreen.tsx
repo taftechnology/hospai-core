@@ -229,6 +229,184 @@ function DomainSelect(props: {
   );
 }
 
+type OpenFolioConfig = {
+  enabled: boolean;
+  followUpDays: number;
+  closeByDays: number;
+  autoOpenOnDepartWithBalance: boolean;
+  autoCloseAtZeroAfterDays: number | null;
+};
+
+const OPEN_FOLIO_FALLBACK: OpenFolioConfig = {
+  enabled: false,
+  followUpDays: 3,
+  closeByDays: 14,
+  autoOpenOnDepartWithBalance: false,
+  autoCloseAtZeroAfterDays: null,
+};
+
+function parseOpenFolioConfig(value: unknown): OpenFolioConfig {
+  if (!value || typeof value !== 'object') return OPEN_FOLIO_FALLBACK;
+  const rec = value as Record<string, unknown>;
+  const autoClose = rec.autoCloseAtZeroAfterDays;
+  return {
+    enabled: Boolean(rec.enabled),
+    followUpDays:
+      typeof rec.followUpDays === 'number' && Number.isFinite(rec.followUpDays)
+        ? Math.trunc(rec.followUpDays)
+        : OPEN_FOLIO_FALLBACK.followUpDays,
+    closeByDays:
+      typeof rec.closeByDays === 'number' && Number.isFinite(rec.closeByDays)
+        ? Math.trunc(rec.closeByDays)
+        : OPEN_FOLIO_FALLBACK.closeByDays,
+    autoOpenOnDepartWithBalance: Boolean(rec.autoOpenOnDepartWithBalance),
+    autoCloseAtZeroAfterDays:
+      autoClose == null
+        ? null
+        : typeof autoClose === 'number' && Number.isFinite(autoClose)
+          ? Math.trunc(autoClose)
+          : null,
+  };
+}
+
+function sameOpenFolio(a: OpenFolioConfig, b: OpenFolioConfig): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.followUpDays === b.followUpDays &&
+    a.closeByDays === b.closeByDays &&
+    a.autoOpenOnDepartWithBalance === b.autoOpenOnDepartWithBalance &&
+    a.autoCloseAtZeroAfterDays === b.autoCloseAtZeroAfterDays
+  );
+}
+
+function OpenFolioSettingsGroup(props: {
+  initial: unknown;
+  invoiceGenMode: unknown;
+  invoiceAllowPending: unknown;
+  reason: string;
+  propertyId: string;
+  onSaved: () => void;
+}) {
+  const baseline = useMemo(() => parseOpenFolioConfig(props.initial), [props.initial]);
+  const [draft, setDraft] = useState(baseline);
+  const [autoCloseRaw, setAutoCloseRaw] = useState(
+    baseline.autoCloseAtZeroAfterDays == null ? '' : String(baseline.autoCloseAtZeroAfterDays),
+  );
+  useEffect(() => {
+    setDraft(baseline);
+    setAutoCloseRaw(
+      baseline.autoCloseAtZeroAfterDays == null ? '' : String(baseline.autoCloseAtZeroAfterDays),
+    );
+  }, [baseline]);
+
+  const next: OpenFolioConfig = {
+    ...draft,
+    autoCloseAtZeroAfterDays: autoCloseRaw.trim() === '' ? null : Number(autoCloseRaw),
+  };
+  const normalized: OpenFolioConfig = {
+    ...next,
+    followUpDays: Number.isFinite(next.followUpDays) ? Math.trunc(next.followUpDays) : baseline.followUpDays,
+    closeByDays: Number.isFinite(next.closeByDays) ? Math.trunc(next.closeByDays) : baseline.closeByDays,
+    autoCloseAtZeroAfterDays:
+      next.autoCloseAtZeroAfterDays == null || !Number.isFinite(next.autoCloseAtZeroAfterDays)
+        ? null
+        : Math.trunc(next.autoCloseAtZeroAfterDays),
+  };
+  const dirty = !sameOpenFolio(normalized, baseline);
+  const save = useMutation({
+    mutationFn: () =>
+      api.putDomainConfig(props.propertyId, {
+        key: 'pms.folio.open_folio',
+        value: normalized,
+        reason: props.reason,
+      }),
+    onSuccess: () => {
+      props.onSaved();
+      setStatus('saved');
+    },
+    onError: () => setStatus('error'),
+  });
+  const [status, setStatus] = useAutoSave({
+    dirty,
+    reason: props.reason,
+    save: () => save.mutate(),
+  });
+  const openFolioNeedsPendingInvoicesHint =
+    props.invoiceGenMode === 'Automatically' && props.invoiceAllowPending !== true;
+
+  return (
+    <div className="ui-stack" data-config-key="pms.folio.open_folio">
+      <SectionLabel>Open folio</SectionLabel>
+      <div className="settings-property__grid">
+        <Field
+          label="Enable open folio"
+          hint={
+            openFolioNeedsPendingInvoicesHint
+              ? 'Departing on an open folio needs pending invoices allowed while invoices are issued automatically.'
+              : undefined
+          }
+          control={
+            <Checkbox
+              checked={draft.enabled}
+              onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))}
+            />
+          }
+        />
+        <Field
+          label="Follow-up days"
+          control={
+            <Input
+              type="number"
+              value={String(draft.followUpDays)}
+              autoComplete="off"
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, followUpDays: Number(e.target.value) }))
+              }
+            />
+          }
+        />
+        <Field
+          label="Close-by days"
+          control={
+            <Input
+              type="number"
+              value={String(draft.closeByDays)}
+              autoComplete="off"
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, closeByDays: Number(e.target.value) }))
+              }
+            />
+          }
+        />
+        <Field
+          label="Auto-open on depart with balance"
+          control={
+            <Checkbox
+              checked={draft.autoOpenOnDepartWithBalance}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, autoOpenOnDepartWithBalance: e.target.checked }))
+              }
+            />
+          }
+        />
+        <Field
+          label="Auto-close at zero after days"
+          hint="Leave blank to turn auto-close off."
+          control={
+            <Input
+              type="number"
+              value={autoCloseRaw}
+              autoComplete="off"
+              onChange={(e) => setAutoCloseRaw(e.target.value)}
+            />
+          }
+        />
+      </div>
+      <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
+    </div>
+  );
+}
+
 function PropertyNameField(props: {
   name: string;
   onChange: (name: string) => void;
@@ -629,6 +807,12 @@ export function SettingsScreen({
                   {...common}
                 />
               </div>
+              <OpenFolioSettingsGroup
+                initial={lookup(keys, 'pms.folio.open_folio')}
+                invoiceGenMode={lookup(keys, 'pms.invoice.gen_mode')}
+                invoiceAllowPending={lookup(keys, 'pms.invoice.allow_pending')}
+                {...common}
+              />
             </CardContent>
           </Card>
 

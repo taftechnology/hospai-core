@@ -1227,6 +1227,158 @@ export function createClient(opts: {
         },
       );
     },
+    async placeFolioHold(
+      propertyId: string,
+      reservationId: string,
+      body: {
+        reason: string;
+        notes?: string;
+        followUpDate?: string;
+        closeByDate?: string;
+        expectedSettlement?: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio-hold`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify(body),
+        },
+        { reservationId },
+      );
+    },
+    async extendFolioHold(
+      propertyId: string,
+      reservationId: string,
+      body: { reason: string; followUpDate?: string; closeByDate?: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio-hold/extend`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify(body),
+        },
+        { reservationId },
+      );
+    },
+    async releaseFolioHold(
+      propertyId: string,
+      reservationId: string,
+      body: { reason: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio-hold/release`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify(body),
+        },
+        { reservationId },
+      );
+    },
+    async getFolioHold(propertyId: string, reservationId: string): Promise<{
+      ok: true;
+      hold: {
+        holdId: string;
+        reservationId: string;
+        folioWindowId: string;
+        status: string;
+        reason: string;
+        notes: string | null;
+        followUpDate: string;
+        closeByDate: string;
+        expectedSettlement: string | null;
+        approvedBy: string;
+        placedAt: number;
+      } | null;
+      history: Array<{
+        eventId: string;
+        holdId: string;
+        kind: string;
+        reason: string | null;
+        beforeJson: unknown;
+        afterJson: unknown;
+        actor: string;
+        at: number;
+      }>;
+    }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/folio-hold`,
+      );
+      return body as {
+        ok: true;
+        hold: {
+          holdId: string;
+          reservationId: string;
+          folioWindowId: string;
+          status: string;
+          reason: string;
+          notes: string | null;
+          followUpDate: string;
+          closeByDate: string;
+          expectedSettlement: string | null;
+          approvedBy: string;
+          placedAt: number;
+        } | null;
+        history: Array<{
+          eventId: string;
+          holdId: string;
+          kind: string;
+          reason: string | null;
+          beforeJson: unknown;
+          afterJson: unknown;
+          actor: string;
+          at: number;
+        }>;
+      };
+    },
+    async listOpenFolios(propertyId: string): Promise<{
+      ok: true;
+      items: Array<{
+        holdId: string;
+        reservationId: string;
+        guestRef: string;
+        roomCode: string | null;
+        departureDate: string;
+        balanceMinor: number;
+        followUpDate: string;
+        closeByDate: string;
+        overdue: boolean;
+      }>;
+    }> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/open-folios`);
+      return body as {
+        ok: true;
+        items: Array<{
+          holdId: string;
+          reservationId: string;
+          guestRef: string;
+          roomCode: string | null;
+          departureDate: string;
+          balanceMinor: number;
+          followUpDate: string;
+          closeByDate: string;
+          overdue: boolean;
+        }>;
+      };
+    },
     async reopenFolioWindow(propertyId: string, folioWindowId: string, opId: string) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(

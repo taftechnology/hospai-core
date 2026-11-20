@@ -78,6 +78,8 @@ export function HousekeepingScreen() {
   const requests = path.endsWith('/requests');
   const lostFound = path.endsWith('/lost-found');
   const cases = path.endsWith('/cases');
+  const inspections = path.endsWith('/inspections');
+  const guestAudit = path.endsWith('/guest-audit');
   const { subtitle } = usePropertySubtitle(
     inventory
       ? 'Par levels and stock counts'
@@ -91,7 +93,11 @@ export function HousekeepingScreen() {
               ? 'Lost and found custody'
               : cases
                 ? 'Missing and damaged items'
-                : 'Room status and assignments',
+                : inspections
+                  ? 'Scored room inspections'
+                  : guestAudit
+                    ? 'Front office against housekeeping counts'
+                    : 'Room status and assignments',
   );
 
   return (
@@ -121,7 +127,11 @@ export function HousekeepingScreen() {
                     ? 'Could not load lost and found'
                     : cases
                       ? 'Could not load missing and damaged cases'
-                      : 'Could not load housekeeping',
+                      : inspections
+                        ? 'Could not load inspections'
+                        : guestAudit
+                          ? 'Could not load the guest audit'
+                          : 'Could not load housekeeping',
         })
       }
       isQueuedResult={isQueuedResult}

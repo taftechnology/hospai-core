@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HousekeepingTaskList, HousekeepingTaskListRow } from '@hospai/contracts';
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
+import { depthBStubs } from './depth-b-stubs.fixture.js';
 
 const TYPES = [
   { code: 'departure_clean', label: 'Departure clean' },
@@ -45,6 +46,10 @@ function task(over: Partial<HousekeepingTaskListRow>): HousekeepingTaskListRow {
     cancelledAt: null,
     cancelledBy: null,
     cancelReason: null,
+    releasedAt: null,
+    releasedBy: null,
+    latestInspectionId: null,
+    latestInspectionResult: null,
     updatedAt: 1,
     ...over,
   };
@@ -56,7 +61,7 @@ function list(tasks: HousekeepingTaskListRow[], counters?: Partial<HousekeepingT
     businessDate: '2026-11-20',
     tasks,
     truncated: false,
-    counters: { open: 0, pending: 0, inProgress: 0, completed: 0, overdue: 0, ...counters },
+    counters: { open: 0, pending: 0, inProgress: 0, paused: 0, completed: 0, overdue: 0, ...counters },
     taskTypes: TYPES,
   };
 }
@@ -83,6 +88,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     updateHousekeepingTask: async () => ({ ok: true }),
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
+    ...depthBStubs(),
     ...over,
   };
 }
@@ -181,11 +187,17 @@ describe('Housekeeping tasks tab', () => {
         .map((b) => b.getAttribute('aria-label'))
         .filter((n): n is string => Boolean(n?.endsWith(`for ${code}`)))
         .map((n) => n.replace(` for ${code}`, ''));
-    expect(names('101')).toEqual(['Start task', 'Edit task', 'Cancel task']);
-    expect(names('102')).toEqual(['Complete task', 'Edit task', 'Cancel task']);
-    expect(names('103')).toEqual(['Review task']);
-    expect(names('104')).toEqual([]);
-    expect(names('105')).toEqual([]);
+    // R4.11 B: Details is always there; Pause beside Complete; Inspect and Release (labelled by
+    // room, so not listed here) come with a finished task.
+    expect(names('101')).toEqual(['Start task', 'Details of task', 'Edit task', 'Cancel task']);
+    expect(names('102')).toEqual(['Pause task', 'Complete task', 'Details of task', 'Edit task', 'Cancel task']);
+    expect(names('103')).toEqual(['Review task', 'Details of task']);
+    expect(names('104')).toEqual(['Details of task']);
+    expect(names('105')).toEqual(['Details of task']);
+    expect(screen.queryByRole('button', { name: 'Inspect room 101' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Inspect room 103' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Release room 104' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Release room 105' })).toBeNull();
     expect(screen.getByText(/No show/)).toBeTruthy();
   });
 

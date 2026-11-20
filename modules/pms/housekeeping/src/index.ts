@@ -18,6 +18,25 @@ export {
 export { openCase, type OpenCaseInput } from './application/open-case.js';
 export { updateCase, type UpdateCaseInput } from './application/update-case.js';
 export { readHousekeepingCases, type ReadCasesFilters } from './application/read-cases.js';
+export {
+  saveInspectionTemplate,
+  readInspectionTemplates,
+  type SaveInspectionTemplateInput,
+} from './application/inspection-template.js';
+export { recordInspection, type RecordInspectionInput } from './application/record-inspection.js';
+export {
+  readInspections,
+  readTaskStages,
+  type ReadInspectionsFilters,
+} from './application/read-inspections.js';
+export {
+  startGuestAudit,
+  recordGuestAuditCount,
+  closeGuestAudit,
+  readGuestAudit,
+  readGuestAudits,
+  type StartGuestAuditInput,
+} from './application/guest-audit.js';
 export { updateRoomStatus } from './application/update-room-status.js';
 export { bulkUpdateRoomStatus } from './application/bulk-update-room-status.js';
 export { assignHousekeeping } from './application/assign-housekeeping.js';
@@ -49,6 +68,8 @@ export {
   HousekeepingTaskNotFoundError,
   HousekeepingRecordNotFoundError,
   HousekeepingInvalidTaskTransitionError,
+  HousekeepingInspectionRequiredError,
+  HousekeepingAuditSessionOpenError,
   isStaffRef,
 } from './domain/errors.js';
 export { isCleanlinessStatus, isRoomStatus, CLEANLINESS_STATUSES, ROOM_STATUSES } from './domain/room-status.js';

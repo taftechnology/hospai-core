@@ -226,6 +226,10 @@ import {
   HK_TASK_SEARCH_MAX,
   HK_REQUEST_SEARCH_MAX,
   LOST_ITEM_SEARCH_MAX,
+  HK_AUDIT_COUNT_LINES_MAX,
+  HK_INSPECTION_ITEMS_MAX,
+  isGuestAuditStatus,
+  isInspectionResult,
   isHousekeepingCaseKind,
   isHousekeepingCaseReturned,
   isHousekeepingCaseStatus,
@@ -6127,6 +6131,329 @@ async function handleGetHousekeepingCases(ctx: V1DispatchContext): Promise<Respo
     }
     throw e;
   }
+}
+
+// ---------------------------------------------------------------------------
+// R4.11 Part B: inspections, guest-count audit
+// ---------------------------------------------------------------------------
+
+const INSPECTION_TEMPLATE_KEYS = ['templateId', 'name', 'active', 'passThreshold', 'items'] as const;
+const INSPECTION_KEYS = [
+  'businessDate',
+  'roomId',
+  'taskId',
+  'templateId',
+  'inspectorRef',
+  'attendantRef',
+  'answers',
+  'remarks',
+] as const;
+
+function limitExceeded(): Response {
+  return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+}
+
+async function handlePostInspectionTemplate(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body)) return json({ error: 'invalid_body' }, 400);
+  if (
+    typeof body.name !== 'string' ||
+    !Array.isArray(body.items) ||
+    (body.templateId !== undefined && typeof body.templateId !== 'string') ||
+    (body.active !== undefined && typeof body.active !== 'boolean') ||
+    (body.passThreshold !== undefined && !Number.isInteger(body.passThreshold))
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.items.length > HK_INSPECTION_ITEMS_MAX) return limitExceeded();
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, INSPECTION_TEMPLATE_KEYS) } as Parameters<PropertyDO['trySaveHousekeepingInspectionTemplate']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.save_inspection_template', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySaveHousekeepingInspectionTemplate']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.save_inspection_template',
+      routeId: 'post_inspection_template',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySaveHousekeepingInspectionTemplate(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'settings:configure',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostHousekeepingInspection(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body)) return json({ error: 'invalid_body' }, 400);
+  if (
+    typeof body.businessDate !== 'string' ||
+    !ISO_DATE_RE.test(body.businessDate) ||
+    typeof body.roomId !== 'string' ||
+    !body.roomId ||
+    typeof body.templateId !== 'string' ||
+    !body.templateId ||
+    typeof body.inspectorRef !== 'string' ||
+    !Array.isArray(body.answers) ||
+    !isOptionalNullableString(body.taskId) ||
+    !isOptionalNullableString(body.attendantRef) ||
+    !isOptionalNullableString(body.remarks)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.answers.length > HK_INSPECTION_ITEMS_MAX) return limitExceeded();
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, INSPECTION_KEYS) } as Parameters<PropertyDO['tryRecordHousekeepingInspection']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.record_inspection', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordHousekeepingInspection']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.record_inspection',
+      routeId: 'post_housekeeping_inspection',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRecordHousekeepingInspection(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostGuestAudit(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body)) return json({ error: 'invalid_body' }, 400);
+  if (
+    typeof body.businessDate !== 'string' ||
+    !ISO_DATE_RE.test(body.businessDate) ||
+    !isOptionalNullableString(body.notes)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { ...pickPresent(body, ['businessDate', 'notes']) } as Parameters<PropertyDO['tryStartHousekeepingGuestAudit']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.start_guest_audit', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryStartHousekeepingGuestAudit']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.start_guest_audit',
+      routeId: 'post_guest_audit',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryStartHousekeepingGuestAudit(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostGuestAuditCount(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const sessionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body)) return json({ error: 'invalid_body' }, 400);
+  if (!Array.isArray(body.lines) || body.lines.length === 0) return json({ error: 'invalid_body' }, 400);
+  if (body.lines.length > HK_AUDIT_COUNT_LINES_MAX) return limitExceeded();
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { sessionId, lines: body.lines } as Parameters<PropertyDO['tryRecordHousekeepingGuestAuditCount']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.record_guest_audit_count', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRecordHousekeepingGuestAuditCount']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.record_guest_audit_count',
+      routeId: 'post_guest_audit_count',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRecordHousekeepingGuestAuditCount(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostGuestAuditClose(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const sessionId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<HkBody>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!isHkBody(body)) return json({ error: 'invalid_body' }, 400);
+  if (!isOptionalNullableString(body.notes)) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  // The object hashed is the object sent to the DO.
+  const commandPayload = { sessionId, ...pickPresent(body, ['notes']) } as Parameters<PropertyDO['tryCloseHousekeepingGuestAudit']>[1];
+  const fingerprint = await commandFingerprint('housekeeping.close_guest_audit', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCloseHousekeepingGuestAudit']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.close_guest_audit',
+      routeId: 'post_guest_audit_close',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCloseHousekeepingGuestAudit(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+/** Runs a Part B read against the property DO; transport failure is the fail-closed read response. */
+async function partBRead(
+  ctx: V1DispatchContext,
+  read: (stub: DurableObjectStub<PropertyDO>) => Promise<{ ok: boolean; error?: string }>,
+  params?: URLSearchParams,
+): Promise<Response> {
+  void params;
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const result = await read(resolvedCtx.resolved.stub);
+    if (result.ok === false && result.error === 'not_found') return json({ error: 'not_found' }, 404);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetInspectionTemplates(ctx: V1DispatchContext): Promise<Response> {
+  return partBRead(ctx, (stub) => stub.readInspectionTemplateList());
+}
+
+async function handleGetInspections(ctx: V1DispatchContext): Promise<Response> {
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, 0);
+  const result = params.get('result') ?? undefined;
+  if (!base || (result !== undefined && !isInspectionResult(result))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const filters = {
+    ...base,
+    ...(result ? { result } : {}),
+    ...(params.get('roomId') ? { roomId: params.get('roomId')! } : {}),
+    ...(params.get('inspectorRef') ? { inspectorRef: params.get('inspectorRef')! } : {}),
+    ...(params.get('taskId') ? { taskId: params.get('taskId')! } : {}),
+  };
+  return partBRead(ctx, (stub) => stub.readInspectionList(filters));
+}
+
+async function handleGetHousekeepingTaskStages(ctx: V1DispatchContext): Promise<Response> {
+  const taskId = decodeURIComponent(ctx.match[2]!);
+  return partBRead(ctx, (stub) => stub.readTaskStageList(taskId));
+}
+
+async function handleGetGuestAudits(ctx: V1DispatchContext): Promise<Response> {
+  const params = new URL(ctx.request.url).searchParams;
+  const base = listFilters(params, 0);
+  const status = params.get('status') ?? undefined;
+  if (!base || (status !== undefined && !isGuestAuditStatus(status))) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const filters = { ...base, ...(status ? { status } : {}) };
+  return partBRead(ctx, (stub) => stub.readGuestAuditList(filters));
+}
+
+async function handleGetGuestAudit(ctx: V1DispatchContext): Promise<Response> {
+  const sessionId = decodeURIComponent(ctx.match[2]!);
+  return partBRead(ctx, (stub) => stub.readGuestAuditDetail(sessionId));
 }
 
 async function handlePostMaintenanceTicket(ctx: V1DispatchContext): Promise<Response> {
@@ -12946,6 +13273,101 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetHousekeepingCases,
+  },
+  {
+    id: 'post_inspection_template',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inspection-templates$/,
+    permission: 'settings:configure',
+    commandId: 'housekeeping.save_inspection_template',
+    entitlement: 'pms.core',
+    handler: handlePostInspectionTemplate,
+  },
+  {
+    id: 'post_housekeeping_inspection',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inspections$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.record_inspection',
+    entitlement: 'pms.core',
+    handler: handlePostHousekeepingInspection,
+  },
+  {
+    id: 'post_guest_audit',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/guest-audits$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.start_guest_audit',
+    entitlement: 'pms.core',
+    handler: handlePostGuestAudit,
+  },
+  {
+    id: 'post_guest_audit_count',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/guest-audits\/([^/]+)\/counts$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.record_guest_audit_count',
+    entitlement: 'pms.core',
+    handler: handlePostGuestAuditCount,
+  },
+  {
+    id: 'post_guest_audit_close',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/guest-audits\/([^/]+)\/close$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.close_guest_audit',
+    entitlement: 'pms.core',
+    handler: handlePostGuestAuditClose,
+  },
+  {
+    id: 'get_inspection_templates',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inspection-templates$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetInspectionTemplates,
+  },
+  {
+    id: 'get_inspections',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/inspections$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetInspections,
+  },
+  {
+    id: 'get_housekeeping_task_stages',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/tasks\/([^/]+)\/stages$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingTaskStages,
+  },
+  {
+    id: 'get_guest_audits',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/guest-audits$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestAudits,
+  },
+  {
+    id: 'get_guest_audit',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/guest-audits\/([^/]+)$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestAudit,
   },
 ];
 

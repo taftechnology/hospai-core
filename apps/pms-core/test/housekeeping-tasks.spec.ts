@@ -451,7 +451,7 @@ describe('housekeeping tasks [R4.30]', () => {
     await transition(h, oldDone.taskId, { action: 'complete' });
 
     const today = await listTasks(h, `date=${h.bd}`);
-    expect(today.counters).toEqual({ open: 2, pending: 1, inProgress: 1, completed: 2, overdue: 2 });
+    expect(today.counters).toEqual({ open: 2, pending: 1, inProgress: 1, paused: 0, completed: 2, overdue: 2 });
     expect(today.tasks).toHaveLength(5);
     expect(today.tasks.some((t) => t.taskId === pending.taskId)).toBe(true);
 
@@ -575,8 +575,8 @@ describe('housekeeping tasks [R4.30]', () => {
   });
 
   it('12. the routes are in the audit with the right permissions', () => {
-    // R4.11 Part A appends ten more routes after these six.
-    const ids = V1_HTTP_ROUTE_AUDIT.slice(-16, -10).map((r) => [r.id, 'permission' in r ? r.permission : null]);
+    // R4.11 Part A appends ten more routes after these six, and Part B ten after those.
+    const ids = V1_HTTP_ROUTE_AUDIT.slice(-26, -20).map((r) => [r.id, 'permission' in r ? r.permission : null]);
     expect(ids).toEqual([
       ['post_housekeeping_tasks', 'housekeeping:write'],
       ['patch_housekeeping_task', 'housekeeping:write'],

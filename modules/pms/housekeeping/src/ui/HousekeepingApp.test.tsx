@@ -10,6 +10,7 @@ import {
   type HousekeepingRosterPerson,
 } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
+import { depthBStubs } from './depth-b-stubs.fixture.js';
 
 const ROOM = { roomId: 'rm_1', code: '101', status: 'dirty' };
 const ADA: HousekeepingRosterPerson = {
@@ -91,13 +92,14 @@ function stubApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
       businessDate: q.date,
       tasks: [],
       truncated: false,
-      counters: { open: 0, pending: 0, inProgress: 0, completed: 0, overdue: 0 },
+      counters: { open: 0, pending: 0, inProgress: 0, paused: 0, completed: 0, overdue: 0 },
       taskTypes: TASK_TYPES,
     }),
     createHousekeepingTask: async () => ({ ok: true }),
     updateHousekeepingTask: async () => ({ ok: true }),
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
+    ...depthBStubs(),
     ...overrides,
   };
 }

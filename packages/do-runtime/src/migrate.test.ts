@@ -294,22 +294,32 @@ class MemorySql implements SqlStorageLike {
       return { toArray: () => [] };
     }
     if (q.startsWith('ALTER TABLE room_ooo ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('INSERT INTO housekeeping_task_v54')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE housekeeping_task')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE housekeeping_task_v54 RENAME TO housekeeping_task')) {
+      return { toArray: () => [] };
+    }
+    if (q.startsWith('INSERT INTO room_status_history_v54')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE room_status_history')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE room_status_history_v54 RENAME TO room_status_history')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 53', () => {
+  it('applies property migrations through version 54', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(53);
+    expect(v1).toBe(54);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(53);
-    expect(sql.schemaVersion).toHaveLength(53);
+    expect(v2).toBe(54);
+    expect(sql.schemaVersion).toHaveLength(54);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50, 51, 52, 53,
+      49, 50, 51, 52, 53, 54,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -847,13 +857,38 @@ describe('housekeeping depth A v53', () => {
     // No plaintext person column: claimants and guests are guest_ref records only.
     const ddl = (v53?.statements ?? []).join('\n');
     expect(ddl).not.toMatch(/claimant_name|guest_name|display_name|\bemail\b|\bphone\b/i);
-    expect(PROPERTY_SCHEMA_HEAD).toBe(53);
+    expect(PROPERTY_SCHEMA_HEAD).toBeGreaterThanOrEqual(53);
+  });
+});
+
+describe('housekeeping depth B v54', () => {
+  it('rebuilds the task and history tables and creates the seven Part B tables with no name column', () => {
+    const v54 = PROPERTY_MIGRATIONS.find((m) => m.version === 54);
+    expect(v54?.name).toBe('housekeeping_depth_b');
+    const has = (needle: string) => v54?.statements.some((st) => st.includes(needle)) === true;
+    expect(has("status IN ('pending','in_progress','paused','completed','reviewed','cancelled')")).toBe(true);
+    expect(has("'ooo','task_release'")).toBe(true);
+    for (const t of [
+      'housekeeping_task_stage',
+      'housekeeping_inspection_template',
+      'housekeeping_inspection_template_item',
+      'housekeeping_inspection',
+      'housekeeping_guest_audit_session',
+      'housekeeping_guest_audit_line',
+      'housekeeping_guest_audit_line_event',
+    ]) {
+      expect(has(`CREATE TABLE ${t} (`), t).toBe(true);
+    }
+    expect(has('housekeeping_guest_audit_one_open')).toBe(true);
+    const ddl = (v54?.statements ?? []).join('\n');
+    expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b/i);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(54);
   });
 });
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(53);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(54);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

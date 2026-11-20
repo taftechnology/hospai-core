@@ -398,7 +398,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'housekeeping:write',
     notes:
       'R4.30 housekeeping task record — kill-switch via pms.core entitlement; never queued offline. ' +
-      'start | complete | review | cancel; cancel needs a reason; any other move is invalid_task_transition. Idempotency key is header x-idempotency-key.',
+      'start | pause | resume | complete | review | release | cancel; cancel needs a reason; release needs a passed inspection when pms.housekeeping.require_inspection is on (inspection_required); any other move is invalid_task_transition. Idempotency key is header x-idempotency-key.',
   },
   {
     id: 'housekeeping.create_request',
@@ -477,6 +477,71 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes:
       'R4.11 Part A — kill-switch via pms.core entitlement; never queued offline. ' +
       'Edit while open; close needs a closure note. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.save_inspection_template',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'settings:configure',
+    notes:
+      'R4.11 Part B — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Create or edit an inspection template (items replaced as one set) or activate or deactivate it; templates are never deleted. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.record_inspection',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part B — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Record a scored inspection against an active template; answers are a snapshot and an inspection is never edited or deleted. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.start_guest_audit',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part B — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Open the guest-count audit for the business date, snapshotting front-office counts per occupied room; one open session per date. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.record_guest_audit_count',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part B — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Count a room (a re-count appends a line event); a count that differs from the front office needs a variance reason. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.close_guest_audit',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.11 Part B — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Close the audit; refused while any room is uncounted or differs without a reason. Idempotency key is header x-idempotency-key.',
   },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {

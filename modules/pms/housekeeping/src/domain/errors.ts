@@ -1,5 +1,7 @@
 import {
   INSUFFICIENT_STOCK,
+  INSPECTION_REQUIRED,
+  AUDIT_SESSION_OPEN,
   INVALID_REQUEST,
   INVALID_TASK_TRANSITION,
   NOT_FOUND,
@@ -124,5 +126,21 @@ export class HousekeepingRecordNotFoundError extends Error {
   constructor() {
     super(NOT_FOUND);
     this.name = 'HousekeepingRecordNotFoundError';
+  }
+}
+
+/** Release of a room while inspection is required and the task has no passed inspection (R4.11 B). */
+export class HousekeepingInspectionRequiredError extends Error {
+  constructor() {
+    super(INSPECTION_REQUIRED);
+    this.name = 'HousekeepingInspectionRequiredError';
+  }
+}
+
+/** A guest-count audit session is already open for the business date (R4.11 B). */
+export class HousekeepingAuditSessionOpenError extends Error {
+  constructor() {
+    super(AUDIT_SESSION_OPEN);
+    this.name = 'HousekeepingAuditSessionOpenError';
   }
 }

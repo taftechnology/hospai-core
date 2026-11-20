@@ -8,6 +8,7 @@ import { z } from 'zod';
 export const HOUSEKEEPING_TASK_STATUSES = [
   'pending',
   'in_progress',
+  'paused',
   'completed',
   'reviewed',
   'cancelled',
@@ -17,7 +18,15 @@ export type HousekeepingTaskStatus = (typeof HOUSEKEEPING_TASK_STATUSES)[number]
 export const HOUSEKEEPING_TASK_PRIORITIES = ['low', 'normal', 'high'] as const;
 export type HousekeepingTaskPriority = (typeof HOUSEKEEPING_TASK_PRIORITIES)[number];
 
-export const HOUSEKEEPING_TASK_ACTIONS = ['start', 'complete', 'review', 'cancel'] as const;
+export const HOUSEKEEPING_TASK_ACTIONS = [
+  'start',
+  'pause',
+  'resume',
+  'complete',
+  'review',
+  'release',
+  'cancel',
+] as const;
 export type HousekeepingTaskAction = (typeof HOUSEKEEPING_TASK_ACTIONS)[number];
 
 export const HK_TASK_NOTES_MAX = 500;
@@ -44,6 +53,7 @@ export const ROOM_STATUS_SOURCES = [
   'room_move',
   'stay_change',
   'ooo',
+  'task_release',
 ] as const;
 export type RoomStatusSource = (typeof ROOM_STATUS_SOURCES)[number];
 
@@ -114,6 +124,12 @@ export type HousekeepingTaskRow = {
   cancelledAt: number | null;
   cancelledBy: string | null;
   cancelReason: string | null;
+  /** Release (R4.11 Part B): the room handed back for sale. Independent of `reviewed`. */
+  releasedAt: number | null;
+  releasedBy: string | null;
+  /** The newest inspection recorded against this task, and its result. */
+  latestInspectionId: string | null;
+  latestInspectionResult: 'pass' | 'fail' | null;
   updatedAt: number;
 };
 
@@ -121,6 +137,7 @@ export type HousekeepingTaskCounters = {
   open: number;
   pending: number;
   inProgress: number;
+  paused: number;
   /** completed + reviewed */
   completed: number;
   /** Open tasks dated before today's business date, across all earlier dates. */

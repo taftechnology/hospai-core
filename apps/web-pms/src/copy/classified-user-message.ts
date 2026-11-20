@@ -140,6 +140,10 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   invalid_amount: () => 'Enter a price of zero or more, with at most two decimals.',
   invalid_request: () => 'Check the nights and try again.',
   reason_required: () => 'Give a reason for this change.',
+  invalid_task_transition: () => 'That task cannot make this move from its current state. Refresh and try again.',
+  inspection_required: () =>
+    'This property needs a passed inspection before the room is released. Record one for this task first.',
+  audit_session_open: () => 'A guest audit is already open for this business date. Continue it or close it first.',
   rate_override_not_allowed: () =>
     'Nightly rates can be changed on a pending, confirmed, or in-house stay.',
   night_outside_stay: () => 'That date is outside this stay.',

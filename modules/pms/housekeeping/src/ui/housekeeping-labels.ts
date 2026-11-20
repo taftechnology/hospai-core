@@ -1,5 +1,9 @@
 import type {
+  GuestAuditStatus,
   HousekeepingCaseKind,
+  HousekeepingTaskStage,
+  InspectionItemResult,
+  InspectionResult,
   HousekeepingCaseReturned,
   HousekeepingCaseStatus,
   HousekeepingRequestDepartment,
@@ -19,6 +23,7 @@ import type {
 export const TASK_STATUS_LABEL: Record<HousekeepingTaskStatus, string> = {
   pending: 'Pending',
   in_progress: 'In progress',
+  paused: 'Paused',
   completed: 'Completed',
   reviewed: 'Reviewed',
   cancelled: 'Cancelled',
@@ -45,6 +50,7 @@ export const OOO_EVENT_LABEL: Record<OooEventKind, string> = {
 
 /** Words for rows the system wrote, so no code or id ever reaches the screen. */
 const SYSTEM_SOURCE_LABEL: Partial<Record<RoomStatusSource, string>> = {
+  task_release: 'Task release',
   check_out: 'Checkout',
   room_move: 'Room move',
   stay_change: 'Stay change',
@@ -163,3 +169,32 @@ export function requestTypeLabel(code: string, types: readonly HousekeepingReque
 export function wordFor<K extends string>(map: Record<K, string>, value: string): string {
   return (map as Record<string, string>)[value] ?? humanise(value);
 }
+
+// ---------------------------------------------------------------------------
+// R4.11 Part B words: inspections, cleaning stages, guest-count audit
+// ---------------------------------------------------------------------------
+
+export const INSPECTION_RESULT_LABEL: Record<InspectionResult, string> = {
+  pass: 'Passed',
+  fail: 'Failed',
+};
+
+export const INSPECTION_ITEM_RESULT_LABEL: Record<InspectionItemResult, string> = {
+  pass: 'Pass',
+  fail: 'Fail',
+  not_applicable: 'Not applicable',
+};
+
+export const TASK_STAGE_LABEL: Record<HousekeepingTaskStage, string> = {
+  started: 'Started',
+  paused: 'Paused',
+  resumed: 'Resumed',
+  inspected: 'Inspected',
+  completed: 'Completed',
+  released: 'Released',
+};
+
+export const GUEST_AUDIT_STATUS_LABEL: Record<GuestAuditStatus, string> = {
+  open: 'Open',
+  closed: 'Closed',
+};

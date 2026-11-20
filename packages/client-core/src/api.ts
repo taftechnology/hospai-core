@@ -16,8 +16,18 @@ import type {
   HousekeepingRequestDepartment,
   HousekeepingRequestList,
   HousekeepingRequestRow,
+  GuestAuditDetail,
+  GuestAuditSessionList,
+  GuestAuditCountInput,
   HousekeepingTaskAction,
   HousekeepingTaskList,
+  HousekeepingTaskStageList,
+  InspectionAnswerInput,
+  InspectionList,
+  InspectionListRow,
+  InspectionTemplate,
+  InspectionTemplateItemInput,
+  InspectionTemplateList,
   HousekeepingTaskPriority,
   HousekeepingTaskRow,
   LostItemAction,
@@ -2345,7 +2355,10 @@ export function createClient(opts: {
         body: JSON.stringify(input),
       }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }>;
     },
-    /** review `notes` are the supervisor notes; cancel needs a `reason`. */
+    /**
+     * review `notes` are the supervisor notes; pause, resume and release take an optional stage note;
+     * cancel needs a `reason`.
+     */
     async transitionHousekeepingTask(
       propertyId: string,
       taskId: string,
@@ -2553,6 +2566,145 @@ export function createClient(opts: {
         headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
         body: JSON.stringify(input),
       }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; case: HousekeepingCaseListRow } }>;
+    },
+    // ---- R4.11 Part B: scored inspections, cleaning stages, guest-count audit ----
+    async getInspectionTemplates(propertyId: string): Promise<InspectionTemplateList> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/housekeeping/inspection-templates`);
+      return body as InspectionTemplateList;
+    },
+    /** Without `templateId` creates; with it edits (items replaced as one set) or toggles `active`. */
+    async saveInspectionTemplate(
+      propertyId: string,
+      input: {
+        templateId?: string;
+        name: string;
+        active?: boolean;
+        passThreshold?: number;
+        items: InspectionTemplateItemInput[];
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; template: InspectionTemplate } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/inspection-templates`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; template: InspectionTemplate } }>;
+    },
+    async getInspections(
+      propertyId: string,
+      query?: {
+        from?: string;
+        to?: string;
+        roomId?: string;
+        result?: string;
+        inspectorRef?: string;
+        taskId?: string;
+      },
+    ): Promise<InspectionList> {
+      const qs = new URLSearchParams();
+      for (const k of ['from', 'to', 'roomId', 'result', 'inspectorRef', 'taskId'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/inspections${q ? `?${q}` : ''}`,
+      );
+      return body as InspectionList;
+    },
+    async recordInspection(
+      propertyId: string,
+      input: {
+        businessDate: string;
+        roomId: string;
+        taskId?: string | null;
+        templateId: string;
+        inspectorRef: string;
+        attendantRef?: string | null;
+        answers: InspectionAnswerInput[];
+        remarks?: string | null;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; inspection: InspectionListRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/inspections`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; inspection: InspectionListRow } }>;
+    },
+    async getHousekeepingTaskStages(propertyId: string, taskId: string): Promise<HousekeepingTaskStageList> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/tasks/${enc(taskId)}/stages`,
+      );
+      return body as HousekeepingTaskStageList;
+    },
+    async getGuestAudits(
+      propertyId: string,
+      query?: { from?: string; to?: string; status?: string },
+    ): Promise<GuestAuditSessionList> {
+      const qs = new URLSearchParams();
+      for (const k of ['from', 'to', 'status'] as const) {
+        const v = query?.[k];
+        if (v) qs.set(k, v);
+      }
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/guest-audits${q ? `?${q}` : ''}`,
+      );
+      return body as GuestAuditSessionList;
+    },
+    async getGuestAudit(propertyId: string, sessionId: string): Promise<GuestAuditDetail> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/guest-audits/${enc(sessionId)}`,
+      );
+      return body as GuestAuditDetail;
+    },
+    async startGuestAudit(
+      propertyId: string,
+      input: { businessDate: string; notes?: string | null },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/guest-audits`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }>;
+    },
+    /** Counts one or more rooms (at most 100); a re-count appends a history event. */
+    async recordGuestAuditCount(
+      propertyId: string,
+      sessionId: string,
+      input: { lines: GuestAuditCountInput[] },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/guest-audits/${enc(sessionId)}/counts`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify(input),
+        },
+      ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }>;
+    },
+    async closeGuestAudit(
+      propertyId: string,
+      sessionId: string,
+      input: { notes?: string | null },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/guest-audits/${enc(sessionId)}/close`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify(input),
+        },
+      ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; detail: GuestAuditDetail } }>;
     },
     async listRoster(propertyId: string, query?: { kind?: string }) {
       const qs = new URLSearchParams();

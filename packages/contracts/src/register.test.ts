@@ -3,6 +3,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  AUDIT_SESSION_OPEN,
+  INSPECTION_REQUIRED,
+  isCommandError,
   AUDIT_WRITER_COMMAND_IDS,
   AUDIT_WRITER_EXEMPTIONS,
   CONFIG_REGISTER,
@@ -377,7 +380,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(102);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(107);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -980,7 +983,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_housekeeping_cases');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_guest_audit');
     expect(V1_HTTP_ROUTE_AUDIT[213]?.id).toBe('get_room_ooo_history');
     expect(V1_HTTP_ROUTE_AUDIT[212]?.id).toBe('get_room_status_history');
     expect(V1_HTTP_ROUTE_AUDIT[211]?.id).toBe('get_housekeeping_tasks');
@@ -996,7 +999,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[201]?.id).toBe('post_folio_hold_release');
     expect(V1_HTTP_ROUTE_AUDIT[198]?.id).toBe('get_reservation_registration_card');
     expect(V1_HTTP_ROUTE_AUDIT[197]?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(224);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(234);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1058,8 +1061,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(102);
-    expect(COMMAND_CATALOG).toHaveLength(136);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(107);
+    expect(COMMAND_CATALOG).toHaveLength(141);
     expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
       id: 'post_folio_hold',
       scope: 'property',
@@ -1188,6 +1191,50 @@ describe('command catalog', () => {
       });
       expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
     }
+    // R4.11 Part B: five commands then five reads, appended last in this order.
+    for (const [i, id, commandId, permission] of [
+      [224, 'post_inspection_template', 'housekeeping.save_inspection_template', 'settings:configure'],
+      [225, 'post_housekeeping_inspection', 'housekeeping.record_inspection', 'housekeeping:write'],
+      [226, 'post_guest_audit', 'housekeeping.start_guest_audit', 'housekeeping:write'],
+      [227, 'post_guest_audit_count', 'housekeeping.record_guest_audit_count', 'housekeeping:write'],
+      [228, 'post_guest_audit_close', 'housekeeping.close_guest_audit', 'housekeeping:write'],
+    ] as const) {
+      expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
+        id,
+        scope: 'property',
+        permission,
+        commandId,
+        entitlement: 'pms.core',
+      });
+      expect(COMMAND_CATALOG.find((c) => c.id === commandId)).toMatchObject({
+        lane: 'INTERACTIVE',
+        degraded: 'FAIL_CLOSED',
+        idempotent: true,
+        entitlement: 'pms.core',
+        permission,
+      });
+      expect(AUDIT_WRITER_COMMAND_IDS.has(commandId)).toBe(true);
+    }
+    for (const [i, id] of [
+      [229, 'get_inspection_templates'],
+      [230, 'get_inspections'],
+      [231, 'get_housekeeping_task_stages'],
+      [232, 'get_guest_audits'],
+      [233, 'get_guest_audit'],
+    ] as const) {
+      expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
+        id,
+        scope: 'property',
+        permission: 'housekeeping:read',
+        entitlement: 'pms.core',
+        degradedRead: 'FAIL_CLOSED',
+      });
+      expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
+    }
+    expect(INSPECTION_REQUIRED).toBe('inspection_required');
+    expect(AUDIT_SESSION_OPEN).toBe('audit_session_open');
+    expect(isCommandError(INSPECTION_REQUIRED)).toBe(true);
+    expect(isCommandError(AUDIT_SESSION_OPEN)).toBe(true);
     for (const id of [
       'housekeeping.create_task',
       'housekeeping.update_task',

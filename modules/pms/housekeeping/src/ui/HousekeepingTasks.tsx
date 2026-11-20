@@ -38,7 +38,16 @@ import {
 import { useMemo, useState } from 'react';
 import { useBusinessDate } from './use-business-date.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
-import { TASK_PRIORITY_LABEL, TASK_STATUS_LABEL, taskTypeLabel } from './housekeeping-labels.js';
+import { RecordInspectionDialog } from './HousekeepingInspections.js';
+import {
+  INSPECTION_RESULT_LABEL,
+  TASK_PRIORITY_LABEL,
+  TASK_STAGE_LABEL,
+  TASK_STATUS_LABEL,
+  eventBy,
+  taskTypeLabel,
+} from './housekeeping-labels.js';
+import { invalidateStatusViews } from './ooo-block.js';
 import type { HousekeepingApi, HousekeepingRosterPerson } from './housekeeping-types.js';
 
 export function housekeepingTasksKey(
@@ -57,8 +66,12 @@ export function housekeepingTasksKey(
   ] as const;
 }
 
+export function housekeepingTaskStagesKey(propertyId: string, taskId: string) {
+  return ['housekeeping-task-stages', propertyId, taskId] as const;
+}
+
 function statusRung(status: HousekeepingTaskStatus): 'neutral' | 'informational' | 'settled' | 'attention' {
-  if (status === 'in_progress') return 'informational';
+  if (status === 'in_progress' || status === 'paused') return 'informational';
   if (status === 'completed' || status === 'reviewed') return 'settled';
   if (status === 'cancelled') return 'neutral';
   return 'attention';
@@ -86,6 +99,7 @@ export function HousekeepingTasks({
   subtitle,
   formatError,
   format,
+  actorLabel,
 }: {
   propertyId: string;
   defaultBusinessDate: string;
@@ -95,6 +109,7 @@ export function HousekeepingTasks({
   subtitle?: string;
   formatError?: (err: unknown) => string;
   format: { dateHeading: (iso: string) => string; dateTime: (ms: number) => string };
+  actorLabel?: (actor: string) => string | null | undefined;
 }) {
   const queryClient = useQueryClient();
   const [businessDate, setBusinessDate] = useBusinessDate(defaultBusinessDate);
@@ -109,6 +124,8 @@ export function HousekeepingTasks({
     | { kind: 'edit'; task: HousekeepingTaskListRow }
     | { kind: 'review'; task: HousekeepingTaskListRow }
     | { kind: 'cancel'; task: HousekeepingTaskListRow }
+    | { kind: 'inspect'; task: HousekeepingTaskListRow }
+    | { kind: 'details'; task: HousekeepingTaskListRow }
     | null
   >(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -223,7 +240,7 @@ export function HousekeepingTasks({
   const transitionMutation = useMutation({
     mutationFn: (input: {
       task: HousekeepingTaskListRow;
-      action: 'start' | 'complete' | 'review' | 'cancel';
+      action: 'start' | 'pause' | 'resume' | 'complete' | 'review' | 'release' | 'cancel';
       notes?: string | null;
       reason?: string;
     }) =>
@@ -243,12 +260,20 @@ export function HousekeepingTasks({
       setNotice(null);
       const words = {
         start: 'started',
+        pause: 'paused',
+        resume: 'resumed',
         complete: 'completed',
         review: 'reviewed',
+        release: 'released for sale',
         cancel: 'cancelled',
       } as const;
       setDone(`Task for room ${input.task.roomCode} ${words[input.action]}.`);
-      await invalidate();
+      await Promise.all([
+        invalidate(),
+        queryClient.invalidateQueries({ queryKey: ['housekeeping-task-stages', propertyId] }),
+        // A release writes the room's status, so every room view refetches.
+        input.action === 'release' ? invalidateStatusViews(queryClient, propertyId) : Promise.resolve(),
+      ]);
     },
     onError: (err, input) => {
       const text = failure(err, 'Could not update the task.');
@@ -398,6 +423,7 @@ export function HousekeepingTasks({
               <Metric label="Open" value={counters?.open ?? '—'} />
               <Metric label="Pending" value={counters?.pending ?? '—'} />
               <Metric label="In progress" value={counters?.inProgress ?? '—'} />
+              <Metric label="Paused" value={counters?.paused ?? '—'} />
               <Metric label="Completed" value={counters?.completed ?? '—'} />
               <Metric label="Overdue" value={counters?.overdue ?? '—'} />
             </Metrics>
@@ -439,7 +465,9 @@ export function HousekeepingTasks({
               </DataTableHead>
               <DataTableBody>
                 {tasks.map((task) => {
-                  const open = task.status === 'pending' || task.status === 'in_progress';
+                  const open =
+                    task.status === 'pending' || task.status === 'in_progress' || task.status === 'paused';
+                  const finished = task.status === 'completed' || task.status === 'reviewed';
                   const notes = [task.notes, task.supervisorNotes ? `Supervisor: ${task.supervisorNotes}` : null]
                     .filter(Boolean)
                     .join(' · ');
@@ -451,6 +479,20 @@ export function HousekeepingTasks({
                       <DataTableCell>{TASK_PRIORITY_LABEL[task.priority]}</DataTableCell>
                       <DataTableCell>
                         <Badge rung={statusRung(task.status)}>{TASK_STATUS_LABEL[task.status]}</Badge>
+                        {task.latestInspectionResult ? (
+                          <>
+                            {' '}
+                            <Badge rung={task.latestInspectionResult === 'pass' ? 'settled' : 'exception'}>
+                              Inspection {INSPECTION_RESULT_LABEL[task.latestInspectionResult].toLowerCase()}
+                            </Badge>
+                          </>
+                        ) : null}
+                        {task.releasedAt ? (
+                          <>
+                            {' '}
+                            <Badge rung="settled">Released</Badge>
+                          </>
+                        ) : null}
                         {task.cancelReason ? ` ${task.cancelReason}` : ''}
                       </DataTableCell>
                       <DataTableCell>{notes || '—'}</DataTableCell>
@@ -467,13 +509,33 @@ export function HousekeepingTasks({
                             </Button>
                           ) : null}
                           {task.status === 'in_progress' ? (
+                            <>
+                              <Button
+                                type="button"
+                                aria-label={`Pause task for ${task.roomCode}`}
+                                disabled={!canWrite || busy}
+                                onClick={() => transitionMutation.mutate({ task, action: 'pause' })}
+                              >
+                                Pause
+                              </Button>
+                              <Button
+                                type="button"
+                                aria-label={`Complete task for ${task.roomCode}`}
+                                disabled={!canWrite || busy}
+                                onClick={() => transitionMutation.mutate({ task, action: 'complete' })}
+                              >
+                                Complete
+                              </Button>
+                            </>
+                          ) : null}
+                          {task.status === 'paused' ? (
                             <Button
                               type="button"
-                              aria-label={`Complete task for ${task.roomCode}`}
+                              aria-label={`Resume task for ${task.roomCode}`}
                               disabled={!canWrite || busy}
-                              onClick={() => transitionMutation.mutate({ task, action: 'complete' })}
+                              onClick={() => transitionMutation.mutate({ task, action: 'resume' })}
                             >
-                              Complete
+                              Resume
                             </Button>
                           ) : null}
                           {task.status === 'completed' ? (
@@ -486,6 +548,34 @@ export function HousekeepingTasks({
                               Review
                             </Button>
                           ) : null}
+                          {finished ? (
+                            <Button
+                              type="button"
+                              aria-label={`Inspect room ${task.roomCode}`}
+                              disabled={!canWrite || busy}
+                              onClick={() => openDialog({ kind: 'inspect', task })}
+                            >
+                              Inspect
+                            </Button>
+                          ) : null}
+                          {finished && !task.releasedAt ? (
+                            <Button
+                              type="button"
+                              aria-label={`Release room ${task.roomCode}`}
+                              disabled={!canWrite || busy}
+                              onClick={() => transitionMutation.mutate({ task, action: 'release' })}
+                            >
+                              Release
+                            </Button>
+                          ) : null}
+                          <Button
+                            type="button"
+                            intent="ghost"
+                            aria-label={`Details of task for ${task.roomCode}`}
+                            onClick={() => openDialog({ kind: 'details', task })}
+                          >
+                            Details
+                          </Button>
                           {open ? (
                             <>
                               <Button
@@ -550,6 +640,44 @@ export function HousekeepingTasks({
           onSubmit={(notes) =>
             transitionMutation.mutate({ task: dialog.task, action: 'review', notes })
           }
+        />
+      ) : null}
+      {dialog?.kind === 'inspect' ? (
+        <RecordInspectionDialog
+          propertyId={propertyId}
+          api={api}
+          canReadRoster={canReadRoster}
+          businessDate={businessDate || dialog.task.businessDate}
+          prefill={{
+            roomId: dialog.task.roomId,
+            taskId: dialog.task.taskId,
+            attendantRef: dialog.task.assigneeRef,
+          }}
+          formatError={formatError}
+          onClose={() => setDialog(null)}
+          onRecorded={(inspection) => {
+            const room = dialog.task.roomCode;
+            setDialog(null);
+            setNotice(null);
+            setDone(
+              inspection
+                ? `Inspection of room ${room} recorded: ${inspection.scorePercent} percent, ${INSPECTION_RESULT_LABEL[inspection.result].toLowerCase()}.`
+                : `Inspection of room ${room} recorded.`,
+            );
+          }}
+        />
+      ) : null}
+      {dialog?.kind === 'details' ? (
+        <TaskDetailsDialog
+          propertyId={propertyId}
+          api={api}
+          task={dialog.task}
+          taskTypes={taskTypes}
+          attendant={attendantLabel(dialog.task)}
+          format={format}
+          formatError={formatError}
+          actorLabel={actorLabel}
+          onClose={() => setDialog(null)}
         />
       ) : null}
       {dialog?.kind === 'cancel' ? (
@@ -870,6 +998,66 @@ function CancelDialog({
           }
         />
       </form>
+    </Dialog>
+  );
+}
+
+function TaskDetailsDialog({
+  propertyId,
+  api,
+  task,
+  taskTypes,
+  attendant,
+  format,
+  formatError,
+  actorLabel,
+  onClose,
+}: {
+  propertyId: string;
+  api: HousekeepingApi;
+  task: HousekeepingTaskListRow;
+  taskTypes: ReadonlyArray<{ code: string; label: string }>;
+  attendant: string;
+  format: { dateTime: (ms: number) => string };
+  formatError?: (err: unknown) => string;
+  actorLabel?: (actor: string) => string | null | undefined;
+  onClose: () => void;
+}) {
+  const stages = useQuery({
+    queryKey: housekeepingTaskStagesKey(propertyId, task.taskId),
+    queryFn: () => api.getHousekeepingTaskStages(propertyId, task.taskId),
+  });
+  return (
+    <Dialog
+      open
+      title={`Task · Room ${task.roomCode}`}
+      onClose={onClose}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
+      <div className="ui-stack" data-testid="hk-task-details">
+        <p>
+          {taskTypeLabel(task.taskType, taskTypes)} · Attendant {attendant} · {TASK_STATUS_LABEL[task.status]}
+        </p>
+        <strong>Stages</strong>
+        {stages.isLoading ? <Skeleton label="Loading stages" /> : null}
+        {stages.isError ? (
+          <Alert intent="exception">{formatError?.(stages.error) ?? 'Could not load the stages.'}</Alert>
+        ) : null}
+        {stages.isSuccess && stages.data.stages.length === 0 ? (
+          <EmptyState kind="empty" title="No stages yet." description="Start the task to begin its timeline." />
+        ) : null}
+        {stages.isSuccess && stages.data.stages.length > 0 ? (
+          <ol className="ui-stack" aria-label="Task stages" data-testid="hk-task-stages">
+            {stages.data.stages.map((stage) => (
+              <li key={stage.stageId}>
+                <strong>{TASK_STAGE_LABEL[stage.stage]}</strong> · {format.dateTime(stage.at)} ·{' '}
+                {eventBy(stage.actor, actorLabel)}
+                {stage.note ? ` · ${stage.note}` : ''}
+              </li>
+            ))}
+          </ol>
+        ) : null}
+      </div>
     </Dialog>
   );
 }

@@ -695,7 +695,8 @@ describe('housekeeping depth A: requests, lost and found, cases [R4.11]', () => 
     expect(blocked.status).toBe(503);
     await setKillSwitch(env, 'pms.core', false);
 
-    expect(V1_HTTP_ROUTE_AUDIT.slice(-10).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
+    // R4.11 Part B appends ten more routes after these.
+    expect(V1_HTTP_ROUTE_AUDIT.slice(-20, -10).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
       ['post_housekeeping_requests', 'housekeeping:write'],
       ['patch_housekeeping_request', 'housekeeping:write'],
       ['post_lost_items', 'housekeeping:write'],

@@ -23,12 +23,21 @@ export function nextTaskStatus(
   switch (action) {
     case 'start':
       return current === 'pending' ? 'in_progress' : null;
+    case 'pause':
+      return current === 'in_progress' ? 'paused' : null;
+    case 'resume':
+      return current === 'paused' ? 'in_progress' : null;
     case 'complete':
       return current === 'in_progress' ? 'completed' : null;
     case 'review':
       return current === 'completed' ? 'reviewed' : null;
+    case 'release':
+      // Release is a stamp on a finished task, not a status: review and release are independent.
+      return current === 'completed' || current === 'reviewed' ? current : null;
     case 'cancel':
-      return current === 'pending' || current === 'in_progress' ? 'cancelled' : null;
+      return current === 'pending' || current === 'in_progress' || current === 'paused'
+        ? 'cancelled'
+        : null;
     default:
       return null;
   }
@@ -45,7 +54,7 @@ export function assertTransition(
 
 /** Update (type, assignee, priority, notes, date) is allowed only while the task is open. */
 export function isEditableTaskStatus(status: HousekeepingTaskStatus): boolean {
-  return status === 'pending' || status === 'in_progress';
+  return status === 'pending' || status === 'in_progress' || status === 'paused';
 }
 
 /** undefined stays undefined, blank becomes null, over the cap is limit_exceeded. */

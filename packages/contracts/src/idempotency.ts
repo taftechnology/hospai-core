@@ -192,6 +192,10 @@ export const INVALID_REQUEST = 'invalid_request' as const;
 export const REASON_REQUIRED = 'reason_required' as const;
 /** Housekeeping task lifecycle (R4.30): a move the current status does not allow. */
 export const INVALID_TASK_TRANSITION = 'invalid_task_transition' as const;
+/** Release of a room while the property requires a passed inspection (R4.11 Part B). */
+export const INSPECTION_REQUIRED = 'inspection_required' as const;
+/** A guest-count audit session is already open for the business date (R4.11 Part B). */
+export const AUDIT_SESSION_OPEN = 'audit_session_open' as const;
 export const RATE_OVERRIDE_NOT_ALLOWED = 'rate_override_not_allowed' as const;
 export const NIGHT_OUTSIDE_STAY = 'night_outside_stay' as const;
 export const NIGHT_ALREADY_POSTED = 'night_already_posted' as const;

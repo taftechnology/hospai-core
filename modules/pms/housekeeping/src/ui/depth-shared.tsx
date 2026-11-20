@@ -49,7 +49,7 @@ export function useStaffRoster(api: HousekeepingApi, propertyId: string, canRead
     for (const p of staff) if (p.displayName) map.set(p.staffId, p.displayName);
     return map;
   }, [staff]);
-  return { staff, names, loading: query.isLoading };
+  return { staff, names, loading: query.isLoading, loaded: query.isSuccess };
 }
 
 export function activeStaff(

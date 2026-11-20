@@ -4,9 +4,23 @@ import type {
   HousekeepingTaskStatus,
   ModuleTxnCtx,
 } from '@hospai/contracts';
-import { isHousekeepingTaskAction } from '@hospai/contracts';
-import { HousekeepingInvalidRequestError, HousekeepingTaskNotFoundError } from '../domain/errors.js';
-import { assertTransition, requiredCancelReason, supervisorNotes, taskNotes } from '../domain/task.js';
+import { HK_TASK_STAGE_NOTE_MAX, isHousekeepingTaskAction } from '@hospai/contracts';
+import {
+  HousekeepingInspectionRequiredError,
+  HousekeepingInvalidRequestError,
+  HousekeepingInvalidTaskTransitionError,
+  HousekeepingRoomOutOfOrderError,
+  HousekeepingTaskNotFoundError,
+} from '../domain/errors.js';
+import {
+  assertTransition,
+  optionalText,
+  requiredCancelReason,
+  supervisorNotes,
+  taskNotes,
+} from '../domain/task.js';
+import { recordRoomStatusChange } from './record-room-status-change.js';
+import { appendTaskStage } from './task-stage.js';
 import { loadTask, mapTaskRow } from './task-row.js';
 
 export type TransitionTaskInput = {
@@ -17,7 +31,15 @@ export type TransitionTaskInput = {
   /** Required for cancel. */
   reason?: string;
   actorRef: string;
+  /** `pms.housekeeping.require_inspection`: release needs a passed inspection. */
+  requireInspection: boolean;
+  /** The property's business date, for the room status history row a release writes. */
+  businessDate: string;
 };
+
+function stageNote(raw: unknown): string | null {
+  return optionalText(raw, HK_TASK_STAGE_NOTE_MAX) ?? null;
+}
 
 export function transitionTask(
   ctx: ModuleTxnCtx,
@@ -44,6 +66,12 @@ export function transitionTask(
         sets.push('notes = ?');
         binds.push(notes);
       }
+      appendTaskStage(ctx.sql, {
+        taskId: input.taskId,
+        stage: input.action === 'start' ? 'started' : 'completed',
+        actor: input.actorRef,
+        at: now,
+      });
       break;
     }
     case 'review': {
@@ -54,6 +82,47 @@ export function transitionTask(
         sets.push('supervisor_notes = ?');
         binds.push(notes);
       }
+      break;
+    }
+    case 'pause':
+    case 'resume': {
+      // The note lives on the stage row; the task's own notes stay as they are.
+      appendTaskStage(ctx.sql, {
+        taskId: input.taskId,
+        stage: input.action === 'pause' ? 'paused' : 'resumed',
+        actor: input.actorRef,
+        note: stageNote(input.notes),
+        at: now,
+      });
+      break;
+    }
+    case 'release': {
+      if (current.released_at !== null) throw new HousekeepingInvalidTaskTransitionError();
+      const passed = current.latest_inspection_result === 'pass';
+      if (input.requireInspection && !passed) throw new HousekeepingInspectionRequiredError();
+      const room = ctx.sql
+        .exec(`SELECT status FROM room WHERE room_id = ?`, current.room_id)
+        .toArray() as Array<{ status: string }>;
+      if (room[0]?.status === 'out_of_order') throw new HousekeepingRoomOutOfOrderError();
+      sets.push('released_at = ?', 'released_by = ?');
+      binds.push(now, input.actorRef);
+      const note = stageNote(input.notes);
+      recordRoomStatusChange(ctx, {
+        roomId: current.room_id,
+        toStatus: passed ? 'inspected' : 'clean',
+        source: 'task_release',
+        actor: input.actorRef,
+        businessDate: input.businessDate,
+        reason: null,
+        comment: note,
+      });
+      appendTaskStage(ctx.sql, {
+        taskId: input.taskId,
+        stage: 'released',
+        actor: input.actorRef,
+        note,
+        at: now,
+      });
       break;
     }
     case 'cancel': {

@@ -1,6 +1,14 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  HK_INSPECTION_DEFAULT_THRESHOLD,
+  HK_INSPECTION_ITEMS_MAX,
+  HK_INSPECTION_LABEL_MAX,
+  HK_INSPECTION_SECTION_MAX,
+  HK_INSPECTION_TEMPLATE_NAME_MAX,
+  HK_INSPECTION_TEMPLATES_MAX,
+  HK_INSPECTION_WEIGHT_MAX,
+  HK_INSPECTION_WEIGHT_MIN,
   HK_REQUEST_TYPES_MAX,
   HK_REQUEST_TYPE_CODE_RE,
   HK_REQUEST_TYPE_LABEL_MAX,
@@ -12,9 +20,23 @@ import {
   type HousekeepingRequestDepartment,
   type HousekeepingRequestType,
   type HousekeepingTaskType,
+  type InspectionTemplate,
+  type InspectionTemplateItemInput,
 } from '@hospai/contracts';
-import { Button, Field, Input, NativeSelect, SectionLabel } from '@hospai/ui-kit';
-import { api } from '../client.js';
+import { inspectionTemplatesKey } from '@hospai/pms-housekeeping/ui';
+import {
+  Alert,
+  Button,
+  Checkbox,
+  Dialog,
+  Field,
+  Input,
+  NativeSelect,
+  SectionLabel,
+  Skeleton,
+} from '@hospai/ui-kit';
+import { api, asClassified } from '../client.js';
+import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { AutoSaveStatusIndicator, useAutoSave } from './settings-domain-fields.js';
 
 export const TASK_TYPES_KEY = 'pms.housekeeping.task_types';
@@ -308,5 +330,394 @@ export function HousekeepingRequestTypesSettings(props: {
       {blank ? <p className="muted">Give every request type a name to save the list.</p> : null}
       <AutoSaveStatusIndicator status={status} dirty={dirty && !invalid} reason={props.reason} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// R4.11 Part B: inspection templates
+// ---------------------------------------------------------------------------
+
+type TemplateItemDraft = InspectionTemplateItemInput;
+type TemplateDraft = {
+  templateId?: string;
+  name: string;
+  active: boolean;
+  passThreshold: string;
+  items: TemplateItemDraft[];
+};
+
+function blankItem(section = ''): TemplateItemDraft {
+  return { section, label: '', weight: 1, mandatory: false };
+}
+
+function draftOf(template?: InspectionTemplate): TemplateDraft {
+  if (!template) {
+    return {
+      name: '',
+      active: true,
+      passThreshold: String(HK_INSPECTION_DEFAULT_THRESHOLD),
+      items: [blankItem()],
+    };
+  }
+  return {
+    templateId: template.templateId,
+    name: template.name,
+    active: template.active,
+    passThreshold: String(template.passThreshold),
+    items: template.items.map(({ section, label, weight, mandatory }) => ({ section, label, weight, mandatory })),
+  };
+}
+
+const WEIGHTS = Array.from(
+  { length: HK_INSPECTION_WEIGHT_MAX - HK_INSPECTION_WEIGHT_MIN + 1 },
+  (_, i) => HK_INSPECTION_WEIGHT_MIN + i,
+);
+
+function thresholdOf(text: string): number | null {
+  if (!/^\d{1,3}$/.test(text.trim())) return null;
+  const n = Number(text.trim());
+  return n >= 0 && n <= 100 ? n : null;
+}
+
+/**
+ * Settings → Housekeeping: inspection templates (R4.11 Part B). Each template is a set of weighted,
+ * ordered items with a pass threshold. Templates are never deleted, only deactivated, and editing
+ * one never changes an inspection already recorded.
+ */
+export function InspectionTemplatesSettings(props: { propertyId: string }) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: inspectionTemplatesKey(props.propertyId),
+    queryFn: () => api.getInspectionTemplates(props.propertyId),
+  });
+  const [editing, setEditing] = useState<TemplateDraft | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: (input: { draft: TemplateDraft; words: string; fromEditor: boolean }) => {
+      const threshold = thresholdOf(input.draft.passThreshold) ?? HK_INSPECTION_DEFAULT_THRESHOLD;
+      return api.saveInspectionTemplate(
+        props.propertyId,
+        {
+          ...(input.draft.templateId ? { templateId: input.draft.templateId } : {}),
+          name: input.draft.name.trim(),
+          active: input.draft.active,
+          passThreshold: threshold,
+          items: input.draft.items.map((i) => ({
+            section: i.section.trim(),
+            label: i.label.trim(),
+            weight: i.weight,
+            mandatory: i.mandatory,
+          })),
+        },
+        crypto.randomUUID(),
+      );
+    },
+    onSuccess: async (_r, input) => {
+      setEditing(null);
+      setDialogError(null);
+      setNotice(null);
+      setDone(`Template ${input.draft.name.trim()} ${input.words}.`);
+      await queryClient.invalidateQueries({ queryKey: inspectionTemplatesKey(props.propertyId) });
+    },
+    onError: (err, input) => {
+      const text = classifiedUserMessage(asClassified(err), { fallback: 'Could not save the template.' });
+      if (input.fromEditor) setDialogError(text);
+      else setNotice(text);
+    },
+  });
+
+  const templates = query.data?.templates ?? [];
+  const atCap = templates.length >= HK_INSPECTION_TEMPLATES_MAX;
+
+  return (
+    <div className="ui-stack" data-testid="hk-inspection-templates">
+      <SectionLabel>Inspection templates</SectionLabel>
+      <p className="muted">
+        The checklists used to score a room inspection, up to {HK_INSPECTION_TEMPLATES_MAX}. A template is
+        turned off rather than deleted, and editing one never changes inspections already recorded.
+      </p>
+      {done ? (
+        <Alert intent="settled" data-testid="hk-template-settled">
+          {done}
+        </Alert>
+      ) : null}
+      {notice ? <Alert intent="exception">{notice}</Alert> : null}
+      {query.isLoading ? <Skeleton label="Loading templates" /> : null}
+      {query.isError ? (
+        <Alert intent="exception">
+          {classifiedUserMessage(asClassified(query.error), { fallback: 'Could not load inspection templates.' })}
+        </Alert>
+      ) : null}
+      {query.isSuccess && templates.length === 0 ? (
+        <p className="muted">No inspection templates. Add one so rooms can be inspected.</p>
+      ) : null}
+      {templates.map((t) => (
+        <div className="ui-row" key={t.templateId} data-testid="hk-template-row">
+          <span>
+            <strong>{t.name}</strong> · {t.items.length} {t.items.length === 1 ? 'item' : 'items'} · passes at{' '}
+            {t.passThreshold} percent · {t.active ? 'On' : 'Off'}
+          </span>
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`Edit template ${t.name}`}
+            onClick={() => {
+              setDialogError(null);
+              setEditing(draftOf(t));
+            }}
+          >
+            Edit
+          </Button>
+          <Button
+            type="button"
+            intent="ghost"
+            aria-label={`${t.active ? 'Turn off' : 'Turn on'} template ${t.name}`}
+            disabled={save.isPending}
+            onClick={() =>
+              save.mutate({
+                draft: { ...draftOf(t), active: !t.active },
+                words: t.active ? 'turned off' : 'turned on',
+                fromEditor: false,
+              })
+            }
+          >
+            {t.active ? 'Turn off' : 'Turn on'}
+          </Button>
+        </div>
+      ))}
+      <div>
+        <Button
+          type="button"
+          disabled={atCap}
+          onClick={() => {
+            setDialogError(null);
+            setEditing(draftOf());
+          }}
+        >
+          Add template
+        </Button>
+      </div>
+      {atCap ? <p className="muted">The limit of {HK_INSPECTION_TEMPLATES_MAX} templates is reached.</p> : null}
+      {editing ? (
+        <TemplateEditorDialog
+          key={editing.templateId ?? 'new'}
+          initial={editing}
+          busy={save.isPending}
+          error={dialogError}
+          onClose={() => setEditing(null)}
+          onSave={(draft) =>
+            save.mutate({ draft, words: draft.templateId ? 'saved' : 'added', fromEditor: true })
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function TemplateEditorDialog({
+  initial,
+  busy,
+  error,
+  onClose,
+  onSave,
+}: {
+  initial: TemplateDraft;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: (draft: TemplateDraft) => void;
+}) {
+  const [draft, setDraft] = useState<TemplateDraft>(initial);
+  const setItem = (index: number, patch: Partial<TemplateItemDraft>) =>
+    setDraft((prev) => ({ ...prev, items: prev.items.map((it, i) => (i === index ? { ...it, ...patch } : it)) }));
+  const move = (index: number, by: -1 | 1) =>
+    setDraft((prev) => {
+      const target = index + by;
+      if (target < 0 || target >= prev.items.length) return prev;
+      const items = [...prev.items];
+      [items[index], items[target]] = [items[target]!, items[index]!];
+      return { ...prev, items };
+    });
+
+  const threshold = thresholdOf(draft.passThreshold);
+  const problem = !draft.name.trim()
+    ? 'Give the template a name.'
+    : threshold === null
+      ? 'Enter a pass threshold from 0 to 100.'
+      : draft.items.length === 0
+        ? 'Add at least one item.'
+        : draft.items.some((i) => !i.section.trim() || !i.label.trim())
+          ? 'Give every item a section and a label.'
+          : null;
+
+  function submit() {
+    if (!problem && !busy) onSave(draft);
+  }
+
+  return (
+    <Dialog
+      open
+      wide
+      title={draft.templateId ? 'Edit inspection template' : 'New inspection template'}
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button intent="primary" disabled={busy || problem !== null} onClick={submit}>
+            Save template
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="ui-stack"
+        data-testid="hk-template-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        {error ? <Alert intent="exception">{error}</Alert> : null}
+        <div className="ui-row">
+          <Field
+            label="Template name"
+            control={
+              <Input
+                aria-label="Template name"
+                value={draft.name}
+                maxLength={HK_INSPECTION_TEMPLATE_NAME_MAX}
+                autoComplete="off"
+                onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
+              />
+            }
+          />
+          <Field
+            label="Pass threshold (percent)"
+            control={
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                aria-label="Pass threshold"
+                value={draft.passThreshold}
+                onChange={(e) => setDraft((prev) => ({ ...prev, passThreshold: e.target.value }))}
+              />
+            }
+          />
+          <Field
+            label="Active"
+            control={
+              <Checkbox
+                aria-label="Template active"
+                checked={draft.active}
+                onChange={(e) => setDraft((prev) => ({ ...prev, active: e.target.checked }))}
+              />
+            }
+          />
+        </div>
+        <SectionLabel>Items, in the order they are inspected</SectionLabel>
+        {draft.items.map((item, index) => (
+          <div className="ui-row" key={index} data-testid="hk-template-item">
+            <Field
+              label={`Section ${index + 1}`}
+              control={
+                <Input
+                  aria-label={`Item ${index + 1} section`}
+                  value={item.section}
+                  maxLength={HK_INSPECTION_SECTION_MAX}
+                  autoComplete="off"
+                  onChange={(e) => setItem(index, { section: e.target.value })}
+                />
+              }
+            />
+            <Field
+              label={`Item ${index + 1}`}
+              control={
+                <Input
+                  aria-label={`Item ${index + 1} label`}
+                  value={item.label}
+                  maxLength={HK_INSPECTION_LABEL_MAX}
+                  autoComplete="off"
+                  onChange={(e) => setItem(index, { label: e.target.value })}
+                />
+              }
+            />
+            <Field
+              label={`Weight ${index + 1}`}
+              control={
+                <NativeSelect
+                  aria-label={`Item ${index + 1} weight`}
+                  value={String(item.weight)}
+                  onChange={(e) => setItem(index, { weight: Number(e.target.value) })}
+                >
+                  {WEIGHTS.map((w) => (
+                    <option key={w} value={w}>
+                      {w}
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+            />
+            <Field
+              label={`Required ${index + 1}`}
+              hint="A failed required item fails the inspection."
+              control={
+                <Checkbox
+                  aria-label={`Item ${index + 1} required`}
+                  checked={item.mandatory}
+                  onChange={(e) => setItem(index, { mandatory: e.target.checked })}
+                />
+              }
+            />
+            <Button
+              type="button"
+              intent="ghost"
+              aria-label={`Move item ${index + 1} up`}
+              disabled={index === 0}
+              onClick={() => move(index, -1)}
+            >
+              Up
+            </Button>
+            <Button
+              type="button"
+              intent="ghost"
+              aria-label={`Move item ${index + 1} down`}
+              disabled={index === draft.items.length - 1}
+              onClick={() => move(index, 1)}
+            >
+              Down
+            </Button>
+            <Button
+              type="button"
+              intent="ghost"
+              aria-label={`Remove item ${index + 1}`}
+              onClick={() => setDraft((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }))}
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <div>
+          <Button
+            type="button"
+            disabled={draft.items.length >= HK_INSPECTION_ITEMS_MAX}
+            onClick={() =>
+              setDraft((prev) => ({
+                ...prev,
+                items: [...prev.items, blankItem(prev.items[prev.items.length - 1]?.section ?? '')],
+              }))
+            }
+          >
+            Add item
+          </Button>
+        </div>
+        {problem ? <p className="muted">{problem}</p> : null}
+      </form>
+    </Dialog>
   );
 }

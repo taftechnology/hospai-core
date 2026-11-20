@@ -301,7 +301,10 @@ import type {
   HousekeepingRequestAction,
   HousekeepingRequestType,
   HousekeepingTaskAction,
+  GuestAuditCountInput,
   HousekeepingTaskType,
+  InspectionAnswerInput,
+  InspectionTemplateItemInput,
   LostItemAction,
   OooBlockType,
   OooRangeRow,
@@ -315,8 +318,18 @@ import {
   createRequest as createHousekeepingRequest,
   createTask as createHousekeepingTask,
   openCase as openHousekeepingCase,
+  closeGuestAudit as closeHousekeepingGuestAudit,
+  readGuestAudit as readHousekeepingGuestAudit,
+  readGuestAudits as readHousekeepingGuestAudits,
   readHousekeepingCases,
   readHousekeepingRequests,
+  readInspectionTemplates as readHousekeepingInspectionTemplates,
+  readInspections as readHousekeepingInspections,
+  readTaskStages as readHousekeepingTaskStages,
+  recordGuestAuditCount as recordHousekeepingGuestAuditCount,
+  recordInspection as recordHousekeepingInspection,
+  saveInspectionTemplate as saveHousekeepingInspectionTemplate,
+  startGuestAudit as startHousekeepingGuestAudit,
   readLostItem,
   readLostItems,
   recordLostItem as recordHousekeepingLostItem,
@@ -324,6 +337,7 @@ import {
   updateLostItem as updateHousekeepingLostItem,
   updateRequest as updateHousekeepingRequest,
   HousekeepingRecordNotFoundError,
+  HousekeepingTaskNotFoundError,
   recordRoomStatusChange,
   readHousekeepingTasks,
   readRoomStatusHistory,
@@ -1866,6 +1880,13 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'housekeeping_lost_item',
   'housekeeping_lost_item_event',
   'housekeeping_case',
+  'housekeeping_task_stage',
+  'housekeeping_inspection_template',
+  'housekeeping_inspection_template_item',
+  'housekeeping_inspection',
+  'housekeeping_guest_audit_session',
+  'housekeeping_guest_audit_line',
+  'housekeeping_guest_audit_line_event',
   'maintenance_task_type',
   'maintenance_ticket',
   'idempotency',
@@ -1934,6 +1955,13 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM housekeeping_lost_item) +
       (SELECT COUNT(*) FROM housekeeping_lost_item_event) +
       (SELECT COUNT(*) FROM housekeeping_case) +
+      (SELECT COUNT(*) FROM housekeeping_task_stage) +
+      (SELECT COUNT(*) FROM housekeeping_inspection_template) +
+      (SELECT COUNT(*) FROM housekeeping_inspection_template_item) +
+      (SELECT COUNT(*) FROM housekeeping_inspection) +
+      (SELECT COUNT(*) FROM housekeeping_guest_audit_session) +
+      (SELECT COUNT(*) FROM housekeeping_guest_audit_line) +
+      (SELECT COUNT(*) FROM housekeeping_guest_audit_line_event) +
       (SELECT COUNT(*) FROM maintenance_task_type) +
       (SELECT COUNT(*) FROM maintenance_ticket) +
       (SELECT COUNT(*) FROM idempotency) +
@@ -18068,7 +18096,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         | 'housekeeping.record_lost_item'
         | 'housekeeping.update_lost_item'
         | 'housekeeping.open_case'
-        | 'housekeeping.update_case';
+        | 'housekeeping.update_case'
+        | 'housekeeping.save_inspection_template'
+        | 'housekeeping.record_inspection'
+        | 'housekeeping.start_guest_audit'
+        | 'housekeeping.record_guest_audit_count'
+        | 'housekeeping.close_guest_audit';
+      /** Permission the route needs; housekeeping:write unless the command is a setting. */
+      permission?: 'housekeeping:write' | 'settings:configure';
       entityId?: string;
       /** Audit entity type; tasks by default. */
       entityType?: string;
@@ -18102,7 +18137,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: ORG_ID_UNSET };
 
-    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    const permDenied = await this.gatePermission(actor, audit.permission ?? 'housekeeping:write');
     if (permDenied) return permDenied;
 
     const denied = await this.gateCoreEntitlement(orgId);
@@ -18234,7 +18269,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       idem,
       { commandId: 'housekeeping.transition_task' },
       (ctx, actorRef) => {
-        const r = transitionHousekeepingTask(ctx, { ...input, actorRef });
+        const r = transitionHousekeepingTask(ctx, {
+          ...input,
+          actorRef,
+          // Existing DOMAIN key: rooms must be inspected before sale. Read inside the transaction.
+          requireInspection: this.readConfigValueSync('pms.housekeeping.require_inspection') === true,
+          businessDate: this.historyBusinessDateSync(),
+        });
         return {
           result: { ok: true as const, task: r.task },
           entityId: input.taskId,
@@ -18587,6 +18628,199 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }) {
     this.assertRpcAvailable();
     return readHousekeepingCases(this.ctx.storage.sql, filters);
+  }
+
+  /** Implements catalog `housekeeping.save_inspection_template`. */
+  async trySaveHousekeepingInspectionTemplate(
+    actor: ActorContext,
+    input: {
+      templateId?: string;
+      name: string;
+      active?: boolean;
+      passThreshold?: number;
+      items: InspectionTemplateItemInput[];
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.save_inspection_template',
+        permission: 'settings:configure',
+        entityType: 'housekeeping_inspection_template',
+      },
+      (ctx) => {
+        const r = saveHousekeepingInspectionTemplate(ctx, input);
+        return {
+          result: { ok: true as const, template: r.template },
+          entityId: r.template.templateId,
+          before: r.before,
+          after: r.template,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.record_inspection`. */
+  async tryRecordHousekeepingInspection(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      roomId: string;
+      taskId?: string | null;
+      templateId: string;
+      inspectorRef: string;
+      attendantRef?: string | null;
+      answers: InspectionAnswerInput[];
+      remarks?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.record_inspection',
+        entityType: 'housekeeping_inspection',
+        refGates: async (orgId, propertyId) =>
+          (await this.gateStaffAtProperty(orgId, propertyId, input.inspectorRef)) ??
+          (await this.gateStaffAtProperty(orgId, propertyId, input.attendantRef)),
+      },
+      (ctx, actorRef) => {
+        const result = recordHousekeepingInspection(ctx, { ...input, actorRef });
+        return { result, entityId: result.inspection.inspectionId, before: null, after: result.inspection };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.start_guest_audit`. */
+  async tryStartHousekeepingGuestAudit(
+    actor: ActorContext,
+    input: { businessDate: string; notes?: string | null },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      { commandId: 'housekeeping.start_guest_audit', entityType: 'housekeeping_guest_audit_session' },
+      (ctx, actorRef) => {
+        const result = startHousekeepingGuestAudit(ctx, {
+          ...input,
+          today: this.readBusinessDateSync(),
+          actorRef,
+        });
+        return {
+          result,
+          entityId: result.detail.session.sessionId,
+          before: null,
+          after: result.detail.session,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.record_guest_audit_count`. */
+  async tryRecordHousekeepingGuestAuditCount(
+    actor: ActorContext,
+    input: { sessionId: string; lines: GuestAuditCountInput[] },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.record_guest_audit_count',
+        entityType: 'housekeeping_guest_audit_session',
+        entityId: input.sessionId,
+      },
+      (ctx, actorRef) => {
+        const r = recordHousekeepingGuestAuditCount(ctx, { ...input, actorRef });
+        return {
+          result: { ok: true as const, detail: r.detail },
+          entityId: input.sessionId,
+          before: r.before.lines,
+          after: r.detail.lines,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.close_guest_audit`. */
+  async tryCloseHousekeepingGuestAudit(
+    actor: ActorContext,
+    input: { sessionId: string; notes?: string | null },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      {
+        commandId: 'housekeeping.close_guest_audit',
+        entityType: 'housekeeping_guest_audit_session',
+        entityId: input.sessionId,
+      },
+      (ctx, actorRef) => {
+        const r = closeHousekeepingGuestAudit(ctx, { ...input, actorRef });
+        return {
+          result: { ok: true as const, detail: r.detail },
+          entityId: input.sessionId,
+          before: r.before.session,
+          after: r.detail.session,
+        };
+      },
+    );
+  }
+
+  /** `get_inspection_templates` — every template with its items. */
+  async readInspectionTemplateList() {
+    this.assertRpcAvailable();
+    return readHousekeepingInspectionTemplates(this.ctx.storage.sql);
+  }
+
+  /** `get_inspections` — recorded inspections, newest first. */
+  async readInspectionList(filters: {
+    from?: string;
+    to?: string;
+    roomId?: string;
+    result?: string;
+    inspectorRef?: string;
+    taskId?: string;
+  }) {
+    this.assertRpcAvailable();
+    return readHousekeepingInspections(this.ctx.storage.sql, filters);
+  }
+
+  /** `get_housekeeping_task_stages` — one task's stage history. */
+  async readTaskStageList(
+    taskId: string,
+  ): Promise<ReturnType<typeof readHousekeepingTaskStages> | { ok: false; error: typeof NOT_FOUND }> {
+    this.assertRpcAvailable();
+    try {
+      return readHousekeepingTaskStages(this.ctx.storage.sql, taskId);
+    } catch (e) {
+      if (e instanceof HousekeepingTaskNotFoundError) return { ok: false, error: NOT_FOUND };
+      throw e;
+    }
+  }
+
+  /** `get_guest_audits` — sessions by date range. */
+  async readGuestAuditList(filters: { from?: string; to?: string; status?: string }) {
+    this.assertRpcAvailable();
+    return readHousekeepingGuestAudits(this.ctx.storage.sql, filters);
+  }
+
+  /** `get_guest_audit` — one session with lines, line events and totals. */
+  async readGuestAuditDetail(
+    sessionId: string,
+  ): Promise<ReturnType<typeof readHousekeepingGuestAudit> | { ok: false; error: typeof NOT_FOUND }> {
+    this.assertRpcAvailable();
+    try {
+      return readHousekeepingGuestAudit(this.ctx.storage.sql, sessionId);
+    } catch (e) {
+      if (e instanceof HousekeepingRecordNotFoundError) return { ok: false, error: NOT_FOUND };
+      throw e;
+    }
   }
 
   /** `get_room_status_history` — newest 100 rows for one room of this property. */

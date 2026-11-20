@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react';
 import type {
+  GuestAuditCountInput,
+  GuestAuditDetail,
+  GuestAuditSessionList,
+  HousekeepingTaskStageList,
+  InspectionAnswerInput,
+  InspectionList,
+  InspectionTemplateList,
   HousekeepingCaseList,
   HousekeepingCaseReturned,
   HousekeepingRequestAction,
@@ -244,6 +251,55 @@ export type HousekeepingApi = {
       action?: 'close';
       closureNote?: string;
     },
+    opId: string,
+  ) => Promise<unknown>;
+  getInspectionTemplates: (propertyId: string) => Promise<InspectionTemplateList>;
+  getInspections: (
+    propertyId: string,
+    query?: {
+      from?: string;
+      to?: string;
+      roomId?: string;
+      result?: string;
+      inspectorRef?: string;
+      taskId?: string;
+    },
+  ) => Promise<InspectionList>;
+  recordInspection: (
+    propertyId: string,
+    input: {
+      businessDate: string;
+      roomId: string;
+      taskId?: string | null;
+      templateId: string;
+      inspectorRef: string;
+      attendantRef?: string | null;
+      answers: InspectionAnswerInput[];
+      remarks?: string | null;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  getHousekeepingTaskStages: (propertyId: string, taskId: string) => Promise<HousekeepingTaskStageList>;
+  getGuestAudits: (
+    propertyId: string,
+    query?: { from?: string; to?: string; status?: string },
+  ) => Promise<GuestAuditSessionList>;
+  getGuestAudit: (propertyId: string, sessionId: string) => Promise<GuestAuditDetail>;
+  startGuestAudit: (
+    propertyId: string,
+    input: { businessDate: string; notes?: string | null },
+    opId: string,
+  ) => Promise<unknown>;
+  recordGuestAuditCount: (
+    propertyId: string,
+    sessionId: string,
+    input: { lines: GuestAuditCountInput[] },
+    opId: string,
+  ) => Promise<unknown>;
+  closeGuestAudit: (
+    propertyId: string,
+    sessionId: string,
+    input: { notes?: string | null },
     opId: string,
   ) => Promise<unknown>;
   /** Optional: when present (and permitted), a record can be linked to the room's in-house stay. */

@@ -83,13 +83,14 @@ export function readHousekeepingTasks(
   const byStatus = new Map(day.map((d) => [d.status, Number(d.n)]));
   const pending = byStatus.get('pending') ?? 0;
   const inProgress = byStatus.get('in_progress') ?? 0;
+  const paused = byStatus.get('paused') ?? 0;
 
   let overdue = 0;
   if (filters.today) {
     const o = sql
       .exec(
         `SELECT COUNT(*) AS n FROM housekeeping_task
-         WHERE status IN ('pending', 'in_progress') AND business_date < ?`,
+         WHERE status IN ('pending', 'in_progress', 'paused') AND business_date < ?`,
         filters.today,
       )
       .toArray() as Array<{ n: number }>;
@@ -102,9 +103,10 @@ export function readHousekeepingTasks(
     tasks,
     truncated,
     counters: {
-      open: pending + inProgress,
+      open: pending + inProgress + paused,
       pending,
       inProgress,
+      paused,
       completed: (byStatus.get('completed') ?? 0) + (byStatus.get('reviewed') ?? 0),
       overdue,
     },

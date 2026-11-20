@@ -35,6 +35,8 @@ import {
   housekeepingRequestsKey,
   requestsQueryInput,
 } from './HousekeepingRequests.js';
+import { HousekeepingGuestAudit } from './HousekeepingGuestAudit.js';
+import { HousekeepingInspections } from './HousekeepingInspections.js';
 import { HousekeepingTasks } from './HousekeepingTasks.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { blockTimes, blockTypeLabel } from './housekeeping-labels.js';
@@ -853,6 +855,35 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         api={props.api}
         canWrite={props.canAssign}
         canReadRoster={readRoster}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+        actorLabel={props.actorLabel}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/inspections')) {
+    return (
+      <HousekeepingInspections
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/guest-audit')) {
+    return (
+      <HousekeepingGuestAudit
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        actorLabel={props.actorLabel}
         subtitle={props.subtitle}
         formatError={props.formatError}
         format={props.format}

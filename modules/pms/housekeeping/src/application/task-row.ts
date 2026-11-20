@@ -27,11 +27,16 @@ export type TaskDbRow = {
   cancelled_by: string | null;
   cancel_reason: string | null;
   updated_at: number;
+  released_at: number | null;
+  released_by: string | null;
+  latest_inspection_id: string | null;
+  latest_inspection_result: string | null;
 };
 
 export const TASK_COLUMNS = `task_id, business_date, task_type, room_id, assignee_ref, priority, status,
   notes, supervisor_notes, created_at, created_by, started_at, started_by, completed_at, completed_by,
-  reviewed_at, reviewed_by, cancelled_at, cancelled_by, cancel_reason, updated_at`;
+  reviewed_at, reviewed_by, cancelled_at, cancelled_by, cancel_reason, updated_at,
+  released_at, released_by, latest_inspection_id, latest_inspection_result`;
 
 export function mapTaskRow(r: TaskDbRow): HousekeepingTaskRow {
   return {
@@ -55,6 +60,10 @@ export function mapTaskRow(r: TaskDbRow): HousekeepingTaskRow {
     cancelledAt: r.cancelled_at,
     cancelledBy: r.cancelled_by,
     cancelReason: r.cancel_reason,
+    releasedAt: r.released_at,
+    releasedBy: r.released_by,
+    latestInspectionId: r.latest_inspection_id,
+    latestInspectionResult: r.latest_inspection_result === null ? null : (r.latest_inspection_result as 'pass' | 'fail'),
     updatedAt: r.updated_at,
   };
 }

@@ -15,6 +15,7 @@ import type {
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { GuestRequestDialog } from './HousekeepingRequests.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
+import { depthBStubs } from './depth-b-stubs.fixture.js';
 import type { HousekeepingGuests } from './housekeeping-types.js';
 
 const TYPES: HousekeepingRequestType[] = [
@@ -155,13 +156,14 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
       businessDate: '2026-11-20',
       tasks: [],
       truncated: false,
-      counters: { open: 0, pending: 0, inProgress: 0, completed: 0, overdue: 0 },
+      counters: { open: 0, pending: 0, inProgress: 0, paused: 0, completed: 0, overdue: 0 },
       taskTypes: [],
     }),
     createHousekeepingTask: async () => ({ ok: true }),
     updateHousekeepingTask: async () => ({ ok: true }),
     transitionHousekeepingTask: async () => ({ ok: true }),
     ...depthAStubs(),
+    ...depthBStubs(),
     ...over,
   };
 }

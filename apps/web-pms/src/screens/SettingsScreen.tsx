@@ -51,6 +51,7 @@ import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
 import {
   HousekeepingRequestTypesSettings,
   HousekeepingTaskTypesSettings,
+  InspectionTemplatesSettings,
   REQUEST_TYPES_KEY,
   TASK_TYPES_KEY,
 } from './settings-housekeeping.js';
@@ -893,6 +894,7 @@ export function SettingsScreen({
                 initial={lookup(keys, REQUEST_TYPES_KEY)}
                 {...common}
               />
+              <InspectionTemplatesSettings propertyId={common.propertyId} />
             </CardContent>
           </Card>
 

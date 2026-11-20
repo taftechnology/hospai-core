@@ -21,6 +21,8 @@ const createTaxRule = vi.fn();
 const supersedeTaxRule = vi.fn();
 const listOperationalConfig = vi.fn();
 const getAuditLog = vi.fn();
+const getInspectionTemplates = vi.fn();
+const saveInspectionTemplate = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -44,6 +46,8 @@ vi.mock('../client.js', () => ({
     supersedeTaxRule: (...a: unknown[]) => supersedeTaxRule(...a),
     listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
     getAuditLog: (...a: unknown[]) => getAuditLog(...a),
+    getInspectionTemplates: (...a: unknown[]) => getInspectionTemplates(...a),
+    saveInspectionTemplate: (...a: unknown[]) => saveInspectionTemplate(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -134,6 +138,8 @@ function configureMe(permissions: string[]) {
 describe('SettingsScreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getInspectionTemplates.mockResolvedValue({ ok: true, templates: [] });
+    saveInspectionTemplate.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
@@ -1052,6 +1058,104 @@ describe('SettingsScreen', () => {
       value: [{ code: 'extra_towels', label: 'Extra towels', department: 'housekeeping' }],
       reason: 'ops:requests',
     });
+  });
+
+
+  it('R4.11 B: the template editor adds a template with ordered, weighted items and saves it', async () => {
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    expect(await within(card).findByText('No inspection templates. Add one so rooms can be inspected.')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Add template' }));
+    const form = await screen.findByTestId('hk-template-form');
+    const save = screen.getByRole('button', { name: 'Save template' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(within(form).getByText('Give the template a name.')).toBeTruthy();
+    fireEvent.change(within(form).getByLabelText('Template name'), { target: { value: '  Departure clean ' } });
+    fireEvent.change(within(form).getByLabelText('Pass threshold'), { target: { value: '90' } });
+    expect(within(form).getByText('Give every item a section and a label.')).toBeTruthy();
+    fireEvent.change(within(form).getByLabelText('Item 1 section'), { target: { value: 'Bathroom' } });
+    fireEvent.change(within(form).getByLabelText('Item 1 label'), { target: { value: 'Surfaces clean' } });
+    fireEvent.change(within(form).getByLabelText('Item 1 weight'), { target: { value: '5' } });
+    fireEvent.click(within(form).getByLabelText('Item 1 required'));
+    fireEvent.click(within(form).getByRole('button', { name: 'Add item' }));
+    // The new item starts in the previous item's section.
+    expect((within(form).getByLabelText('Item 2 section') as HTMLInputElement).value).toBe('Bathroom');
+    fireEvent.change(within(form).getByLabelText('Item 2 label'), { target: { value: 'Bed made' } });
+    fireEvent.change(within(form).getByLabelText('Item 2 section'), { target: { value: 'Bedroom' } });
+    // Reorder: Bed made first.
+    fireEvent.click(within(form).getByRole('button', { name: 'Move item 2 up' }));
+    expect((within(form).getByLabelText('Item 1 label') as HTMLInputElement).value).toBe('Bed made');
+    expect((within(form).getByLabelText('Item 2 label') as HTMLInputElement).value).toBe('Surfaces clean');
+    expect((within(form).getByRole('button', { name: 'Move item 1 up' }) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    await waitFor(() => expect(saveInspectionTemplate).toHaveBeenCalledTimes(1));
+    expect(saveInspectionTemplate.mock.calls[0]![1]).toEqual({
+      name: 'Departure clean',
+      active: true,
+      passThreshold: 90,
+      items: [
+        { section: 'Bedroom', label: 'Bed made', weight: 1, mandatory: false },
+        { section: 'Bathroom', label: 'Surfaces clean', weight: 5, mandatory: true },
+      ],
+    });
+    expect((await screen.findByTestId('hk-template-settled')).textContent).toContain('Departure clean added');
+  });
+
+  it('R4.11 B: a stored template shows in words, edits under its id, turns off without deleting, and refreshes the list', async () => {
+    getInspectionTemplates.mockResolvedValue({
+      ok: true,
+      templates: [
+        {
+          templateId: 'htpl_1',
+          name: 'Departure clean',
+          active: true,
+          passThreshold: 80,
+          createdAt: 1,
+          updatedAt: 1,
+          items: [{ itemId: 'i1', section: 'Bathroom', label: 'Mirror', weight: 4, mandatory: true, sortOrder: 0 }],
+        },
+      ],
+    });
+    const { invalidateSpy } = renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    const row = await within(card).findByTestId('hk-template-row');
+    expect(row.textContent).toContain('Departure clean · 1 item · passes at 80 percent · On');
+    expect(row.textContent).not.toMatch(/htpl_|i1/);
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit template Departure clean' }));
+    const form = await screen.findByTestId('hk-template-form');
+    expect((within(form).getByLabelText('Item 1 label') as HTMLInputElement).value).toBe('Mirror');
+    fireEvent.change(within(form).getByLabelText('Template name'), { target: { value: 'Departure clean v2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+    await waitFor(() => expect(saveInspectionTemplate).toHaveBeenCalledTimes(1));
+    expect(saveInspectionTemplate.mock.calls[0]![1]).toMatchObject({ templateId: 'htpl_1', name: 'Departure clean v2', active: true });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['housekeeping-inspection-templates', 'prop_demo'] }),
+    );
+
+    saveInspectionTemplate.mockClear();
+    fireEvent.click(within(row).getByRole('button', { name: 'Turn off template Departure clean' }));
+    await waitFor(() => expect(saveInspectionTemplate).toHaveBeenCalledTimes(1));
+    expect(saveInspectionTemplate.mock.calls[0]![1]).toMatchObject({ templateId: 'htpl_1', active: false });
+    expect(within(card).queryByRole('button', { name: /Delete|Remove template/ })).toBeNull();
+  });
+
+  it('R4.11 B: a refused save shows the server words inside the editor', async () => {
+    saveInspectionTemplate.mockRejectedValue(
+      new ClassifiedError({ class: 'client_error', status: 422, body: { error: 'limit_exceeded' }, retryAfterMs: null } as never),
+    );
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    fireEvent.click(await within(card).findByRole('button', { name: 'Add template' }));
+    const form = await screen.findByTestId('hk-template-form');
+    fireEvent.change(within(form).getByLabelText('Template name'), { target: { value: 'X' } });
+    fireEvent.change(within(form).getByLabelText('Item 1 section'), { target: { value: 'S' } });
+    fireEvent.change(within(form).getByLabelText('Item 1 label'), { target: { value: 'L' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+    const alert = await within(form).findByRole('alert');
+    expect(alert.textContent).toBe('This property has reached the catalog limit.');
+    expect(screen.queryByTestId('hk-template-settled')).toBeNull();
   });
 
   it('R4.23: Open folio enable hint when auto invoices disallow pending', async () => {

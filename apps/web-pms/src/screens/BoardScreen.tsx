@@ -243,6 +243,14 @@ function BoardTable({
                         Post charge
                       </Button>
                     ) : null}
+                    {mode === 'in-house' ? (
+                      <Link
+                        className="ui-link-btn ui-link-btn--sm"
+                        to={`/reservations/${encodeURIComponent(row.reservationId)}/registration-card`}
+                      >
+                        Registration card
+                      </Link>
+                    ) : null}
                     <Link
                       className="ui-link-btn ui-link-btn--sm"
                       to={`/folio/${encodeURIComponent(row.reservationId)}`}

@@ -12,3 +12,9 @@ export const RATE_OVERRIDE_AMOUNT_MAX_MINOR = 10_000_000_000 as const;
 export const RESERVATION_SEARCH_GUEST_REF_CAP = 5 as const;
 /** Rows returned by every desk reservation-search branch. */
 export const RESERVATION_SEARCH_ROW_LIMIT = 10 as const;
+/** DATES pattern entries on `folio.schedule_recurring_charge`, at HTTP and in the try* RPC. */
+export const RECURRING_CHARGE_DATES_MAX = 31 as const;
+/** Components on `rates.create_package` / `rates.update_package`, at HTTP and in the try* RPC. */
+export const PACKAGE_COMPONENT_MAX = 8 as const;
+/** Active+archived packages per property. */
+export const PACKAGE_PER_PROPERTY_MAX = 100 as const;

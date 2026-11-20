@@ -22,6 +22,9 @@ const getGuest = vi.fn();
 const addGuestDocument = vi.fn();
 const getGuestSettings = vi.fn();
 const getReservationRateNights = vi.fn();
+const listPackages = vi.fn();
+const applyPackage = vi.fn();
+const getReservationRegistrationCard = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -53,6 +56,10 @@ vi.mock('../client.js', () => ({
     addGuestDocument: (...args: unknown[]) => addGuestDocument(...args),
     getGuestSettings: (...args: unknown[]) => getGuestSettings(...args),
     getReservationRateNights: (...args: unknown[]) => getReservationRateNights(...args),
+    listPackages: (...args: unknown[]) => listPackages(...args),
+    applyPackage: (...args: unknown[]) => applyPackage(...args),
+    getReservationRegistrationCard: (...args: unknown[]) =>
+      getReservationRegistrationCard(...args),
   },
 }));
 
@@ -167,6 +174,38 @@ describe('CheckInScreen', () => {
         },
       ],
     });
+    listPackages.mockResolvedValue({ ok: true, packages: [] });
+    applyPackage.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    getReservationRegistrationCard.mockResolvedValue({
+      ok: true,
+      confirmationToken: 'o_arr_04',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      nights: 1,
+      adults: 2,
+      children: 1,
+      roomTypeName: 'King Room',
+      roomCode: '101',
+      ratePlanName: 'Best Available Rate',
+      packageName: null,
+      inclusionLabels: [],
+      specialRequests: null,
+      vipFlag: false,
+      presentation: {
+        template: 'STANDARD',
+        headerText: '',
+        footerText: '',
+        show: {
+          ratePlan: true,
+          inclusions: true,
+          specialRequests: true,
+          idDocument: true,
+          signature: true,
+        },
+      },
+      guestDisplayName: 'Ada Lovelace',
+      idDocument: null,
+    });
     getGuest.mockResolvedValue({
       guestId: 'g1',
       erased: false,
@@ -260,7 +299,7 @@ describe('CheckInScreen', () => {
     expect(extra).not.toHaveProperty('roomId');
   });
 
-  it('12: print-reg-card enabled when reservation + resolved guest', async () => {
+  it('12: print-reg-card enabled when registration-card route succeeds', async () => {
     const print = vi.fn();
     vi.stubGlobal('print', print);
     getReservation.mockResolvedValue({
@@ -278,10 +317,46 @@ describe('CheckInScreen', () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    renderCheckIn();
+    getReservationRegistrationCard.mockResolvedValue({
+      ok: true,
+      confirmationToken: 'o_arr_04',
+      arrivalDate: '2026-08-11',
+      departureDate: '2026-08-12',
+      nights: 1,
+      adults: 2,
+      children: 1,
+      roomTypeName: 'King Room',
+      roomCode: '101',
+      ratePlanName: 'Best Available Rate',
+      packageName: null,
+      inclusionLabels: [],
+      specialRequests: null,
+      vipFlag: false,
+      presentation: {
+        template: 'STANDARD',
+        headerText: '',
+        footerText: '',
+        show: {
+          ratePlan: true,
+          inclusions: true,
+          specialRequests: true,
+          idDocument: true,
+          signature: true,
+        },
+      },
+      guestDisplayName: 'Ada Lovelace',
+      idDocument: null,
+      reservationId: 'res_demo_arr_04',
+      roomId: 'rm_12',
+    });
+    const { client } = renderCheckIn();
     await waitFor(() =>
       expect((screen.getByTestId('print-reg-card') as HTMLButtonElement).disabled).toBe(false),
     );
+    expect(
+      client.getQueryState(['reservation-registration-card', 'prop_demo', 'res_1']),
+    ).toBeTruthy();
+    expect(getReservationRegistrationCard).toHaveBeenCalledWith('prop_demo', 'res_1');
     const card = screen.getByTestId('reg-card');
     expect(card.textContent).toMatch(/Confirmation/);
     expect(card.textContent).toMatch(/o_arr_04/);
@@ -293,8 +368,7 @@ describe('CheckInScreen', () => {
     expect(card.textContent).toMatch(/12\/08\/2026/);
     expect(card.textContent).toMatch(/2 adults · 1 child/);
     expect(card.textContent).toMatch(/Nights1/);
-    await waitFor(() => expect(card.textContent).toMatch(/Best Available Rate/));
-    // Room code, never the room UUID.
+    expect(card.textContent).toMatch(/Best Available Rate/);
     expect(card.textContent).not.toMatch(/rm_12/);
     expect(card.textContent).not.toMatch(/balanceMinor/);
     fireEvent.click(screen.getByTestId('print-reg-card'));
@@ -373,17 +447,21 @@ describe('CheckInScreen', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/out of order/i);
   });
 
-  it('13: print disabled when guest name_pending; window.print not called', async () => {
+  it('13: print disabled when registration-card FAIL_CLOSED; window.print not called', async () => {
     const print = vi.fn();
     vi.stubGlobal('print', print);
-    postGuestsBatch.mockResolvedValue({
-      ok: true,
-      guests: {},
-      states: { g1: { kind: 'name_pending' } },
-    });
+    getReservationRegistrationCard.mockRejectedValue(
+      new ClassifiedError({
+        class: 'fail_closed',
+        status: 503,
+        body: { degraded: 'FAIL_CLOSED' },
+        retryAfterMs: null,
+      }),
+    );
     renderCheckIn();
-    await waitFor(() => expect(screen.getByTestId('print-reg-card')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Property unreachable/i)).toBeTruthy());
     expect((screen.getByTestId('print-reg-card') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('reg-card')).toBeNull();
     fireEvent.click(screen.getByTestId('print-reg-card'));
     expect(print).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
@@ -879,5 +957,95 @@ describe('CheckInScreen', () => {
     expect(screen.queryByText('Record an identity document before check-in.')).toBeNull();
     expect(screen.getByText('Identity document recorded.')).toBeTruthy();
     expect(getGuestSettings).not.toHaveBeenCalled();
+  });
+
+  it('R4.13: Apply package when stay has no package and no night posted; rotates opId after success', async () => {
+    listPackages.mockResolvedValue({
+      ok: true,
+      packages: [
+        {
+          packageId: 'pkg_bb',
+          code: 'BB1',
+          name: 'Bed & Breakfast',
+          roomTypeId: 'rt',
+          ratePlanId: 'rp_bar',
+          nights: 1,
+          priceMinor: 5000,
+          currency: 'INR',
+          componentTax: 'SEPARATE',
+          status: 'active',
+          components: [],
+        },
+      ],
+    });
+    getReservation.mockResolvedValue(stay({ packageId: null, ratePlanId: 'rp_bar' }));
+    const { invalidateSpy } = renderCheckIn();
+    expect(await screen.findByTestId('check-in-apply-package')).toBeTruthy();
+    fireEvent.change(screen.getByTestId('check-in-package'), { target: { value: 'pkg_bb' } });
+    fireEvent.click(screen.getByTestId('check-in-apply-package-btn'));
+    await waitFor(() => expect(applyPackage).toHaveBeenCalledTimes(1));
+    const firstOp = applyPackage.mock.calls[0]![3] as string;
+    expect(applyPackage.mock.calls[0]![2]).toEqual({ packageId: 'pkg_bb' });
+    await waitFor(() => {
+      const alert = screen.getByTestId('check-in-message');
+      expect(alert.textContent).toMatch(/Package applied/);
+      expect(alert.className).toContain('ui-alert--settled');
+    });
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['reservation', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['reservation-rate-nights', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['recurring-charges', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['folio', 'prop_demo', 'res_1'] }));
+    });
+    expect(firstOp).toMatch(/^checkin-apply-package:/);
+    // Second apply after success rotates opId (ref cleared).
+    getReservation.mockResolvedValue(stay({ packageId: null, ratePlanId: 'rp_bar' }));
+    fireEvent.change(screen.getByTestId('check-in-package'), { target: { value: 'pkg_bb' } });
+    fireEvent.click(screen.getByTestId('check-in-apply-package-btn'));
+    await waitFor(() => expect(applyPackage).toHaveBeenCalledTimes(2));
+    expect(applyPackage.mock.calls[1]![3]).not.toBe(firstOp);
+  });
+
+  it('R4.13: Apply package hidden when a night is already posted', async () => {
+    listPackages.mockResolvedValue({
+      ok: true,
+      packages: [
+        {
+          packageId: 'pkg_bb',
+          code: 'BB1',
+          name: 'Bed & Breakfast',
+          roomTypeId: 'rt',
+          ratePlanId: 'rp_bar',
+          nights: 1,
+          priceMinor: 5000,
+          currency: 'INR',
+          componentTax: 'SEPARATE',
+          status: 'active',
+          components: [],
+        },
+      ],
+    });
+    getReservationRateNights.mockResolvedValue({
+      currency: 'INR',
+      nights: [
+        {
+          stayDate: '2026-08-11',
+          amountMinor: 500_000,
+          ratePlanId: 'BAR',
+          isOverride: false,
+          posted: true,
+        },
+      ],
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    expect(screen.queryByTestId('check-in-apply-package')).toBeNull();
   });
 });

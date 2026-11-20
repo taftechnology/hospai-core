@@ -367,6 +367,26 @@ describe('BoardScreen folio links', () => {
       '/folio/res_board_1',
     );
   });
+
+  it('in-house BoardScreen offers Registration card row action', async () => {
+    getInHouse.mockResolvedValue({
+      ok: true,
+      items: [{ ...item, roomId: 'rm_101', status: 'checked_in' as const }],
+      nextCursor: null,
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {},
+      states: { g1: { kind: 'resolved', displayName: 'Ada' } },
+    });
+    renderBoard('in-house');
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: 'Registration card' })).toBeTruthy(),
+    );
+    expect(screen.getByRole('link', { name: 'Registration card' }).getAttribute('href')).toBe(
+      '/reservations/res_board_1/registration-card',
+    );
+  });
 });
 
 describe('BoardScreen live invalidation', () => {

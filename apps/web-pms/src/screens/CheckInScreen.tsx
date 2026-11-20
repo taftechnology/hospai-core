@@ -1,7 +1,7 @@
 import { getConfigEntry } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -16,13 +16,19 @@ import {
   isReservationStatus,
   StatusBadge,
 } from '@hospai/ui-kit';
-import { hasPropertyPermission } from '../auth/me.js';
+import type { PackageListItem } from '@hospai/contracts';
+import { hasPropertyPermission, meShellStateFromQuery } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
+import { resolveDocumentPrintGate } from './document-print-views.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { NightlyRatesEditor } from './NightlyRatesEditor.js';
-import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
+import {
+  PrintRegCardControl,
+  RegistrationCardDocument,
+  type RegistrationCardData,
+} from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import {
@@ -174,11 +180,25 @@ export function CheckInScreen() {
   const [overrideCleanliness, setOverrideCleanliness] = useState(false);
   const [recordIdOpen, setRecordIdOpen] = useState(false);
   const [idNotice, setIdNotice] = useState<string | null>(null);
+  const [applyPackageId, setApplyPackageId] = useState('');
+  const applyPackageOpIdRef = useRef<string | null>(null);
 
   const reservationQ = useQuery({
     queryKey: ['reservation', tenant.propertyId, reservationId],
     queryFn: () => api.getReservation(tenant.propertyId, reservationId),
     enabled: Boolean(reservationId),
+  });
+
+  const rateNightsQ = useQuery({
+    queryKey: ['reservation-rate-nights', tenant.propertyId, reservationId],
+    queryFn: () => api.getReservationRateNights(tenant.propertyId, reservationId),
+    enabled: Boolean(reservationId),
+  });
+
+  const packagesQ = useQuery({
+    queryKey: ['packages', tenant.propertyId, 'active'],
+    queryFn: () => api.listPackages(tenant.propertyId, { status: 'active' }),
+    retry: false,
   });
 
   const guestRef = reservationQ.data?.guestRef;
@@ -211,6 +231,13 @@ export function CheckInScreen() {
     queryKey: ['folio-payments', tenant.propertyId, reservationId],
     queryFn: () => api.getFolioPayments(tenant.propertyId, reservationId),
     enabled: Boolean(reservationId),
+  });
+  const regCardQ = useQuery({
+    queryKey: ['reservation-registration-card', tenant.propertyId, reservationId],
+    queryFn: () => api.getReservationRegistrationCard(tenant.propertyId, reservationId),
+    staleTime: 0,
+    enabled: Boolean(reservationId),
+    retry: false,
   });
 
   const typeDir = useMemo(() => {
@@ -280,12 +307,52 @@ export function CheckInScreen() {
     },
   });
 
+  const applyPackage = useMutation({
+    mutationFn: (packageId: string) => {
+      const opId =
+        applyPackageOpIdRef.current ??
+        `checkin-apply-package:${reservationId}:${packageId}:${crypto.randomUUID()}`;
+      applyPackageOpIdRef.current = opId;
+      return api.applyPackage(
+        tenant.propertyId,
+        reservationId,
+        { packageId },
+        opId,
+      );
+    },
+    onError: (err) => {
+      setMessage(
+        classifiedUserMessage(asClassified(err), { fallback: 'Could not apply the package' }),
+      );
+    },
+    onSuccess: (result) => {
+      applyPackageOpIdRef.current = null;
+      setApplyPackageId('');
+      if (isQueuedResult(result)) {
+        setQueuedNotice(queuedWriteCopy());
+        return;
+      }
+      setSettledNotice('Package applied');
+      void queryClient.invalidateQueries({
+        queryKey: ['reservation', tenant.propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['reservation-rate-nights', tenant.propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['recurring-charges', tenant.propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['folio', tenant.propertyId, reservationId],
+      });
+    },
+  });
+
   const status = reservationQ.data?.status;
   const terminalOrInHouse =
     status != null &&
     (TERMINAL_STATUSES.has(status) || status === 'checked_in');
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
-  const guestResolved = guestState?.kind === 'resolved';
   const displayName = guestState?.kind === 'resolved' ? guestState.displayName : null;
   const adults = reservationQ.data?.adults ?? 1;
   const children = reservationQ.data?.children ?? 0;
@@ -300,16 +367,18 @@ export function CheckInScreen() {
       : reservationQ.data?.roomTypeId;
   const typedRooms = assignTypeId ? rooms.filter((r) => r.roomTypeId === assignTypeId) : rooms;
   const roomOptions = typedRooms.length > 0 ? typedRooms : rooms;
-  const selectedCode = rooms.find((r) => r.roomId === roomId)?.code;
-  const hasRoomLabel = !reservationQ.data?.roomId || (selectedCode != null && selectedCode.length > 0);
-  const canPrint = reservationQ.isSuccess && guestResolved && hasRoomLabel;
   const roomTypeId = reservationQ.data?.roomTypeId;
   const allocatedRoomTypeId = reservationQ.data?.allocatedRoomTypeId;
   const roomTypeEntry = roomTypeId ? typeDir.get(roomTypeId) : undefined;
   const roomTypeLabel = roomTypeEntry?.name || roomTypeEntry?.code;
   const allocatedEntry = allocatedRoomTypeId ? typeDir.get(allocatedRoomTypeId) : undefined;
   const res = reservationQ.data;
-  const regCardLabels = useRegCardLabels(res);
+  const regCardData =
+    regCardQ.data &&
+    typeof regCardQ.data === 'object' &&
+    (regCardQ.data as { ok?: unknown }).ok === true
+      ? (regCardQ.data as RegistrationCardData)
+      : null;
   const configKeys = Array.isArray(domainConfigQ.data?.keys)
     ? (domainConfigQ.data.keys as ConfigKey[])
     : undefined;
@@ -350,6 +419,21 @@ export function CheckInScreen() {
     queryKey: ['me', tenant.propertyId],
     queryFn: () => api.getMe(tenant.propertyId),
   });
+  const meShell = meShellStateFromQuery({
+    status: meQ.status,
+    data: meQ.data,
+    classified: meQ.error ? asClassified(meQ.error) : undefined,
+  });
+  const authorityLive = meShell.kind === 'authority' && meShell.authority.kind === 'live';
+  const printGate = resolveDocumentPrintGate({
+    isPending: regCardQ.isPending,
+    isError: regCardQ.isError,
+    isSuccess: regCardQ.isSuccess,
+    error: regCardQ.error,
+    okPayload: regCardData != null,
+    authorityLive,
+  });
+  const canPrint = printGate.canPrint;
   const canRecordId = Boolean(meQ.data && hasPropertyPermission(meQ.data, 'guests:write'));
   const idRequired = docsQ.data?.requireIdAtCheckIn === true;
   const docCount = docsQ.data && 'documents' in docsQ.data ? docsQ.data.documents.length : 0;
@@ -376,6 +460,17 @@ export function CheckInScreen() {
       !roomOutOfOrder(selectedRoom, arrival, departure) &&
       roomNotReady(selectedRoom, cleanliness, requireInspection) != null &&
       allowDirtyOverride);
+  const nightsPosted =
+    rateNightsQ.isSuccess &&
+    (rateNightsQ.data?.nights ?? []).some((n) => n.posted === true);
+  const stayPackageId = reservationQ.data?.packageId;
+  const hasPackage = stayPackageId != null && String(stayPackageId).length > 0;
+  const activePackages = (packagesQ.data?.packages ?? []) as PackageListItem[];
+  const canApplyPackage =
+    !hasPackage &&
+    !nightsPosted &&
+    (status === 'pending' || status === 'confirmed' || status === 'checked_in') &&
+    activePackages.length > 0;
 
   return (
     <>
@@ -453,6 +548,46 @@ export function CheckInScreen() {
               reservationId={reservationId}
               collapsedDefault
             />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canApplyPackage ? (
+        <Card data-testid="check-in-apply-package">
+          <CardHeader>
+            <CardTitle>Apply package</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="ui-row">
+              <Field
+                label="Package"
+                control={
+                  <NativeSelect
+                    data-testid="check-in-package"
+                    value={applyPackageId}
+                    onChange={(e) => {
+                      setApplyPackageId(e.target.value);
+                      applyPackageOpIdRef.current = null;
+                    }}
+                  >
+                    <option value="">Choose a package</option>
+                    {activePackages.map((p) => (
+                      <option key={p.packageId} value={p.packageId}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              <Button
+                type="button"
+                data-testid="check-in-apply-package-btn"
+                disabled={!applyPackageId || applyPackage.isPending}
+                onClick={() => applyPackage.mutate(applyPackageId)}
+              >
+                Apply
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -585,7 +720,7 @@ export function CheckInScreen() {
         </CardHeader>
         <CardContent>
           <div className="ui-stack">
-            <PrintRegCardControl canPrint={canPrint} />
+            <PrintRegCardControl canPrint={canPrint} reason={printGate.reason} />
             {allocatedEntry && allocatedRoomTypeId !== roomTypeId ? (
               <p className="muted">Allocated: {allocatedEntry.name || allocatedEntry.code}</p>
             ) : null}
@@ -593,14 +728,12 @@ export function CheckInScreen() {
         </CardContent>
       </Card>
 
-      <RegistrationCard
-        propertyName={propertyQ.data?.property?.name ?? null}
-        reservation={res}
-        displayName={displayName}
-        roomLabel={selectedCode ?? null}
-        roomTypeLabel={regCardLabels.roomTypeLabel ?? roomTypeLabel ?? null}
-        ratePlanLabel={regCardLabels.ratePlanLabel ?? null}
-      />
+      {regCardData && !regCardQ.isError ? (
+        <RegistrationCardDocument
+          propertyName={propertyQ.data?.property?.name ?? null}
+          data={regCardData}
+        />
+      ) : null}
     </>
   );
 }

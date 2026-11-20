@@ -15,6 +15,7 @@ import {
   Input,
   NativeSelect,
   PageHeader,
+  RowActions,
   Skeleton,
   StatField,
   StatusBadge,
@@ -937,6 +938,23 @@ function StayActions({
               {message.text}
             </Alert>
           ) : null}
+          <div className="ui-row" data-testid="stay-documents">
+            <span className="muted">Documents</span>
+            <RowActions>
+              <Link
+                className="ui-link-btn"
+                to={`/reservations/${encodeURIComponent(res.reservationId)}/proforma`}
+              >
+                Proforma
+              </Link>
+              <Link
+                className="ui-link-btn"
+                to={`/reservations/${encodeURIComponent(res.reservationId)}/registration-card`}
+              >
+                Registration card
+              </Link>
+            </RowActions>
+          </div>
           <div className="ui-row">
             <Link className="ui-link-btn" to={`/folio/${encodeURIComponent(res.reservationId)}`}>
               Folio

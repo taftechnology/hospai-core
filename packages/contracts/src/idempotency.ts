@@ -191,10 +191,22 @@ export const PRODUCT_CATEGORY_NOT_FOUND = 'category_not_found' as const;
 export const PRODUCT_NOT_FOUND = 'product_not_found' as const;
 export const PRODUCT_NOT_POSTABLE = 'product_not_postable' as const;
 
-/** Recurring stay charges (R3.2) */
+/** Package templates (R4.13 A2 / A3) */
+export const PACKAGE_PRICE_BELOW_COMPONENTS = 'package_price_below_components' as const;
+export const PACKAGE_PLAN_HAS_ADDED_INCLUSIONS = 'package_plan_has_added_inclusions' as const;
+export const PACKAGE_NOT_FOUND = 'package_not_found' as const;
+export const PACKAGE_ID_EXISTS = 'package_id_exists' as const;
+export const PACKAGE_CODE_EXISTS = 'package_code_exists' as const;
+export const PACKAGE_ALREADY_APPLIED = 'package_already_applied' as const;
+export const PACKAGE_MISMATCH = 'package_mismatch' as const;
+export const PACKAGE_NIGHTS_POSTED = 'package_nights_posted' as const;
+
+/** Recurring stay charges (R3.2 / R4.13 A1) */
 export const RESERVATION_NOT_ACTIVE = 'reservation_not_active' as const;
 export const RECURRING_CHARGE_DATES_INVALID = 'recurring_charge_dates_invalid' as const;
 export const RECURRING_CHARGE_EXISTS = 'recurring_charge_exists' as const;
+/** DATES schedule entry outside `[arrival, departure)` at create. */
+export const DATE_OUTSIDE_STAY = 'date_outside_stay' as const;
 
 /** Housekeeping inventory wire codes (R1.9 B) */
 export const INVENTORY_ITEM_NOT_FOUND = 'inventory_item_not_found' as const;

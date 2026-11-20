@@ -88,6 +88,10 @@ describe('domain code messages', () => {
     ['no_availability', {}, /No availability — pick another room type or date/],
     ['duplicate_upi_reference', {}, /already recorded on another payment/],
     ['invalid_upi_reference', {}, /6 to 35 letters or digits/],
+    ['date_outside_stay', {}, /outside the stay/],
+    ['package_already_applied', {}, /already has a package/],
+    ['package_mismatch', {}, /do not match the package/],
+    ['package_nights_posted', {}, /already posted/],
   ] as const)('%s', (code, extra, pattern) => {
     const msg = classifiedUserMessage(classifiedWithCode(code, extra), { fallback: 'X' });
     expect(msg).toMatch(pattern);

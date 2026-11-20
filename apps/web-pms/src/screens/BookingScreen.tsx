@@ -22,6 +22,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  Checkbox,
   EmptyState,
   Field,
   Input,
@@ -32,6 +33,7 @@ import {
   Textarea,
   Total,
 } from '@hospai/ui-kit';
+import type { PackageListItem } from '@hospai/contracts';
 import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
@@ -45,6 +47,18 @@ import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { stayNights } from './stay-workspace.js';
+import {
+  RECURRING_WHEN_OPTIONS,
+  WEEKDAY_BITS,
+  choiceFromWhen,
+  dayMaskHas,
+  isNowChoice,
+  MAX_RECURRING_DATES,
+  schedulePayload,
+  toggleDayMask,
+  type RecurringScheduleChoice,
+  type RecurringWhenValue,
+} from './recurring-when.js';
 
 const ASSIGN_LATER = '';
 
@@ -118,9 +132,19 @@ type BookAddonLine = {
   unitMinor: number;
   productName: string;
   chargeCode: string;
+  schedule: RecurringScheduleChoice;
+  /** Stable id for recurring schedule Retry (R4.13 When ≠ Now). */
+  recurringChargeId: string | null;
 };
 
 type FailedBookAddon = BookAddonLine & { errorMessage: string };
+
+type BookPackageFailure = {
+  packageId: string;
+  packageName: string;
+  opId: string;
+  errorMessage: string;
+};
 
 type RatePromoRow = {
   promoId: string;
@@ -201,14 +225,30 @@ export function BookingScreen() {
   const [addonDraftProductId, setAddonDraftProductId] = useState('');
   const [addonDraftQty, setAddonDraftQty] = useState('1');
   const [addonDraftPrice, setAddonDraftPrice] = useState('');
+  const [addonDraftWhen, setAddonDraftWhen] = useState<RecurringWhenValue>('now');
+  const [addonDraftDaysMask, setAddonDraftDaysMask] = useState(0);
+  const [addonDraftDates, setAddonDraftDates] = useState<string[]>([]);
+  const [addonDraftDateInput, setAddonDraftDateInput] = useState('');
   const [failedAddons, setFailedAddons] = useState<FailedBookAddon[]>([]);
   const [nightDraft, setNightDraft] = useState<NightlyRateDraft | null>(null);
   const [rateOverrideFailed, setRateOverrideFailed] = useState<NightlyRateDraft | null>(null);
   const [roomAssignFailure, setRoomAssignFailure] = useState<BookRoomAssignFailure | null>(null);
   /** Created once per booking attempt (reservation + room); Retry reuses it. */
   const roomAssignOpIdRef = useRef<{ roomId: string; opId: string } | null>(null);
+  const [selectedPackageId, setSelectedPackageId] = useState('');
+  const [packageApplyFailure, setPackageApplyFailure] = useState<BookPackageFailure | null>(null);
+  /** Created once per booking attempt (reservation + package); Retry reuses it. */
+  const packageApplyOpIdRef = useRef<{ packageId: string; opId: string } | null>(null);
 
   const postableProducts = usePostableProducts();
+
+  const packagesQ = useQuery({
+    queryKey: ['packages', propertyId, 'active'],
+    queryFn: () => api.listPackages(propertyId, { status: 'active' }),
+    retry: false,
+  });
+  const activePackages = (packagesQ.data?.packages ?? []) as PackageListItem[];
+  const selectedPackage = activePackages.find((p) => p.packageId === selectedPackageId) ?? null;
 
   useEffect(() => {
     if (!timeZone) return;
@@ -409,10 +449,11 @@ export function BookingScreen() {
   }, [arrivalDate, lastNight, ratesQ.data, matchedPromo, ratePlanId]);
 
   const stayQuoteMinor = useMemo(() => {
+    if (selectedPackage) return selectedPackage.priceMinor;
     if (!quoteNights) return null;
     if (nightDraft?.dirty) return nightDraft.totalMinor;
     return quoteNights.reduce((sum, night) => sum + night.amountMinor, 0);
-  }, [quoteNights, nightDraft]);
+  }, [quoteNights, nightDraft, selectedPackage]);
 
   const typesQ = useQuery({
     queryKey: ['room-types', propertyId, 'active'],
@@ -451,7 +492,7 @@ export function BookingScreen() {
   const selectedPlan = plans.find((plan) => plan.ratePlanId === ratePlanId);
   const nightCount = arrivalDate && departureDate ? stayNights(arrivalDate, departureDate) : 0;
   const addedInclusionsMinor =
-    stayQuoteMinor == null || !selectedPlan
+    selectedPackage || stayQuoteMinor == null || !selectedPlan
       ? 0
       : sumAddedInclusionsMinor(selectedPlan.inclusions ?? [], nightCount, adults, children);
   const quoteTotalMinor = stayQuoteMinor == null ? null : stayQuoteMinor + addedInclusionsMinor;
@@ -572,16 +613,42 @@ export function BookingScreen() {
   ): Promise<{ failures: FailedBookAddon[]; queued: boolean }> {
     const failures: FailedBookAddon[] = [];
     let queued = false;
+    let touchedFolio = false;
+    let touchedRecurring = false;
     for (const line of lines) {
-      const opId = `book-addon:${reservationId}:${line.index}:${line.productId}:${line.quantity}:${line.unitMinor}`;
       try {
-        const result = await api.addFolioLine(
-          propertyId,
-          reservationId,
-          { chargeCode: line.chargeCode, amountMinor: line.unitMinor * line.quantity },
-          opId,
-        );
-        if (isQueuedResult(result)) queued = true;
+        if (isNowChoice(line.schedule)) {
+          const opId = `book-addon:${reservationId}:${line.index}:${line.productId}:${line.quantity}:${line.unitMinor}`;
+          const result = await api.addFolioLine(
+            propertyId,
+            reservationId,
+            { chargeCode: line.chargeCode, amountMinor: line.unitMinor * line.quantity },
+            opId,
+          );
+          touchedFolio = true;
+          if (isQueuedResult(result)) queued = true;
+        } else {
+          const rcId = line.recurringChargeId ?? `rc_${crypto.randomUUID()}`;
+          const opId = `book-addon-rc:${reservationId}:${rcId}`;
+          const payload = schedulePayload(line.schedule);
+          const result = await api.scheduleRecurringCharge(
+            propertyId,
+            reservationId,
+            {
+              recurringChargeId: rcId,
+              productId: line.productId,
+              quantity: line.quantity,
+              startDate: arrivalDate || undefined,
+              endDate: null,
+              pattern: payload.pattern,
+              daysMask: payload.daysMask,
+              dates: payload.dates,
+            },
+            opId,
+          );
+          touchedRecurring = true;
+          if (isQueuedResult(result)) queued = true;
+        }
       } catch (err) {
         failures.push({
           ...line,
@@ -591,10 +658,38 @@ export function BookingScreen() {
         });
       }
     }
-    if (lines.length > 0) {
+    if (touchedFolio) {
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+    }
+    if (touchedRecurring) {
+      void queryClient.invalidateQueries({
+        queryKey: ['recurring-charges', propertyId, reservationId],
+      });
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     }
     return { failures, queued };
+  }
+
+  async function postBookApplyPackage(
+    packageId: string,
+    opId: string,
+  ): Promise<{ ok: true; queued: boolean } | { ok: false; errorMessage: string }> {
+    try {
+      const result = await api.applyPackage(
+        propertyId,
+        reservationId,
+        { packageId },
+        opId,
+      );
+      return { ok: true, queued: isQueuedResult(result) };
+    } catch (err) {
+      return {
+        ok: false,
+        errorMessage: classifiedUserMessage(asClassified(err), {
+          fallback: 'Could not apply the package',
+        }),
+      };
+    }
   }
 
   async function postRateOverride(
@@ -720,6 +815,37 @@ export function BookingScreen() {
     },
   });
 
+  const retryPackageApplyMutation = useMutation({
+    mutationFn: async () => {
+      if (!packageApplyFailure) throw new Error('no package apply');
+      return postBookApplyPackage(packageApplyFailure.packageId, packageApplyFailure.opId);
+    },
+    onSuccess: (result) => {
+      if (!packageApplyFailure) return;
+      if (!result.ok) {
+        setPackageApplyFailure({
+          ...packageApplyFailure,
+          errorMessage: result.errorMessage,
+        });
+        return;
+      }
+      setPackageApplyFailure(null);
+      packageApplyOpIdRef.current = null;
+      void queryClient.invalidateQueries({ queryKey: ['reservation', propertyId, reservationId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['recurring-charges', propertyId, reservationId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      if (result.queued) {
+        setQueuedNotice('Package apply is queued and will run when the property is reachable.');
+        return;
+      }
+      void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
+        state: { createdReservationId: reservationId },
+      });
+    },
+  });
+
   const trimmedFrontOfficeComment = frontOfficeComment.trim();
   const roomPicked = selectedRoomId !== ASSIGN_LATER;
 
@@ -816,6 +942,40 @@ export function BookingScreen() {
         }
       }
 
+      let packageApply: BookPackageFailure | null = null;
+      let packageApplyQueued = false;
+      if (
+        (status === 'pending' || status === 'confirmed') &&
+        selectedPackageId &&
+        !roomAssign
+      ) {
+        const prior = packageApplyOpIdRef.current;
+        const applyOpId =
+          prior && prior.packageId === selectedPackageId
+            ? prior.opId
+            : `book-apply-package:${reservationId}:${selectedPackageId}:${crypto.randomUUID()}`;
+        packageApplyOpIdRef.current = { packageId: selectedPackageId, opId: applyOpId };
+        const applied = await postBookApplyPackage(selectedPackageId, applyOpId);
+        if (applied.ok) {
+          packageApplyQueued = applied.queued;
+          packageApplyOpIdRef.current = null;
+          void queryClient.invalidateQueries({
+            queryKey: ['reservation', propertyId, reservationId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ['recurring-charges', propertyId, reservationId],
+          });
+          void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+        } else {
+          packageApply = {
+            packageId: selectedPackageId,
+            packageName: selectedPackage?.name ?? selectedPackageId,
+            opId: applyOpId,
+            errorMessage: applied.errorMessage,
+          };
+        }
+      }
+
       return {
         status,
         addonFailures: addonPosted.failures,
@@ -825,6 +985,8 @@ export function BookingScreen() {
         rateDraft: nightDraft?.dirty ? nightDraft : null,
         roomAssign,
         roomAssignQueued,
+        packageApply,
+        packageApplyQueued,
       };
     },
     onSuccess: (result) => {
@@ -837,6 +999,11 @@ export function BookingScreen() {
         setRoomAssignFailure(result.roomAssign);
       } else {
         setRoomAssignFailure(null);
+      }
+      if (result.packageApply) {
+        setPackageApplyFailure(result.packageApply);
+      } else {
+        setPackageApplyFailure(null);
       }
       if (result.addonQueued) {
         setFailedAddons(result.addonFailures);
@@ -864,6 +1031,17 @@ export function BookingScreen() {
       if (result.roomAssignQueued) {
         invalidateAfterRoomAssign();
         setQueuedNotice('Room assignment is queued and will apply when the property is reachable.');
+        return;
+      }
+      if (result.packageApply) {
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
+        return;
+      }
+      if (result.packageApplyQueued) {
+        setQueuedNotice('Package apply is queued and will run when the property is reachable.');
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
         return;
       }
       if (selectedRoomId !== ASSIGN_LATER && (result.status === 'pending' || result.status === 'confirmed')) {
@@ -1047,6 +1225,39 @@ export function BookingScreen() {
                   }
                 />
               </div>
+              {activePackages.length > 0 ? (
+                <Field
+                  size="sm"
+                  label="Package"
+                  control={
+                    <NativeSelect
+                      data-testid="book-package"
+                      value={selectedPackageId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedPackageId(id);
+                        packageApplyOpIdRef.current = null;
+                        setPackageApplyFailure(null);
+                        if (!id) return;
+                        const pkg = activePackages.find((p) => p.packageId === id);
+                        if (!pkg) return;
+                        setRoomTypeId(pkg.roomTypeId);
+                        setRatePlanId(pkg.ratePlanId);
+                        if (arrivalDate) {
+                          setDepartureDate(addCalendarDays(arrivalDate, pkg.nights));
+                        }
+                      }}
+                    >
+                      <option value="">No package</option>
+                      {activePackages.map((p) => (
+                        <option key={p.packageId} value={p.packageId}>
+                          {p.name} ({p.code}) · {money(p.priceMinor)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  }
+                />
+              ) : null}
             </div>
             {includesText ? (
               <p className="muted" data-testid="plan-includes">
@@ -1363,6 +1574,9 @@ export function BookingScreen() {
                     <p>
                       {line.productName} × {line.quantity} @ {money(line.unitMinor)} (
                       {money(line.unitMinor * line.quantity)})
+                      {' · '}
+                      {RECURRING_WHEN_OPTIONS.find((o) => o.value === line.schedule.when)?.label ??
+                        line.schedule.when}
                     </p>
                     <Button
                       type="button"
@@ -1428,13 +1642,34 @@ export function BookingScreen() {
                       />
                     }
                   />
+                  <Field
+                    size="sm"
+                    label="When"
+                    control={
+                      <NativeSelect
+                        data-testid="addon-draft-when"
+                        value={addonDraftWhen}
+                        onChange={(e) =>
+                          setAddonDraftWhen(e.target.value as RecurringWhenValue)
+                        }
+                      >
+                        {RECURRING_WHEN_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
                   <Button
                     type="button"
                     data-testid="addon-commit-line"
                     disabled={
                       !postableProducts.byId.has(addonDraftProductId) ||
                       !validAddonQuantity(addonDraftQty) ||
-                      !validAmount(addonDraftPrice)
+                      !validAmount(addonDraftPrice) ||
+                      (addonDraftWhen === 'days_of_week' && addonDraftDaysMask < 1) ||
+                      (addonDraftWhen === 'dates' && addonDraftDates.length < 1)
                     }
                     onClick={() => {
                       const product = postableProducts.byId.get(addonDraftProductId);
@@ -1445,6 +1680,13 @@ export function BookingScreen() {
                       ) {
                         return;
                       }
+                      if (addonDraftWhen === 'days_of_week' && addonDraftDaysMask < 1) return;
+                      if (addonDraftWhen === 'dates' && addonDraftDates.length < 1) return;
+                      const schedule = choiceFromWhen(
+                        addonDraftWhen,
+                        addonDraftDaysMask,
+                        addonDraftDates,
+                      );
                       const index = addonLines.length;
                       setAddonLines((rows) => [
                         ...rows,
@@ -1456,16 +1698,103 @@ export function BookingScreen() {
                           unitMinor: parseMajorToMinor(addonDraftPrice.trim()),
                           productName: product.name,
                           chargeCode: product.chargeCode,
+                          schedule,
+                          recurringChargeId: isNowChoice(schedule)
+                            ? null
+                            : `rc_${crypto.randomUUID()}`,
                         },
                       ]);
                       setAddonDraftProductId('');
                       setAddonDraftQty('1');
                       setAddonDraftPrice('');
+                      setAddonDraftWhen('now');
+                      setAddonDraftDaysMask(0);
+                      setAddonDraftDates([]);
+                      setAddonDraftDateInput('');
                     }}
                   >
                     Add line
                   </Button>
                 </div>
+                {addonDraftWhen === 'days_of_week' ? (
+                  <div className="ui-row" data-testid="addon-draft-days">
+                    {WEEKDAY_BITS.map((d) => (
+                      <Field
+                        key={d.bit}
+                        size="xs"
+                        label={d.label}
+                        control={
+                          <Checkbox
+                            checked={dayMaskHas(addonDraftDaysMask, d.bit)}
+                            onChange={() =>
+                              setAddonDraftDaysMask((m) => toggleDayMask(m, d.bit))
+                            }
+                            aria-label={`addon-day-${d.label}`}
+                          />
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {addonDraftWhen === 'dates' ? (
+                  <div className="ui-stack" data-testid="addon-draft-dates">
+                    <div className="ui-row">
+                      <Field
+                        size="sm"
+                        label="Add date"
+                        control={
+                          <Input
+                            type="date"
+                            data-testid="addon-draft-date-input"
+                            value={addonDraftDateInput}
+                            onChange={(e) => setAddonDraftDateInput(e.target.value)}
+                          />
+                        }
+                      />
+                      <Button
+                        type="button"
+                        data-testid="addon-draft-date-add"
+                        disabled={
+                          !addonDraftDateInput ||
+                          addonDraftDates.includes(addonDraftDateInput) ||
+                          addonDraftDates.length >= MAX_RECURRING_DATES
+                        }
+                        onClick={() => {
+                          if (
+                            !addonDraftDateInput ||
+                            addonDraftDates.includes(addonDraftDateInput) ||
+                            addonDraftDates.length >= MAX_RECURRING_DATES
+                          ) {
+                            return;
+                          }
+                          setAddonDraftDates((rows) =>
+                            [...rows, addonDraftDateInput].sort(),
+                          );
+                          setAddonDraftDateInput('');
+                        }}
+                      >
+                        Add date
+                      </Button>
+                    </div>
+                    {addonDraftDates.length > 0 ? (
+                      <ul>
+                        {addonDraftDates.map((d) => (
+                          <li key={d} className="ui-row">
+                            <span>{d}</span>
+                            <Button
+                              type="button"
+                              onClick={() =>
+                                setAddonDraftDates((rows) => rows.filter((x) => x !== d))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
               </fieldset>
             </div>
           </CardContent>
@@ -1597,6 +1926,25 @@ export function BookingScreen() {
               data-testid="retry-room-assign"
                   disabled={retryRoomAssignMutation.isPending}
               onClick={() => retryRoomAssignMutation.mutate()}
+            >
+              Retry
+            </Button>
+            <Link to={`/reservations/${reservationId}`}>Open stay card</Link>
+          </div>
+        </Alert>
+      ) : null}
+      {packageApplyFailure ? (
+        <Alert data-testid="package-apply-failure-alert">
+          <p>
+            Booking saved; package {packageApplyFailure.packageName} could not be applied:{' '}
+            {packageApplyFailure.errorMessage}
+          </p>
+          <div className="ui-row">
+            <Button
+              type="button"
+              data-testid="retry-package-apply"
+              disabled={retryPackageApplyMutation.isPending}
+              onClick={() => retryPackageApplyMutation.mutate()}
             >
               Retry
             </Button>

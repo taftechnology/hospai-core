@@ -21,6 +21,9 @@ import type {
   RatePlanInclusionInput,
   RatePlanListItem,
   InclusionTaxMode,
+  PackageComponentInput,
+  PackageListItem,
+  PackageComponentTaxMode,
 } from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
@@ -108,11 +111,18 @@ export type ProductsList = {
   items: ProductItemRead[];
 };
 
-/** `get_reservation_recurring_charges` (R3.2). Amounts are the schedule snapshot. */
+/** `get_reservation_recurring_charges` (R3.2 / R4.13 A1). Amounts are the schedule snapshot. */
+export type RecurringChargePattern =
+  | 'NIGHTLY'
+  | 'ARRIVAL'
+  | 'LAST_NIGHT'
+  | 'DAYS_OF_WEEK'
+  | 'DATES';
+
 export type RecurringCharge = {
   recurringChargeId: string;
   reservationId: string;
-  pattern: 'NIGHTLY';
+  pattern: RecurringChargePattern;
   productId: string;
   chargeCode: string;
   description: string;
@@ -125,6 +135,10 @@ export type RecurringCharge = {
   createdBy: string;
   cancelledAt: number | null;
   cancelledBy: string | null;
+  daysMask?: number | null;
+  dates?: string[];
+  taxChargeCode?: string | null;
+  packageId?: string | null;
 };
 
 export type FolioWindowSummary = {
@@ -216,6 +230,8 @@ export type ReservationRead = {
   marketSegmentCode?: string | null;
   confirmBy?: number | null;
   allocatedRoomTypeId?: string;
+  /** Set when `reservations.apply_package` succeeded (R4.13). */
+  packageId?: string | null;
   createdAt: number;
   updatedAt: number;
   cancellation?: ReservationCancellation;
@@ -942,6 +958,19 @@ export function createClient(opts: {
       const r = body as { ok?: true; charges?: RecurringCharge[] };
       return { ok: true, charges: Array.isArray(r.charges) ? r.charges : [] };
     },
+    async getReservationProforma(propertyId: string, reservationId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/proforma`,
+      );
+      return body;
+    },
+    async getReservationRegistrationCard(propertyId: string, reservationId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/registration-card`,
+      );
+      return body;
+    },
+
     async scheduleRecurringCharge(
       propertyId: string,
       reservationId: string,
@@ -949,8 +978,11 @@ export function createClient(opts: {
         recurringChargeId: string;
         productId: string;
         quantity: number;
-        startDate: string;
-        endDate: string | null;
+        startDate?: string | null;
+        endDate?: string | null;
+        pattern?: RecurringChargePattern;
+        daysMask?: number | null;
+        dates?: string[] | null;
       },
       opId: string,
     ) {
@@ -964,8 +996,11 @@ export function createClient(opts: {
             recurringChargeId: input.recurringChargeId,
             productId: input.productId,
             quantity: input.quantity,
-            startDate: input.startDate,
-            endDate: input.endDate,
+            startDate: input.startDate ?? null,
+            endDate: input.endDate ?? null,
+            pattern: input.pattern ?? 'NIGHTLY',
+            daysMask: input.daysMask ?? null,
+            dates: input.dates ?? null,
             idempotencyKey,
           }),
         },
@@ -2521,6 +2556,89 @@ export function createClient(opts: {
     async listRatePlans(propertyId: string) {
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/rate-plans`);
       return body as { ok: true; plans: RatePlanListItem[] };
+    },
+    async listPackages(propertyId: string, opts?: { status?: 'active' | 'all' }) {
+      const qs = opts?.status === 'all' ? '?status=all' : '';
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/packages${qs}`);
+      return body as { ok: true; packages: PackageListItem[] };
+    },
+    async createPackage(
+      propertyId: string,
+      input: {
+        packageId: string;
+        code: string;
+        name: string;
+        roomTypeId: string;
+        ratePlanId: string;
+        nights: number;
+        priceMinor: number;
+        componentTax?: PackageComponentTaxMode;
+        components: PackageComponentInput[];
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(
+        `package:create:${input.packageId}`,
+        opts.keyStore,
+      );
+      return getJson(`/v1/properties/${enc(propertyId)}/packages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+    async updatePackage(
+      propertyId: string,
+      packageId: string,
+      patch: {
+        code?: string;
+        name?: string;
+        roomTypeId?: string;
+        ratePlanId?: string;
+        nights?: number;
+        priceMinor?: number;
+        componentTax?: PackageComponentTaxMode;
+        components?: PackageComponentInput[];
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/packages/${enc(packageId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...patch, idempotencyKey }),
+      });
+    },
+    async setPackageStatus(
+      propertyId: string,
+      packageId: string,
+      status: 'active' | 'archived',
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/packages/${enc(packageId)}/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status, idempotencyKey }),
+      });
+    },
+    async applyPackage(
+      propertyId: string,
+      reservationId: string,
+      input: { packageId: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/apply-package`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            packageId: input.packageId,
+            idempotencyKey,
+          }),
+        },
+      );
     },
     async createRatePlan(
       propertyId: string,

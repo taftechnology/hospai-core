@@ -17,6 +17,9 @@ const listRatePromos = vi.fn();
 const listOperationalConfig = vi.fn();
 const listProducts = vi.fn();
 const addFolioLine = vi.fn();
+const scheduleRecurringCharge = vi.fn();
+const listPackages = vi.fn();
+const applyPackage = vi.fn();
 const listGuestDocuments = vi.fn();
 const readGuestDocument = vi.fn();
 const getGuestDocumentScan = vi.fn();
@@ -50,6 +53,9 @@ vi.mock('../client.js', () => ({
     listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
     listProducts: (...a: unknown[]) => listProducts(...a),
     addFolioLine: (...a: unknown[]) => addFolioLine(...a),
+    scheduleRecurringCharge: (...a: unknown[]) => scheduleRecurringCharge(...a),
+    listPackages: (...a: unknown[]) => listPackages(...a),
+    applyPackage: (...a: unknown[]) => applyPackage(...a),
     listGuestDocuments: (...a: unknown[]) => listGuestDocuments(...a),
     readGuestDocument: (...a: unknown[]) => readGuestDocument(...a),
     getGuestDocumentScan: (...a: unknown[]) => getGuestDocumentScan(...a),
@@ -271,6 +277,9 @@ describe('BookingScreen', () => {
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
     addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    scheduleRecurringCharge.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listPackages.mockResolvedValue({ ok: true, packages: [] });
+    applyPackage.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listGuestDocuments.mockResolvedValue({ ok: true, documents: [], requireIdAtCheckIn: false });
     getMe.mockResolvedValue({
       ok: true,
@@ -1446,6 +1455,106 @@ describe('BookingScreen', () => {
     expect(alert.className).toContain('ui-alert--attention');
     expect(alert.textContent).not.toMatch(/posted/i);
     expect(screen.getByTestId('confirm-book')).toBeTruthy();
+  });
+
+  it('R4.13: When=Every night schedules recurring charge after confirm and invalidates keys', async () => {
+    listProducts.mockResolvedValue(postableCatalog);
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    const { invalidateSpy } = renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('addon-draft-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.change(screen.getByTestId('addon-draft-when'), {
+      target: { value: 'every_night' },
+    });
+    fireEvent.click(screen.getByTestId('addon-commit-line'));
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    await waitFor(() => expect(scheduleRecurringCharge).toHaveBeenCalledTimes(1));
+    expect(addFolioLine).not.toHaveBeenCalled();
+    const body = scheduleRecurringCharge.mock.calls[0]![2] as {
+      pattern: string;
+      productId: string;
+      quantity: number;
+    };
+    expect(body.pattern).toBe('NIGHTLY');
+    expect(body.productId).toBe('prod_breakfast');
+    const reservationId = scheduleRecurringCharge.mock.calls[0]![1] as string;
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((call) => JSON.stringify(call[0]));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['recurring-charges', 'prop_demo', reservationId] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['folio', 'prop_demo', reservationId] }));
+    });
+  });
+
+  it('R4.13: Package select fills type/plan/dates and apply after confirm; Retry reuses opId', async () => {
+    listPackages.mockResolvedValue({
+      ok: true,
+      packages: [
+        {
+          packageId: 'pkg_bb',
+          code: 'BB2',
+          name: 'Bed & Breakfast',
+          roomTypeId: 'rt_king',
+          ratePlanId: 'BAR',
+          nights: 2,
+          priceMinor: 12_000,
+          currency: 'INR',
+          componentTax: 'SEPARATE',
+          status: 'active',
+          components: [],
+        },
+      ],
+    });
+    createReservation.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { ok: true, reservationId: 'res_from_api' },
+    });
+    applyPackage
+      .mockRejectedValueOnce(
+        new ClassifiedError({
+          class: 'client_error',
+          status: 422,
+          body: { ok: false, error: 'package_mismatch' },
+          retryAfterMs: null,
+        }),
+      )
+      .mockResolvedValueOnce({ classified: { class: 'live' }, body: { ok: true } });
+    listRateDays.mockResolvedValue(rateDaysOk('2026-08-11', '2026-08-13'));
+    const { invalidateSpy } = renderBook();
+    await waitFor(() => expect(screen.getByTestId('book-package')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('book-package'), { target: { value: 'pkg_bb' } });
+    await waitFor(() =>
+      expect((screen.getByTestId('departure-date') as HTMLInputElement).value).toBe('2026-08-13'),
+    );
+    expect((screen.getByTestId('rate-plan') as HTMLSelectElement).value).toBe('BAR');
+    await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toContain('₹120.00'));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(applyPackage).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId('package-apply-failure-alert')).toBeTruthy();
+    const failedOp = applyPackage.mock.calls[0]![3] as string;
+    fireEvent.click(screen.getByTestId('retry-package-apply'));
+    await waitFor(() => expect(applyPackage).toHaveBeenCalledTimes(2));
+    expect(applyPackage.mock.calls[1]![3]).toBe(failedOp);
+    expect(applyPackage.mock.calls[0]![2]).toEqual({ packageId: 'pkg_bb' });
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((call) => JSON.stringify(call[0]));
+      const reservationId = applyPackage.mock.calls[0]![1] as string;
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['reservation', 'prop_demo', reservationId] }),
+      );
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['recurring-charges', 'prop_demo', reservationId] }),
+      );
+      expect(keys).toContain(JSON.stringify({ queryKey: ['folio', 'prop_demo', reservationId] }));
+    });
   });
 
   it('shows the plan includes line and adds the extra amount to the quote', async () => {

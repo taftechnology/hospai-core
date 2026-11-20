@@ -2820,8 +2820,11 @@ describe('FolioScreen wiring', () => {
         quantity: 2,
         startDate: '2026-08-08',
         endDate: null,
+        pattern: 'NIGHTLY',
+        daysMask: null,
+        dates: null,
       },
-      expect.stringMatching(/^recurring-add:rc_/),
+      expect.stringMatching(/^recurring-add:/),
     );
     await waitFor(() => {
       const keys = invalidateSpy.mock.calls.map((call) => JSON.stringify(call[0]));
@@ -2844,6 +2847,60 @@ describe('FolioScreen wiring', () => {
         'recurring-cancel:rc_breakfast',
       ),
     );
+  });
+
+  it('R4.13: recurring card submits Weekends pattern and invalidates recurring-charges key', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({ ok: true, window: null, balanceMinor: 0, lines: [] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    businessDateMock('2026-08-08');
+    listProducts.mockResolvedValue({
+      ok: true,
+      categories: [{ categoryId: 'cat_fb', name: 'Food', sortOrder: 0, status: 'active' }],
+      items: [
+        {
+          productId: 'prod_breakfast',
+          categoryId: 'cat_fb',
+          sku: null,
+          name: 'Breakfast',
+          chargeCode: 'FB',
+          defaultAmountMinor: 1500,
+          status: 'active',
+          taxGroup: null,
+          postable: true,
+        },
+      ],
+    });
+    listRecurringCharges.mockResolvedValue({ ok: true, charges: [] });
+
+    const { invalidateSpy } = renderFolio();
+    expect(await screen.findByTestId('recurring-charges-card')).toBeTruthy();
+    expect(await screen.findByRole('option', { name: 'Breakfast' })).toBeTruthy();
+    fireEvent.change(screen.getByTestId('recurring-product'), {
+      target: { value: 'prod_breakfast' },
+    });
+    fireEvent.change(screen.getByTestId('recurring-when'), { target: { value: 'weekends' } });
+    fireEvent.click(screen.getByTestId('recurring-add'));
+
+    await waitFor(() => expect(scheduleRecurringCharge).toHaveBeenCalled());
+    expect(scheduleRecurringCharge).toHaveBeenCalledWith(
+      'prop_demo',
+      'res_1',
+      expect.objectContaining({
+        productId: 'prod_breakfast',
+        pattern: 'DAYS_OF_WEEK',
+        daysMask: 0b0110000,
+        dates: null,
+      }),
+      expect.stringMatching(/^recurring-add:/),
+    );
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((call) => JSON.stringify(call[0]));
+      expect(keys).toContain(
+        JSON.stringify({ queryKey: ['recurring-charges', 'prop_demo', 'res_1'] }),
+      );
+    });
   });
 
   it('R3.2: recurring card is hidden without folio:read and read-only after checkout', async () => {

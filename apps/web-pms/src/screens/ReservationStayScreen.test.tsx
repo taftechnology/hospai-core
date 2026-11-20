@@ -187,8 +187,27 @@ describe('ReservationStayScreen', () => {
     expect((screen.getByTestId('stay-check-in') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Only a confirmed booking can be checked in.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Folio' }).getAttribute('href')).toBe('/folio/res_1');
+    expect(screen.getByTestId('stay-documents')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Proforma' }).getAttribute('href')).toBe(
+      '/reservations/res_1/proforma',
+    );
+    expect(screen.getByRole('link', { name: 'Registration card' }).getAttribute('href')).toBe(
+      '/reservations/res_1/registration-card',
+    );
     expect(screen.queryByText('Not assigned')).toBeNull();
     expect(screen.getByText('101')).toBeTruthy();
+  });
+
+  it('stay card Documents links to proforma and registration-card', async () => {
+    getReservation.mockResolvedValue(stay('confirmed'));
+    renderStay();
+    await waitFor(() => expect(screen.getByTestId('stay-documents')).toBeTruthy());
+    expect(screen.getByRole('link', { name: 'Proforma' }).getAttribute('href')).toBe(
+      '/reservations/res_1/proforma',
+    );
+    expect(screen.getByRole('link', { name: 'Registration card' }).getAttribute('href')).toBe(
+      '/reservations/res_1/registration-card',
+    );
   });
 
   it('pending explains that check-in waits on confirm', async () => {

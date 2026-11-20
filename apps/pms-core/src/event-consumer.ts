@@ -143,6 +143,7 @@ export async function assertEventContract(message: DomainEventMessage): Promise<
     case 'restriction.changed':
     case 'rate.changed':
     case 'rate_plan.changed':
+    case 'rate_package.changed':
     case 'rate_promo.changed':
     case 'invoice.generated':
     case 'invoice.voided':

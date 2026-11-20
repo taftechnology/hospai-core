@@ -17,6 +17,10 @@ import { DashboardScreen } from './screens/DashboardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
 import { ReservationStayScreen } from './screens/ReservationStayScreen.js';
+import {
+  ProformaPrintView,
+  RegistrationCardPrintView,
+} from './screens/document-print-views.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { FoliosDirectoryScreen } from './screens/FoliosDirectoryScreen.js';
@@ -75,6 +79,14 @@ export const router = createBrowserRouter(
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />
             <Route path="reservations" element={<ReservationsDirectoryScreen />} />
             <Route path="reservations/:reservationId" element={<ReservationStayScreen />} />
+            <Route
+              path="reservations/:reservationId/proforma"
+              element={<ProformaPrintView />}
+            />
+            <Route
+              path="reservations/:reservationId/registration-card"
+              element={<RegistrationCardPrintView />}
+            />
             <Route path="guests" element={<GuestsDirectoryScreen />} />
             <Route path="guests/:guestRef" element={<GuestProfileScreen />} />
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />
@@ -160,6 +172,21 @@ export const router = createBrowserRouter(
               <Route path="products" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="products" />
+                </Suspense>
+              } />
+              <Route path="packages" element={<PermissionRoute permission="rates:write" />}>
+                <Route
+                  index
+                  element={
+                    <Suspense fallback={<Skeleton />}>
+                      <SettingsScreen tab="packages" />
+                    </Suspense>
+                  }
+                />
+              </Route>
+              <Route path="documents" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="documents" />
                 </Suspense>
               } />
               <Route path="maintenance" element={

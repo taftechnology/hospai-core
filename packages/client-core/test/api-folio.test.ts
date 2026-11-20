@@ -383,6 +383,34 @@ describe('folio API', () => {
     expect(result.charges[0]?.recurringChargeId).toBe('rc_1');
   });
 
+  it('getReservationProforma GETs the proforma path', async () => {
+    let path = '';
+    let method = '';
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? 'GET';
+      return new Response(JSON.stringify({ ok: true, lines: [] }), { status: 200 });
+    });
+    const body = await client.getReservationProforma('p', 'res_1');
+    expect(method).toBe('GET');
+    expect(path).toBe('/v1/properties/p/reservations/res_1/proforma');
+    expect(body).toEqual({ ok: true, lines: [] });
+  });
+
+  it('getReservationRegistrationCard GETs the registration-card path', async () => {
+    let path = '';
+    let method = '';
+    const { client } = clientWith(async (seen, init) => {
+      path = seen;
+      method = init?.method ?? 'GET';
+      return new Response(JSON.stringify({ ok: true, guestName: 'Ada' }), { status: 200 });
+    });
+    const body = await client.getReservationRegistrationCard('p', 'res_1');
+    expect(method).toBe('GET');
+    expect(path).toBe('/v1/properties/p/reservations/res_1/registration-card');
+    expect(body).toEqual({ ok: true, guestName: 'Ada' });
+  });
+
   it('scheduleRecurringCharge posts JSON idempotencyKey and the snapshot body', async () => {
     let body = '';
     let path = '';

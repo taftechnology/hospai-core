@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { IDEM_KEY_REUSED } from '@hospai/contracts';
+import { CONFIG_CLASS_NOT_DOMAIN, IDEM_KEY_REUSED } from '@hospai/contracts';
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import type { OrgDO } from '../src/org-do.js';
@@ -263,5 +263,65 @@ describe('domain config HTTP routes', () => {
     });
     expect(res.status).toBe(200);
     expect(await stub.readConfig('pms.ops.auto_assign_rooms')).toBe(false);
+  });
+
+  it('documents PRESENTATION keys round-trip via put domain config; unknown template 422', async () => {
+    const owner = 'user_cfg_docs_presentation';
+    const { propertyId } = await provisionHotel(owner);
+
+    const proformaValue = {
+      template: 'DETAILED' as const,
+      headerText: 'Proforma header',
+      footerText: 'Proforma footer',
+      show: { perNight: true, taxSummary: true, advances: false, warnings: true },
+    };
+    const putOk = await putDomainConfig(propertyId, owner, {
+      key: 'pms.documents.proforma',
+      value: proformaValue,
+      reason: 'ops:docs-proforma',
+      idempotencyKey: 'idem-cfg-docs-proforma',
+    });
+    expect(putOk.status).toBe(200);
+
+    const listed = await worker.fetch(
+      new Request(
+        `http://localhost/v1/properties/${encodeURIComponent(propertyId)}/config/domain`,
+        { headers: { 'x-dev-actor': owner } },
+      ),
+      env,
+    );
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as {
+      ok: true;
+      keys: Array<{ key: string; source: string; value: unknown }>;
+    };
+    expect(body.keys.find((k) => k.key === 'pms.documents.proforma')).toMatchObject({
+      source: 'stored',
+      value: proformaValue,
+    });
+    expect(body.keys.find((k) => k.key === 'pms.documents.registration_card')).toMatchObject({
+      source: 'default',
+    });
+
+    const badTemplate = await putDomainConfig(propertyId, owner, {
+      key: 'pms.documents.proforma',
+      value: { ...proformaValue, template: 'NOPE' },
+      reason: 'ops:docs-nope',
+      idempotencyKey: 'idem-cfg-docs-nope',
+    });
+    expect(badTemplate.status).toBe(422);
+    expect(await badTemplate.json()).toMatchObject({ ok: false, error: 'validation_error' });
+
+    const stillRejected = await putDomainConfig(propertyId, owner, {
+      key: 'pms.ui.date_format',
+      value: 'ISO',
+      reason: 'ops',
+      idempotencyKey: 'idem-cfg-docs-ui-still-blocked',
+    });
+    expect(stillRejected.status).toBe(400);
+    expect(await stillRejected.json()).toMatchObject({
+      ok: false,
+      error: CONFIG_CLASS_NOT_DOMAIN,
+    });
   });
 });

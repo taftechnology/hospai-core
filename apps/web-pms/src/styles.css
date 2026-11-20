@@ -216,6 +216,7 @@ a {
 
 .top-bar__spacer {
   flex: 1 1 auto;
+  min-inline-size: 0;
 }
 
 .top-bar .ui-input,
@@ -230,6 +231,46 @@ a {
 
 [data-testid="property-name"] {
   font-weight: 600;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-testid="business-date-chip"] {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 48rem) {
+  .top-bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-block-size: var(--top-bar-h);
+    row-gap: var(--space-2);
+    padding-block: var(--space-2);
+  }
+
+  .top-bar__search {
+    flex: 1 1 8rem;
+    max-inline-size: 12rem;
+  }
+
+  .shift-strip {
+    flex: 1 1 100%;
+    order: 3;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+
+  .top-bar__spacer {
+    display: none;
+  }
+
+  [data-testid="property-name"] {
+    flex: 1 1 0;
+    max-inline-size: 12rem;
+  }
 }
 
 .chip {
@@ -1216,13 +1257,28 @@ details.side-panel summary {
   font-weight: 600;
 }
 
-/* R2.4: registration card layout (screen-hidden; printed alone). */
-.reg-card {
+/* R2.4 / R4.13 B4: registration card + shared print-doc isolation. */
+.reg-card,
+.print-doc,
+.proforma-doc {
   display: grid;
   gap: var(--space-4);
 }
 
-.reg-card__head {
+.reg-card--standard,
+.reg-card--compact,
+.proforma-doc--standard,
+.proforma-doc--detailed {
+  /* template markers (STANDARD/COMPACT/DETAILED); layout via BEM children */
+}
+
+.proforma-doc__night {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.reg-card__head,
+.proforma-doc__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1231,9 +1287,24 @@ details.side-panel summary {
   padding-block-end: var(--space-2);
 }
 
-.reg-card__property {
+.reg-card__property,
+.proforma-doc__property {
   margin: 0;
   font-weight: 600;
+}
+
+.reg-card__header-text,
+.reg-card__footer-text,
+.proforma-doc__header-text,
+.proforma-doc__footer-text {
+  margin: 0;
+  color: var(--muted);
+}
+
+.reg-card__compact-grid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .reg-card__signature {
@@ -1250,6 +1321,33 @@ details.side-panel summary {
   color: var(--muted);
 }
 
+.proforma-doc__night-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.proforma-doc__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.proforma-doc__lines li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.proforma-doc__nights,
+.proforma-doc__tax,
+.proforma-doc__warnings {
+  display: grid;
+  gap: var(--space-3);
+}
+
 @media screen {
   .reg-card {
     position: absolute;
@@ -1258,6 +1356,15 @@ details.side-panel summary {
     overflow: hidden;
     clip: rect(0 0 0 0);
   }
+
+  .print-view .reg-card,
+  .print-view .print-doc {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
 }
 
 @media print {
@@ -1265,11 +1372,14 @@ details.side-panel summary {
     visibility: hidden;
   }
 
+  .print-doc,
+  .print-doc *,
   .reg-card,
   .reg-card * {
     visibility: visible;
   }
 
+  .print-doc,
   .reg-card {
     position: absolute;
     inset: 0;
@@ -1277,6 +1387,8 @@ details.side-panel summary {
     height: auto;
     overflow: visible;
     clip: auto;
+    color: var(--ink);
+    background: var(--bg);
   }
 
   aside,

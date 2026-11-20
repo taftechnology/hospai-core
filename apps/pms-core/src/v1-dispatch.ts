@@ -167,6 +167,7 @@ import {
   type GstBuyerFields,
   type InvoiceBuyerWire,
   parseGuestDocumentFields,
+  maskedDocumentNumber,
   GUEST_DOCUMENT_KINDS,
   ConsentWriteSchema,
   SCAN_MAX_BYTES,
@@ -175,14 +176,18 @@ import {
   NAMED_LIST_MAX_ENTRIES,
   RATES_BULK_UPDATE_MAX,
   RATE_PLAN_INCLUSION_MAX,
+  PACKAGE_COMPONENT_MAX,
   RATE_OVERRIDE_NIGHTS_MAX,
   RATE_OVERRIDE_AMOUNT_MAX_MINOR,
   type RatePlanInclusionInput,
+  type PackageComponentInput,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
   ROSTER_KINDS_MAX,
   RESERVATION_SEARCH_GUEST_REF_CAP,
   RESERVATION_SEARCH_ROW_LIMIT,
+  RECURRING_CHARGE_DATES_MAX,
+  type RecurringChargePattern,
   ROSTER_OPS_SKILLS_MAX,
   normalizeRosterOpsSkills,
   rosterOpsFieldsValid,
@@ -4139,6 +4144,164 @@ async function handleGetReservationRecurringCharges(ctx: V1DispatchContext): Pro
   }
 }
 
+async function handleGetReservationProforma(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservationProforma(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    // Workers RPC may collapse large success arms on the stub; reassert the DO return shape.
+    const proforma = result as unknown as {
+      ok: true;
+      reservationId: string;
+      status: string;
+      currency: string;
+      presentation: unknown;
+      confirmationToken: string;
+      arrivalDate: string;
+      departureDate: string;
+      nights: number;
+      adults: number;
+      children: number;
+      roomTypeName: string | null;
+      roomCode: string | null;
+      ratePlanName: string | null;
+      packageName: string | null;
+      guestRef: string;
+      posted: unknown;
+      estimated: unknown;
+      totals: unknown;
+      taxSummary: unknown;
+      warnings: unknown;
+    };
+    const { guestRef, ...publicProforma } = proforma;
+
+    const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+    const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+
+    const hydrated = await org.readGuests(actor, propertyId, [guestRef]);
+    let guestDisplayName: string | null = null;
+    if (!hydrated.ok) {
+      if (hydrated.error !== FORBIDDEN) {
+        return guestDirectoryErrorResponse(hydrated.error);
+      }
+    } else {
+      const entry = hydrated.guests[guestRef];
+      guestDisplayName =
+        entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
+    }
+
+    return json({ ...publicProforma, guestDisplayName }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetReservationRegistrationCard(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservationRegistrationCard(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    // Workers RPC may collapse large success arms on the stub; reassert the DO return shape
+    // (same pattern as readCityLedgerStatement).
+    const card = result as unknown as {
+      ok: true;
+      reservationId: string;
+      confirmationToken: string;
+      arrivalDate: string;
+      departureDate: string;
+      nights: number;
+      adults: number;
+      children: number;
+      roomTypeName: string | null;
+      roomCode: string | null;
+      ratePlanName: string | null;
+      packageName: string | null;
+      inclusionLabels: string[];
+      specialRequests: string | null;
+      vipFlag: boolean;
+      presentation: unknown;
+      guestRef: string;
+    };
+    const { guestRef, ...cardPublic } = card;
+
+    const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+    const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+
+    const hydrated = await org.readGuests(actor, propertyId, [guestRef]);
+    let guestDisplayName: string | null = null;
+    if (!hydrated.ok) {
+      if (hydrated.error !== FORBIDDEN) {
+        return guestDirectoryErrorResponse(hydrated.error);
+      }
+    } else {
+      const entry = hydrated.guests[guestRef];
+      guestDisplayName =
+        entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
+    }
+
+    let idDocument: { type: string; maskedNumber: string } | null = null;
+    const docs = await org.listPropertyGuestDocuments(actor, propertyId, guestRef);
+    if (!docs.ok) {
+      if (docs.error !== FORBIDDEN) return guestDirectoryErrorResponse(docs.error);
+    } else {
+      const first = docs.documents[0];
+      if (first) {
+        const detail = await org.readPropertyGuestDocument(
+          actor,
+          propertyId,
+          guestRef,
+          first.id,
+        );
+        if (!detail.ok) {
+          if (detail.error !== FORBIDDEN) return guestDirectoryErrorResponse(detail.error);
+        } else {
+          idDocument = {
+            type: detail.kind,
+            maskedNumber: maskedDocumentNumber(detail.fields),
+          };
+        }
+      }
+    }
+
+    return json(
+      {
+        ...cardPublic,
+        guestDisplayName,
+        idDocument,
+      },
+      200,
+    );
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handlePostReservationRecurringCharges(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const reservationId = decodeURIComponent(ctx.match[2]!);
@@ -4151,11 +4314,44 @@ async function handlePostReservationRecurringCharges(ctx: V1DispatchContext): Pr
     typeof body?.recurringChargeId !== 'string' ||
     typeof body.productId !== 'string' ||
     typeof body.quantity !== 'number' ||
-    typeof body.startDate !== 'string' ||
     typeof body.idempotencyKey !== 'string' ||
-    (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== 'string')
+    (body.startDate !== undefined && body.startDate !== null && typeof body.startDate !== 'string') ||
+    (body.endDate !== undefined && body.endDate !== null && typeof body.endDate !== 'string') ||
+    (body.pattern !== undefined && typeof body.pattern !== 'string') ||
+    (body.daysMask !== undefined && body.daysMask !== null && typeof body.daysMask !== 'number') ||
+    (body.dates !== undefined && body.dates !== null && !Array.isArray(body.dates))
   ) {
     return json({ error: 'invalid_body' }, 400);
+  }
+
+  const patternRaw = typeof body.pattern === 'string' ? body.pattern : undefined;
+  const pattern = (patternRaw ?? 'NIGHTLY') as RecurringChargePattern;
+  if (
+    pattern !== 'NIGHTLY' &&
+    pattern !== 'ARRIVAL' &&
+    pattern !== 'LAST_NIGHT' &&
+    pattern !== 'DAYS_OF_WEEK' &&
+    pattern !== 'DATES'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  // NIGHTLY / DAYS_OF_WEEK still require startDate at HTTP for back-compat shape.
+  if (
+    (pattern === 'NIGHTLY' || pattern === 'DAYS_OF_WEEK') &&
+    typeof body.startDate !== 'string'
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  let dates: string[] | null = null;
+  if (body.dates != null) {
+    if (!Array.isArray(body.dates) || body.dates.some((d) => typeof d !== 'string')) {
+      return json({ error: 'invalid_body' }, 400);
+    }
+    if (body.dates.length > RECURRING_CHARGE_DATES_MAX) {
+      return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+    }
+    dates = body.dates as string[];
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
@@ -4166,8 +4362,11 @@ async function handlePostReservationRecurringCharges(ctx: V1DispatchContext): Pr
     reservationId,
     productId: body.productId,
     quantity: body.quantity,
-    startDate: body.startDate,
+    startDate: typeof body.startDate === 'string' ? body.startDate : null,
     endDate: typeof body.endDate === 'string' ? body.endDate : null,
+    pattern,
+    daysMask: typeof body.daysMask === 'number' ? body.daysMask : null,
+    dates,
   };
   const fingerprint = await commandFingerprint('folio.schedule_recurring_charge', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
@@ -6606,6 +6805,278 @@ async function handleGetRatePlans(ctx: V1DispatchContext): Promise<Response> {
     }
     throw e;
   }
+}
+
+async function handleGetPackages(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const statusParam = new URL(ctx.request.url).searchParams.get('status');
+  const status = statusParam === 'all' ? ('all' as const) : ('active' as const);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.listPackages(status);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handlePostPackages(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    packageId: string;
+    code: string;
+    name: string;
+    roomTypeId: string;
+    ratePlanId: string;
+    nights: number;
+    priceMinor: number;
+    componentTax?: string;
+    components: PackageComponentInput[];
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    !body?.packageId ||
+    !body.code ||
+    !body.name ||
+    !body.roomTypeId ||
+    !body.ratePlanId ||
+    body.nights === undefined ||
+    body.priceMinor === undefined ||
+    !Array.isArray(body.components) ||
+    !body.idempotencyKey
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.components.length > PACKAGE_COMPONENT_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    packageId: body.packageId,
+    code: body.code,
+    name: body.name,
+    roomTypeId: body.roomTypeId,
+    ratePlanId: body.ratePlanId,
+    nights: body.nights,
+    priceMinor: body.priceMinor,
+    ...(body.componentTax !== undefined ? { componentTax: body.componentTax } : {}),
+    components: body.components,
+  };
+  const fingerprint = await commandFingerprint('rates.create_package', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreatePackage']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.create_package',
+      routeId: 'post_packages',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreatePackage(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === 'not_member') return json({ error: 'not_found' }, 404);
+      return null;
+    },
+  });
+}
+
+async function handlePatchPackage(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const packageId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    code?: string;
+    name?: string;
+    roomTypeId?: string;
+    ratePlanId?: string;
+    nights?: number;
+    priceMinor?: number;
+    componentTax?: string;
+    components?: PackageComponentInput[];
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (
+    body.code === undefined &&
+    body.name === undefined &&
+    body.roomTypeId === undefined &&
+    body.ratePlanId === undefined &&
+    body.nights === undefined &&
+    body.priceMinor === undefined &&
+    body.componentTax === undefined &&
+    body.components === undefined
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (Array.isArray(body.components) && body.components.length > PACKAGE_COMPONENT_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    packageId,
+    ...(body.code !== undefined ? { code: body.code } : {}),
+    ...(body.name !== undefined ? { name: body.name } : {}),
+    ...(body.roomTypeId !== undefined ? { roomTypeId: body.roomTypeId } : {}),
+    ...(body.ratePlanId !== undefined ? { ratePlanId: body.ratePlanId } : {}),
+    ...(body.nights !== undefined ? { nights: body.nights } : {}),
+    ...(body.priceMinor !== undefined ? { priceMinor: body.priceMinor } : {}),
+    ...(body.componentTax !== undefined ? { componentTax: body.componentTax } : {}),
+    ...(body.components !== undefined ? { components: body.components } : {}),
+  };
+  const fingerprint = await commandFingerprint('rates.update_package', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdatePackage']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.update_package',
+      routeId: 'patch_package',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdatePackage(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === 'not_member' || result.error === 'package_not_found') {
+        return json({ error: 'not_found' }, 404);
+      }
+      return null;
+    },
+  });
+}
+
+async function handlePostPackageStatus(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const packageId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    status: 'active' | 'archived';
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (!body?.status || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.status !== 'active' && body.status !== 'archived') {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { packageId, status: body.status };
+  const fingerprint = await commandFingerprint('rates.set_package_status', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySetPackageStatus']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'rates.set_package_status',
+      routeId: 'post_package_status',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySetPackageStatus(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:write',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === 'not_member' || result.error === 'package_not_found') {
+        return json({ error: 'not_found' }, 404);
+      }
+      return null;
+    },
+  });
+}
+
+async function handlePostReservationApplyPackage(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    packageId?: string;
+    idempotencyKey?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body?.packageId !== 'string' || !body.packageId || typeof body.idempotencyKey !== 'string') {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { reservationId, packageId: body.packageId };
+  const fingerprint = await commandFingerprint('reservations.apply_package', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryApplyPackage']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.apply_package',
+      routeId: 'post_reservation_apply_package',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryApplyPackage(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:write',
+    successStatus: 201,
+    onFailure: (result) => {
+      if (result.error === NOT_FOUND || result.error === 'not_member') {
+        return json({ error: 'not_found' }, 404);
+      }
+      return null;
+    },
+  });
 }
 
 async function handleGetRatePromos(ctx: V1DispatchContext): Promise<Response> {
@@ -10970,6 +11441,70 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'reservations.change_in_house_stay',
     entitlement: 'pms.core',
     handler: handlePostReservationInHouseChange,
+  },
+  {
+    id: 'get_packages',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/packages$/,
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    handler: handleGetPackages,
+  },
+  {
+    id: 'post_packages',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/packages$/,
+    permission: 'rates:write',
+    commandId: 'rates.create_package',
+    handler: handlePostPackages,
+  },
+  {
+    id: 'patch_package',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/packages\/([^/]+)$/,
+    permission: 'rates:write',
+    commandId: 'rates.update_package',
+    handler: handlePatchPackage,
+  },
+  {
+    id: 'post_package_status',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/packages\/([^/]+)\/status$/,
+    permission: 'rates:write',
+    commandId: 'rates.set_package_status',
+    handler: handlePostPackageStatus,
+  },
+  {
+    id: 'post_reservation_apply_package',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/apply-package$/,
+    permission: 'reservations:write',
+    commandId: 'reservations.apply_package',
+    entitlement: 'pms.core',
+    handler: handlePostReservationApplyPackage,
+  },
+  {
+    id: 'get_reservation_proforma',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/proforma$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationProforma,
+  },
+  {
+    id: 'get_reservation_registration_card',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/registration-card$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationRegistrationCard,
   },
 ];
 

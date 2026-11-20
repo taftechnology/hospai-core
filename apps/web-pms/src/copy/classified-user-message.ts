@@ -162,6 +162,19 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   invalid_ticket_transition: () => 'That status change is not allowed for this ticket.',
   task_type_not_found: () => 'That task type no longer exists — refresh settings.',
   limit_exceeded: () => 'This property has reached the catalog limit.',
+  package_price_below_components: () =>
+    'Package price is below the total of its components — raise the price or lower component amounts.',
+  package_plan_has_added_inclusions: () =>
+    'That rate plan has add-on inclusions. Packages need a plan without ADDED inclusions.',
+  package_not_found: () => 'That package no longer exists — refresh the list.',
+  package_id_exists: () => 'A package with that id already exists.',
+  package_code_exists: () => 'A package with that code already exists.',
+  package_already_applied: () => 'This stay already has a package applied.',
+  package_mismatch: () =>
+    'Room type, rate plan, or nights do not match the package — adjust the stay first.',
+  package_nights_posted: () =>
+    'A night of this stay is already posted — packages can only be applied before the first night audit.',
+  date_outside_stay: () => 'One or more chosen dates fall outside the stay.',
   config_code_removed: () =>
     'Codes stay on the list so past stays can still show them. Archive a code instead of removing it.',
   config_key_not_writable: () => 'That setting cannot be changed.',

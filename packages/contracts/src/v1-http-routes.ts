@@ -1183,6 +1183,52 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'reservations.change_in_house_stay',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_packages',
+    scope: 'property',
+    permission: 'rates:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_packages',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.create_package',
+  },
+  {
+    id: 'patch_package',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.update_package',
+  },
+  {
+    id: 'post_package_status',
+    scope: 'property',
+    permission: 'rates:write',
+    commandId: 'rates.set_package_status',
+  },
+  {
+    id: 'post_reservation_apply_package',
+    scope: 'property',
+    permission: 'reservations:write',
+    commandId: 'reservations.apply_package',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_reservation_proforma',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_reservation_registration_card',
+    scope: 'property',
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

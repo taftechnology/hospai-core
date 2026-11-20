@@ -131,8 +131,8 @@ A discount on one line of a bundle re-bands only that line. The other lines keep
 
 ## 8. Out of scope
 
-- Package templates (fixed price over N nights), posting on arrival or departure only, and add-on scheduling are **R4.13**.
-- Per-child amounts that differ from adults are out; use `PER_ADULT` plus a separate `PER_ROOM` row, or wait for R4.13.
+- Package templates (fixed price over N nights), posting on arrival / last night / days-of-week / dates, and add-on scheduling via recurring patterns are **R4.13 Part A** (shipped — see [packages + proforma/documents](./2026-11-19-packages-proforma-documents-design.md)).
+- Per-child amounts that differ from adults are out; use `PER_ADULT` plus a separate `PER_ROOM` row, or wait for a later slice.
 - Inclusions in channel (ARI) pushes are out (R4.3).
-- Showing inclusions on the registration card or proforma is **R4.13**.
+- Showing inclusions on the registration card or proforma is **R4.13 Part B** (shipped — see [packages + proforma/documents](./2026-11-19-packages-proforma-documents-design.md) and plan `2026-11-20-r4-13-part-b-documents.md`).
 - A day-wise override of an inclusion is **R4.20**.

@@ -6,7 +6,7 @@ Closes named leftover 1 of the [prototype holes sweep](./2026-08-13-prototype-ho
 
 ## 1. Decisions (locked)
 
-1. **One pattern now: every night of a range.** A schedule posts once per audited night `d` with `startDate ≤ d ≤ endDate` (or through the stay's last night when `endDate` is null). Arrival-only, departure-only, weekends, a set night and chosen dates are **R4.13**; they add values to a `pattern` column, not a second table. The column exists now with the single value `NIGHTLY`.
+1. **Patterns (amended R4.13 Part A).** At R3.2 this slice shipped one pattern: every night of a range (`NIGHTLY`) — a schedule posts once per audited night `d` with `startDate ≤ d ≤ endDate` (or through the stay's last night when `endDate` is null). The `pattern` column was always meant to gain more values on the same table, not a second table. **R4.13 Part A** widened it to `NIGHTLY|ARRIVAL|LAST_NIGHT|DAYS_OF_WEEK|DATES`. Schedule semantics, `recurringChargeDue`, `days_mask`, `recurring_charge_date`, `tax_charge_code`, and `package_id` live in [packages + proforma/documents](./2026-11-19-packages-proforma-documents-design.md).
 
 2. **A schedule is a product on a stay.** Create takes `productId`; the DO reads the product inside the transaction and **snapshots** its `chargeCode`, `name` and `amountMinor` (unit price) onto the schedule. Later product price or name edits do not change existing schedules. `quantity` 1–99; the nightly amount is `unitAmountMinor × quantity`, integer minor units. Only a **postable** product (active, active category, operator-postable charge code — R1.5) can be scheduled. Amounts are in the ledger currency (products have no other currency).
 
@@ -16,7 +16,7 @@ Closes named leftover 1 of the [prototype holes sweep](./2026-08-13-prototype-ho
    |---|---|
    | `recurring_charge_id` TEXT PK | client-chosen id (`validateTenantId` shape); first writer wins |
    | `reservation_id` TEXT NOT NULL | |
-   | `pattern` TEXT NOT NULL | CHECK `IN ('NIGHTLY')` |
+   | `pattern` TEXT NOT NULL | At R3.2: CHECK `IN ('NIGHTLY')`. **R4.13 Part A** widens to `NIGHTLY\|ARRIVAL\|LAST_NIGHT\|DAYS_OF_WEEK\|DATES` (rebuild migration; see packages-proforma-documents) |
    | `product_id`, `charge_code`, `description` TEXT NOT NULL | snapshot |
    | `unit_amount_minor` INTEGER NOT NULL, `quantity` INTEGER NOT NULL | CHECK `> 0`, CHECK `BETWEEN 1 AND 99` |
    | `start_date` TEXT NOT NULL, `end_date` TEXT NULL | stay nights, inclusive; null = through departure − 1 |
@@ -49,7 +49,7 @@ Closes named leftover 1 of the [prototype holes sweep](./2026-08-13-prototype-ho
 
 ## 2. Out of scope
 
-Other patterns (R4.13), packages and rate-plan inclusions (R3.3, R4.13), per-person pricing, posting to a non-guest window, foreign-currency products, editing a schedule in place, posting on the departure day.
+**R4.13 Part A shipped** the wider patterns (`ARRIVAL|LAST_NIGHT|DAYS_OF_WEEK|DATES`) and package templates/apply — see [packages + proforma/documents](./2026-11-19-packages-proforma-documents-design.md). Still out of this R3.2 slice (and unchanged here): rate-plan inclusions (R3.3), per-person pricing, posting to a non-guest window, foreign-currency products, editing a schedule in place, posting on the departure calendar day (LAST_NIGHT is the stay’s last night, not wall-clock departure day).
 
 ## 3. Tests (acceptance)
 

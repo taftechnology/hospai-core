@@ -17,6 +17,7 @@ import {
   type FolioReadState,
   type FolioTransferResult,
   type RecurringCharge,
+  type RecurringChargePattern,
 } from '@hospai/client-core';
 import {
   Alert,
@@ -28,6 +29,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  Checkbox,
   DataTable,
   DataTableBody,
   DataTableCell,
@@ -72,6 +74,17 @@ import { usePostableProducts } from './product-picker.js';
 import { useFolioActionMutation } from './use-folio-action-mutation.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
+import {
+  FOLIO_RECURRING_WHEN_OPTIONS,
+  WEEKDAY_BITS,
+  choiceFromWhen,
+  dayMaskHas,
+  MAX_RECURRING_DATES,
+  patternWord,
+  schedulePayload,
+  toggleDayMask,
+  type RecurringWhenValue,
+} from './recurring-when.js';
 
 function folioBackTarget(status: string | undefined): { to: string; label: string } {
   if (status === 'checked_in') return { to: '/in-house', label: 'In house' };
@@ -259,7 +272,12 @@ function RecurringChargesCard(props: {
   const [fromDate, setFromDate] = useState('');
   const [untilMode, setUntilMode] = useState<'departure' | 'date'>('departure');
   const [untilDate, setUntilDate] = useState('');
+  const [whenValue, setWhenValue] = useState<Exclude<RecurringWhenValue, 'now'>>('every_night');
+  const [daysMask, setDaysMask] = useState(0);
+  const [dates, setDates] = useState<string[]>([]);
+  const [dateInput, setDateInput] = useState('');
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
+  const [scheduleOpId, setScheduleOpId] = useState(() => `recurring-add:${crypto.randomUUID()}`);
   const canAdd = canPost && (status === 'confirmed' || status === 'checked_in');
   const products = usePostableProducts(canRead && canAdd);
   const recurringQ = useQuery({
@@ -287,18 +305,36 @@ function RecurringChargesCard(props: {
       quantity: number;
       startDate: string;
       endDate: string | null;
+      pattern: RecurringChargePattern;
+      daysMask: number | null;
+      dates: string[] | null;
+      opId: string;
     }) =>
       api.scheduleRecurringCharge(
         propertyId,
         reservationId,
-        input,
-        `recurring-add:${input.recurringChargeId}`,
+        {
+          recurringChargeId: input.recurringChargeId,
+          productId: input.productId,
+          quantity: input.quantity,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          pattern: input.pattern,
+          daysMask: input.daysMask,
+          dates: input.dates,
+        },
+        input.opId,
       ),
     onSuccess: () => {
       setSuccess('Recurring charge added.');
       setQuantity('1');
       setUntilMode('departure');
       setUntilDate('');
+      setWhenValue('every_night');
+      setDaysMask(0);
+      setDates([]);
+      setDateInput('');
+      setScheduleOpId(`recurring-add:${crypto.randomUUID()}`);
       invalidateRecurring();
     },
   });
@@ -357,6 +393,7 @@ function RecurringChargesCard(props: {
                 <DataTableRow>
                   <DataTableHeaderCell>Product</DataTableHeaderCell>
                   <DataTableHeaderCell>Per night</DataTableHeaderCell>
+                  <DataTableHeaderCell>When</DataTableHeaderCell>
                   <DataTableHeaderCell>Nights</DataTableHeaderCell>
                   <DataTableHeaderCell>Status</DataTableHeaderCell>
                   <DataTableHeaderCell>
@@ -370,6 +407,13 @@ function RecurringChargesCard(props: {
                     <DataTableCell>{charge.description}</DataTableCell>
                     <DataTableCell>
                       {money(charge.unitAmountMinor)} × {charge.quantity}
+                    </DataTableCell>
+                    <DataTableCell>
+                      {patternWord({
+                        pattern: charge.pattern,
+                        daysMask: charge.daysMask,
+                        dates: charge.dates,
+                      })}
                     </DataTableCell>
                     <DataTableCell>{nightsLabel(charge)}</DataTableCell>
                     <DataTableCell>{charge.status === 'active' ? 'Active' : 'Cancelled'}</DataTableCell>
@@ -427,72 +471,192 @@ function RecurringChargesCard(props: {
                 />
                 <Field
                   size="xs"
-                  label="From"
-                  control={
-                    <Input
-                      type="date"
-                      aria-label="recurring-from"
-                      value={fromValue}
-                      onChange={(e) => setFromDate(e.target.value)}
-                    />
-                  }
-                />
-                <Field
-                  size="xs"
-                  label="Until"
+                  label="When"
                   control={
                     <NativeSelect
-                      aria-label="recurring-until"
-                      data-testid="recurring-until"
-                      value={untilMode}
-                      onChange={(e) => setUntilMode(e.target.value === 'date' ? 'date' : 'departure')}
+                      aria-label="recurring-when"
+                      data-testid="recurring-when"
+                      value={whenValue}
+                      onChange={(e) =>
+                        setWhenValue(e.target.value as Exclude<RecurringWhenValue, 'now'>)
+                      }
                     >
-                      <option value="departure">Until departure</option>
-                      <option value="date">Until a date</option>
+                      {FOLIO_RECURRING_WHEN_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
                     </NativeSelect>
                   }
                 />
-                {untilMode === 'date' ? (
-                  <Field
-                    size="xs"
-                    label="Until date"
-                    control={
-                      <Input
-                        type="date"
-                        aria-label="recurring-until-date"
-                        value={untilDate}
-                        onChange={(e) => setUntilDate(e.target.value)}
+                {whenValue === 'every_night' ? (
+                  <>
+                    <Field
+                      size="xs"
+                      label="From"
+                      control={
+                        <Input
+                          type="date"
+                          aria-label="recurring-from"
+                          value={fromValue}
+                          onChange={(e) => setFromDate(e.target.value)}
+                        />
+                      }
+                    />
+                    <Field
+                      size="xs"
+                      label="Until"
+                      control={
+                        <NativeSelect
+                          aria-label="recurring-until"
+                          data-testid="recurring-until"
+                          value={untilMode}
+                          onChange={(e) =>
+                            setUntilMode(e.target.value === 'date' ? 'date' : 'departure')
+                          }
+                        >
+                          <option value="departure">Until departure</option>
+                          <option value="date">Until a date</option>
+                        </NativeSelect>
+                      }
+                    />
+                    {untilMode === 'date' ? (
+                      <Field
+                        size="xs"
+                        label="Until date"
+                        control={
+                          <Input
+                            type="date"
+                            aria-label="recurring-until-date"
+                            value={untilDate}
+                            onChange={(e) => setUntilDate(e.target.value)}
+                          />
+                        }
                       />
-                    }
-                  />
+                    ) : null}
+                  </>
                 ) : null}
                 <Button
                   type="button"
                   data-testid="recurring-add"
-                  disabled={schedule.isPending || productId === ''}
+                  disabled={
+                    schedule.isPending ||
+                    productId === '' ||
+                    (whenValue === 'days_of_week' && daysMask < 1) ||
+                    (whenValue === 'dates' && dates.length < 1)
+                  }
                   onClick={() => {
                     const qty = Number(quantity);
                     if (!Number.isInteger(qty) || qty < 1 || qty > 99) {
                       setMessage('Quantity must be a whole number from 1 to 99.');
                       return;
                     }
-                    if (untilMode === 'date' && untilDate === '') {
+                    if (whenValue === 'every_night' && untilMode === 'date' && untilDate === '') {
                       setMessage('Choose the last night, or leave it until departure.');
                       return;
                     }
+                    if (whenValue === 'days_of_week' && daysMask < 1) {
+                      setMessage('Choose at least one day of the week.');
+                      return;
+                    }
+                    if (whenValue === 'dates' && dates.length < 1) {
+                      setMessage('Add at least one date.');
+                      return;
+                    }
+                    const choice = choiceFromWhen(whenValue, daysMask, dates);
+                    if (choice.when === 'now') return;
+                    const payload = schedulePayload(choice);
                     const recurringChargeId = `rc_${crypto.randomUUID()}`;
                     schedule.mutate({
                       recurringChargeId,
                       productId,
                       quantity: qty,
                       startDate: fromValue,
-                      endDate: untilMode === 'date' ? untilDate : null,
+                      endDate:
+                        whenValue === 'every_night' && untilMode === 'date' ? untilDate : null,
+                      pattern: payload.pattern,
+                      daysMask: payload.daysMask,
+                      dates: payload.dates,
+                      opId: scheduleOpId,
                     });
                   }}
                 >
                   Add
                 </Button>
               </div>
+              {whenValue === 'days_of_week' ? (
+                <div className="ui-row" data-testid="recurring-days">
+                  {WEEKDAY_BITS.map((d) => (
+                    <Field
+                      key={d.bit}
+                      size="xs"
+                      label={d.label}
+                      control={
+                        <Checkbox
+                          checked={dayMaskHas(daysMask, d.bit)}
+                          onChange={() => setDaysMask((m) => toggleDayMask(m, d.bit))}
+                          aria-label={`recurring-day-${d.label}`}
+                        />
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {whenValue === 'dates' ? (
+                <div className="ui-stack" data-testid="recurring-dates">
+                  <div className="ui-row">
+                    <Field
+                      size="sm"
+                      label="Add date"
+                      control={
+                        <Input
+                          type="date"
+                          data-testid="recurring-date-input"
+                          value={dateInput}
+                          onChange={(e) => setDateInput(e.target.value)}
+                        />
+                      }
+                    />
+                    <Button
+                      type="button"
+                      data-testid="recurring-date-add"
+                      disabled={
+                        !dateInput ||
+                        dates.includes(dateInput) ||
+                        dates.length >= MAX_RECURRING_DATES
+                      }
+                      onClick={() => {
+                        if (
+                          !dateInput ||
+                          dates.includes(dateInput) ||
+                          dates.length >= MAX_RECURRING_DATES
+                        ) {
+                          return;
+                        }
+                        setDates((rows) => [...rows, dateInput].sort());
+                        setDateInput('');
+                      }}
+                    >
+                      Add date
+                    </Button>
+                  </div>
+                  {dates.length > 0 ? (
+                    <ul>
+                      {dates.map((d) => (
+                        <li key={d} className="ui-row">
+                          <span>{d}</span>
+                          <Button
+                            type="button"
+                            onClick={() => setDates((rows) => rows.filter((x) => x !== d))}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

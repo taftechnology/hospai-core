@@ -39,6 +39,7 @@ export {
   type ProductItemRead,
   type ProductsList,
   type RecurringCharge,
+  type RecurringChargePattern,
   type FolioTransferResult,
   type ReservationRead,
   type ReservationCancellation,

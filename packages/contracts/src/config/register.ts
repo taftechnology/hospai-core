@@ -317,6 +317,61 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
   entry({ key: 'pms.ui.show_eta', prototypeKey: 'pms_sys_show_eta', class: 'PRESENTATION', schema: bool, default: true, audited: false }),
   entry({ key: 'pms.ui.show_departures', prototypeKey: 'pms_sys_show_departures', class: 'PRESENTATION', schema: bool, default: true, audited: false }),
 
+  // R4.13 Part B — document presentation (writable via narrow tryPutDomainConfig widen)
+  entry({
+    key: 'pms.documents.registration_card',
+    prototypeKey: null,
+    class: 'PRESENTATION',
+    schema: z.object({
+      template: z.enum(['STANDARD', 'COMPACT']),
+      headerText: z.string().max(200),
+      footerText: z.string().max(500),
+      show: z.object({
+        ratePlan: z.boolean(),
+        inclusions: z.boolean(),
+        specialRequests: z.boolean(),
+        idDocument: z.boolean(),
+        signature: z.boolean(),
+      }),
+    }),
+    default: {
+      template: 'STANDARD',
+      headerText: '',
+      footerText: '',
+      show: {
+        ratePlan: true,
+        inclusions: true,
+        specialRequests: true,
+        idDocument: true,
+        signature: true,
+      },
+    },
+    audited: false,
+  }),
+  entry({
+    key: 'pms.documents.proforma',
+    prototypeKey: null,
+    class: 'PRESENTATION',
+    schema: z.object({
+      template: z.enum(['STANDARD', 'DETAILED']),
+      headerText: z.string().max(200),
+      footerText: z.string().max(500),
+      show: z.object({
+        perNight: z.boolean(),
+        taxSummary: z.boolean(),
+        advances: z.boolean(),
+        warnings: z.boolean(),
+      }),
+    }),
+    default: {
+      template: 'STANDARD',
+      headerText: '',
+      footerText: '',
+      show: { perNight: true, taxSummary: true, advances: true, warnings: true },
+    },
+    audited: false,
+  }),
+
   // —— OPERATIONAL ——
   entry({
     key: 'pms.ops.auto_assign_rooms',

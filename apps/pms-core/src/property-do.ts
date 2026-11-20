@@ -21,6 +21,7 @@ import {
   NIGHT_AUDIT_FIXED_CHECK_IDS,
   PENDING_COMMANDS_UNDRAINED,
   PROVISIONAL_EXCEPTIONS_OPEN,
+  CONFIG_REGISTER,
   domainConfigKeys,
   getConfigEntry,
   requiredPermissionForKey,
@@ -207,12 +208,30 @@ import {
   NIGHT_OUTSIDE_STAY,
   NIGHT_ALREADY_POSTED,
   OVERRIDE_BELOW_INCLUSIONS,
+  PACKAGE_PRICE_BELOW_COMPONENTS,
+  PACKAGE_PLAN_HAS_ADDED_INCLUSIONS,
+  PACKAGE_NOT_FOUND,
+  PACKAGE_ID_EXISTS,
+  PACKAGE_CODE_EXISTS,
+  PACKAGE_ALREADY_APPLIED,
+  PACKAGE_MISMATCH,
+  PACKAGE_NIGHTS_POSTED,
+  PACKAGE_COMPONENT_MAX,
+  PACKAGE_PER_PROPERTY_MAX,
+  packageRoomPortionMinor,
+  type PackageComponentInput,
+  type PackageComponentSchedule,
+  type PackageComponentTaxMode,
+  type PackageListItem,
   PRODUCT_INVALID_AMOUNT,
   PRODUCT_NOT_FOUND,
   PRODUCT_NOT_POSTABLE,
   RESERVATION_NOT_ACTIVE,
   RECURRING_CHARGE_DATES_INVALID,
   RECURRING_CHARGE_EXISTS,
+  DATE_OUTSIDE_STAY,
+  RECURRING_CHARGE_DATES_MAX,
+  type RecurringChargePattern,
   validateTenantId,
   InvalidTenantIdError,
   RATES_BULK_UPDATE_MAX,
@@ -393,6 +412,12 @@ import {
   type LoadedTaxRule,
   type TaxRuleWrite,
 } from './tax-model.js';
+import {
+  buildNightChargeLines,
+  NIGHT_AUDIT_LINE_SOURCE,
+  type NightChargeLineDraft,
+  type NightChargeTaxLine,
+} from './documents/build-night-charge-lines.js';
 import {
   simulateAuthorize,
   simulateCapture,
@@ -1435,6 +1460,10 @@ function mapPropertyCommandError(
   if (precondition) return precondition;
 
   if (!(e instanceof Error)) return null;
+  // validateConfigWrite uses Zod .parse — map schema failures to validation_error (422).
+  if (e.name === 'ZodError') {
+    return { ok: false, error: VALIDATION_ERROR };
+  }
   const msg = e.message;
 
   if (
@@ -1748,11 +1777,6 @@ function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): n
 }
 
 /** Fixed inventory for VERIFY — DO SQLite forbids dynamic table identifiers (SQLITE_AUTH). */
-/** Folio line source for night-audit posts of a stay's recurring charge (R3.2). */
-const RECURRING_LINE_SOURCE = 'RECURRING';
-/** Folio line source for a rate-plan inclusion (R3.3). Not NIGHT_AUDIT: that source is unique per code and night. */
-const INCLUSION_LINE_SOURCE = 'INCLUSION';
-
 const PROPERTY_PURGE_INVENTORY_TABLES = [
   'alarm_schedule',
   'audit_log',
@@ -1777,6 +1801,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'night_audit_report',
   'night_audit_run',
   'outbox',
+  'package',
+  'package_component',
   'payment',
   'payment_dispute',
   'payment_event',
@@ -1790,6 +1816,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'rate_plan',
   'rate_plan_inclusion',
   'recurring_charge',
+  'recurring_charge_date',
   'reservation',
   'reservation_inclusion_night',
   'reservation_rate_night',
@@ -1833,6 +1860,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM night_audit_report) +
       (SELECT COUNT(*) FROM night_audit_run) +
       (SELECT COUNT(*) FROM outbox) +
+      (SELECT COUNT(*) FROM package) +
+      (SELECT COUNT(*) FROM package_component) +
       (SELECT COUNT(*) FROM payment) +
       (SELECT COUNT(*) FROM payment_dispute) +
       (SELECT COUNT(*) FROM payment_event) +
@@ -1846,6 +1875,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM rate_plan) +
       (SELECT COUNT(*) FROM rate_plan_inclusion) +
       (SELECT COUNT(*) FROM recurring_charge) +
+      (SELECT COUNT(*) FROM recurring_charge_date) +
       (SELECT COUNT(*) FROM reservation) +
       (SELECT COUNT(*) FROM reservation_inclusion_night) +
       (SELECT COUNT(*) FROM reservation_rate_night) +
@@ -6582,7 +6612,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const entry = getConfigEntry(key);
     if (!entry) return { ok: false, error: configUndeclared(key) };
-    if (entry.class !== 'DOMAIN') {
+    const writablePresentation =
+      entry.class === 'PRESENTATION' && entry.key.startsWith('pms.documents.');
+    if (entry.class !== 'DOMAIN' && !writablePresentation) {
       return { ok: false, error: CONFIG_CLASS_NOT_DOMAIN, gotClass: entry.class };
     }
 
@@ -13246,6 +13278,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           allocatedRoomTypeId: string;
           sourceCode: string | null;
           marketSegmentCode: string | null;
+          packageId: string | null;
           createdAt: number;
           updatedAt: number;
           cancellation: {
@@ -13267,7 +13300,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         `SELECT reservation_id, room_type_id, guest_ref, pii_key_id, arrival_date, departure_date, status, room_id,
                 adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, promo_id, cancel_penalty_type,
                 cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps,
-                confirm_by, expires_at, allocated_room_type_id, source_code, market_segment_code, created_at, updated_at
+                confirm_by, expires_at, allocated_room_type_id, source_code, market_segment_code, package_id,
+                created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
@@ -13296,6 +13330,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       allocated_room_type_id: string;
       source_code: string | null;
       market_segment_code: string | null;
+      package_id: string | null;
       created_at: number;
       updated_at: number;
     }>;
@@ -13325,6 +13360,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         allocatedRoomTypeId: row.allocated_room_type_id,
         sourceCode: row.source_code,
         marketSegmentCode: row.market_segment_code,
+        packageId: row.package_id ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         cancellation: this.cancellationPreviewSync(row),
@@ -15168,6 +15204,946 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       validTo: r.valid_to,
       ratePlanId: r.rate_plan_id,
     }));
+  }
+
+  private static readonly PACKAGE_CODE_RE = /^[A-Z0-9_]{1,20}$/;
+  private static readonly PACKAGE_SCHEDULES = new Set([
+    'EVERY_NIGHT',
+    'ARRIVAL',
+    'SET_NIGHT',
+    'LAST_NIGHT',
+  ]);
+
+  private assertPackagePlanHasNoAddedInclusionsSync(
+    ratePlanId: string,
+  ):
+    | { ok: true }
+    | { ok: false; error: typeof PACKAGE_PLAN_HAS_ADDED_INCLUSIONS | typeof RATE_PLAN_NOT_FOUND } {
+    const plan = this.ctx.storage.sql
+      .exec(`SELECT rate_plan_id, status FROM rate_plan WHERE rate_plan_id = ?`, ratePlanId)
+      .toArray() as Array<{ rate_plan_id: string; status: string }>;
+    if (!plan[0] || plan[0].status !== 'active') {
+      return { ok: false, error: RATE_PLAN_NOT_FOUND };
+    }
+    const added = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS hit FROM rate_plan_inclusion
+         WHERE rate_plan_id = ? AND price_mode = 'ADDED' LIMIT 1`,
+        ratePlanId,
+      )
+      .toArray();
+    if (added.length > 0) return { ok: false, error: PACKAGE_PLAN_HAS_ADDED_INCLUSIONS };
+    return { ok: true };
+  }
+
+  private resolvePackageComponentsSync(
+    components: PackageComponentInput[],
+    nights: number,
+  ):
+    | { ok: true; rows: PackageComponentInput[] }
+    | {
+        ok: false;
+        error:
+          | typeof LIMIT_EXCEEDED
+          | typeof VALIDATION_ERROR
+          | typeof PRODUCT_NOT_FOUND
+          | typeof PRODUCT_NOT_POSTABLE;
+      } {
+    if (!Array.isArray(components)) return { ok: false, error: VALIDATION_ERROR };
+    if (components.length > PACKAGE_COMPONENT_MAX) return { ok: false, error: LIMIT_EXCEEDED };
+    const seen = new Set<number>();
+    const rows: PackageComponentInput[] = [];
+    for (const raw of components) {
+      if (raw == null || typeof raw !== 'object') return { ok: false, error: VALIDATION_ERROR };
+      const componentNo = raw.componentNo;
+      if (
+        !Number.isInteger(componentNo) ||
+        componentNo < 1 ||
+        componentNo > PACKAGE_COMPONENT_MAX ||
+        seen.has(componentNo)
+      ) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      seen.add(componentNo);
+      if (typeof raw.productId !== 'string' || !PRODUCT_ID_RE.test(raw.productId)) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      if (!Number.isInteger(raw.amountMinor) || raw.amountMinor < 0) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      if (!PropertyDO.PACKAGE_SCHEDULES.has(raw.schedule)) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      const schedule = raw.schedule as PackageComponentSchedule;
+      let setNight: number | null = raw.setNight ?? null;
+      if (schedule === 'SET_NIGHT') {
+        if (
+          setNight == null ||
+          !Number.isInteger(setNight) ||
+          setNight < 1 ||
+          setNight > nights
+        ) {
+          return { ok: false, error: VALIDATION_ERROR };
+        }
+      } else if (setNight != null) {
+        return { ok: false, error: VALIDATION_ERROR };
+      } else {
+        setNight = null;
+      }
+      const loaded = this.loadPostableProductSync(raw.productId);
+      if (!loaded.ok) return loaded;
+      rows.push({
+        componentNo,
+        productId: loaded.product.product_id,
+        amountMinor: raw.amountMinor,
+        schedule,
+        setNight,
+      });
+    }
+    rows.sort((a, b) => a.componentNo - b.componentNo);
+    return { ok: true, rows };
+  }
+
+  private writePackageComponentsSync(packageId: string, rows: PackageComponentInput[]): void {
+    this.ctx.storage.sql.exec(`DELETE FROM package_component WHERE package_id = ?`, packageId);
+    for (const row of rows) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO package_component (
+           package_id, component_no, product_id, amount_minor, schedule, set_night
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+        packageId,
+        row.componentNo,
+        row.productId,
+        row.amountMinor,
+        row.schedule,
+        row.setNight ?? null,
+      );
+    }
+  }
+
+  private loadPackageComponentsSync(packageId: string): PackageListItem['components'] {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT component_no, product_id, amount_minor, schedule, set_night
+         FROM package_component WHERE package_id = ? ORDER BY component_no`,
+        packageId,
+      )
+      .toArray() as Array<{
+      component_no: number;
+      product_id: string;
+      amount_minor: number;
+      schedule: PackageComponentSchedule;
+      set_night: number | null;
+    }>;
+    return rows.map((r) => ({
+      componentNo: r.component_no,
+      productId: r.product_id,
+      amountMinor: r.amount_minor,
+      schedule: r.schedule,
+      setNight: r.set_night,
+    }));
+  }
+
+  /**
+   * Create a package template. Implements catalog `rates.create_package`.
+   * Fingerprint allowlist: `{ packageId, code, name, roomTypeId, ratePlanId, nights, priceMinor, componentTax?, components }`.
+   */
+  async tryCreatePackage(
+    actor: ActorContext,
+    input: {
+      packageId: string;
+      code: string;
+      name: string;
+      roomTypeId: string;
+      ratePlanId: string;
+      nights: number;
+      priceMinor: number;
+      componentTax?: string;
+      components: PackageComponentInput[];
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; packageId: string }
+    | { ok: false; error: typeof PACKAGE_ID_EXISTS }
+    | { ok: false; error: typeof PACKAGE_CODE_EXISTS }
+    | { ok: false; error: typeof PACKAGE_PRICE_BELOW_COMPONENTS }
+    | { ok: false; error: typeof PACKAGE_PLAN_HAS_ADDED_INCLUSIONS }
+    | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND | typeof PRODUCT_NOT_POSTABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof CURRENCY_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (
+      typeof input.packageId !== 'string' ||
+      !input.packageId ||
+      typeof input.code !== 'string' ||
+      !PropertyDO.PACKAGE_CODE_RE.test(input.code) ||
+      typeof input.name !== 'string' ||
+      input.name.length < 1 ||
+      input.name.length > 80 ||
+      typeof input.roomTypeId !== 'string' ||
+      !input.roomTypeId ||
+      typeof input.ratePlanId !== 'string' ||
+      !input.ratePlanId ||
+      !Number.isInteger(input.nights) ||
+      input.nights < 1 ||
+      input.nights > 30 ||
+      !Number.isInteger(input.priceMinor) ||
+      input.priceMinor < 0
+    ) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    const componentTaxRaw = input.componentTax ?? 'SEPARATE';
+    if (componentTaxRaw !== 'SEPARATE' && componentTaxRaw !== 'ROOM') {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    const componentTax = componentTaxRaw as PackageComponentTaxMode;
+    if (!Array.isArray(input.components) || input.components.length > PACKAGE_COMPONENT_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const currency = this.readStoredLedgerCurrencySync();
+          if (!currency) return { ok: false as const, error: CURRENCY_UNSET };
+
+          const countRow = this.ctx.storage.sql
+            .exec(`SELECT COUNT(*) AS n FROM package`)
+            .toArray() as Array<{ n: number }>;
+          if ((countRow[0]?.n ?? 0) >= PACKAGE_PER_PROPERTY_MAX) {
+            return { ok: false as const, error: LIMIT_EXCEEDED };
+          }
+
+          const existingId = this.ctx.storage.sql
+            .exec(`SELECT package_id FROM package WHERE package_id = ?`, input.packageId)
+            .toArray();
+          if (existingId.length > 0) throw new Error(PACKAGE_ID_EXISTS);
+
+          const codeTaken = this.ctx.storage.sql
+            .exec(`SELECT package_id FROM package WHERE code = ?`, input.code)
+            .toArray();
+          if (codeTaken.length > 0) throw new Error(PACKAGE_CODE_EXISTS);
+
+          const roomType = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id FROM room_type WHERE room_type_id = ? AND status = 'active'`,
+              input.roomTypeId,
+            )
+            .toArray();
+          if (roomType.length === 0) return { ok: false as const, error: VALIDATION_ERROR };
+
+          const planOk = this.assertPackagePlanHasNoAddedInclusionsSync(input.ratePlanId);
+          if (!planOk.ok) return planOk;
+
+          const resolved = this.resolvePackageComponentsSync(input.components, input.nights);
+          if (!resolved.ok) return resolved;
+
+          const roomPortion = packageRoomPortionMinor(
+            input.priceMinor,
+            input.nights,
+            resolved.rows,
+          );
+          if (roomPortion < 0) {
+            return { ok: false as const, error: PACKAGE_PRICE_BELOW_COMPONENTS };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `INSERT INTO package (
+               package_id, code, name, room_type_id, rate_plan_id, nights, price_minor,
+               currency, component_tax, status, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+            input.packageId,
+            input.code,
+            input.name,
+            input.roomTypeId,
+            input.ratePlanId,
+            input.nights,
+            input.priceMinor,
+            currency,
+            componentTax,
+            now,
+            now,
+          );
+          this.writePackageComponentsSync(input.packageId, resolved.rows);
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_package.changed',
+            payload: { propertyId, packageId: input.packageId, op: 'create', at: now },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.create_package',
+            entityType: 'package',
+            entityId: input.packageId,
+            beforeJson: null,
+            afterJson: {
+              packageId: input.packageId,
+              code: input.code,
+              name: input.name,
+              nights: input.nights,
+              priceMinor: input.priceMinor,
+              componentTax,
+              components: resolved.rows,
+            },
+          });
+
+          return { ok: true as const, packageId: input.packageId };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof Error && e.message === PACKAGE_ID_EXISTS) {
+        return { ok: false, error: PACKAGE_ID_EXISTS };
+      }
+      if (e instanceof Error && e.message === PACKAGE_CODE_EXISTS) {
+        return { ok: false, error: PACKAGE_CODE_EXISTS };
+      }
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * Update an active package template. Implements catalog `rates.update_package`.
+   * Omitting `components` leaves them; providing the array replaces them.
+   * Never mutates stays that already applied the package (snapshots).
+   */
+  async tryUpdatePackage(
+    actor: ActorContext,
+    input: {
+      packageId: string;
+      code?: string;
+      name?: string;
+      roomTypeId?: string;
+      ratePlanId?: string;
+      nights?: number;
+      priceMinor?: number;
+      componentTax?: string;
+      components?: PackageComponentInput[];
+    },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; packageId: string }
+    | { ok: false; error: typeof PACKAGE_NOT_FOUND }
+    | { ok: false; error: typeof PACKAGE_CODE_EXISTS }
+    | { ok: false; error: typeof PACKAGE_PRICE_BELOW_COMPONENTS }
+    | { ok: false; error: typeof PACKAGE_PLAN_HAS_ADDED_INCLUSIONS }
+    | { ok: false; error: typeof RATE_PLAN_NOT_FOUND }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND | typeof PRODUCT_NOT_POSTABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.components !== undefined) {
+      if (!Array.isArray(input.components) || input.components.length > PACKAGE_COMPONENT_MAX) {
+        return { ok: false, error: LIMIT_EXCEEDED };
+      }
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(
+              `SELECT package_id, code, name, room_type_id, rate_plan_id, nights, price_minor,
+                      component_tax, status
+               FROM package WHERE package_id = ?`,
+              input.packageId,
+            )
+            .toArray() as Array<{
+            package_id: string;
+            code: string;
+            name: string;
+            room_type_id: string;
+            rate_plan_id: string;
+            nights: number;
+            price_minor: number;
+            component_tax: PackageComponentTaxMode;
+            status: string;
+          }>;
+          const row = existing[0];
+          if (!row || row.status !== 'active') throw new Error(PACKAGE_NOT_FOUND);
+
+          const nextCode = input.code ?? row.code;
+          const nextName = input.name ?? row.name;
+          const nextRoomTypeId = input.roomTypeId ?? row.room_type_id;
+          const nextRatePlanId = input.ratePlanId ?? row.rate_plan_id;
+          const nextNights = input.nights ?? row.nights;
+          const nextPriceMinor = input.priceMinor ?? row.price_minor;
+          const nextComponentTaxRaw = input.componentTax ?? row.component_tax;
+
+          if (
+            typeof nextCode !== 'string' ||
+            !PropertyDO.PACKAGE_CODE_RE.test(nextCode) ||
+            typeof nextName !== 'string' ||
+            nextName.length < 1 ||
+            nextName.length > 80 ||
+            !Number.isInteger(nextNights) ||
+            nextNights < 1 ||
+            nextNights > 30 ||
+            !Number.isInteger(nextPriceMinor) ||
+            nextPriceMinor < 0 ||
+            (nextComponentTaxRaw !== 'SEPARATE' && nextComponentTaxRaw !== 'ROOM')
+          ) {
+            return { ok: false as const, error: VALIDATION_ERROR };
+          }
+          const nextComponentTax = nextComponentTaxRaw as PackageComponentTaxMode;
+
+          if (nextCode !== row.code) {
+            const codeTaken = this.ctx.storage.sql
+              .exec(
+                `SELECT package_id FROM package WHERE code = ? AND package_id <> ?`,
+                nextCode,
+                input.packageId,
+              )
+              .toArray();
+            if (codeTaken.length > 0) throw new Error(PACKAGE_CODE_EXISTS);
+          }
+
+          const roomType = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id FROM room_type WHERE room_type_id = ? AND status = 'active'`,
+              nextRoomTypeId,
+            )
+            .toArray();
+          if (roomType.length === 0) return { ok: false as const, error: VALIDATION_ERROR };
+
+          const planOk = this.assertPackagePlanHasNoAddedInclusionsSync(nextRatePlanId);
+          if (!planOk.ok) return planOk;
+
+          let nextComponents = this.loadPackageComponentsSync(input.packageId);
+          if (input.components !== undefined) {
+            const resolved = this.resolvePackageComponentsSync(input.components, nextNights);
+            if (!resolved.ok) return resolved;
+            nextComponents = resolved.rows.map((c) => ({
+              componentNo: c.componentNo,
+              productId: c.productId,
+              amountMinor: c.amountMinor,
+              schedule: c.schedule,
+              setNight: c.setNight ?? null,
+            }));
+          } else {
+            // Re-validate SET_NIGHT bounds if nights changed.
+            for (const c of nextComponents) {
+              if (
+                c.schedule === 'SET_NIGHT' &&
+                (c.setNight == null || c.setNight < 1 || c.setNight > nextNights)
+              ) {
+                return { ok: false as const, error: VALIDATION_ERROR };
+              }
+            }
+          }
+
+          const roomPortion = packageRoomPortionMinor(nextPriceMinor, nextNights, nextComponents);
+          if (roomPortion < 0) {
+            return { ok: false as const, error: PACKAGE_PRICE_BELOW_COMPONENTS };
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE package SET code = ?, name = ?, room_type_id = ?, rate_plan_id = ?,
+               nights = ?, price_minor = ?, component_tax = ?, updated_at = ?
+             WHERE package_id = ?`,
+            nextCode,
+            nextName,
+            nextRoomTypeId,
+            nextRatePlanId,
+            nextNights,
+            nextPriceMinor,
+            nextComponentTax,
+            now,
+            input.packageId,
+          );
+          if (input.components !== undefined) {
+            this.writePackageComponentsSync(
+              input.packageId,
+              nextComponents.map((c) => ({
+                componentNo: c.componentNo,
+                productId: c.productId,
+                amountMinor: c.amountMinor,
+                schedule: c.schedule,
+                setNight: c.setNight,
+              })),
+            );
+          }
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_package.changed',
+            payload: { propertyId, packageId: input.packageId, op: 'update', at: now },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.update_package',
+            entityType: 'package',
+            entityId: input.packageId,
+            beforeJson: {
+              code: row.code,
+              name: row.name,
+              nights: row.nights,
+              priceMinor: row.price_minor,
+            },
+            afterJson: {
+              code: nextCode,
+              name: nextName,
+              nights: nextNights,
+              priceMinor: nextPriceMinor,
+              componentTax: nextComponentTax,
+              components: nextComponents,
+            },
+          });
+
+          return { ok: true as const, packageId: input.packageId };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof Error && e.message === PACKAGE_NOT_FOUND) {
+        return { ok: false, error: PACKAGE_NOT_FOUND };
+      }
+      if (e instanceof Error && e.message === PACKAGE_CODE_EXISTS) {
+        return { ok: false, error: PACKAGE_CODE_EXISTS };
+      }
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** Archive or reactivate a package. Implements catalog `rates.set_package_status`. */
+  async trySetPackageStatus(
+    actor: ActorContext,
+    input: { packageId: string; status: 'active' | 'archived' },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; packageId: string; status: 'active' | 'archived' }
+    | { ok: false; error: typeof PACKAGE_NOT_FOUND }
+    | { ok: false; error: typeof VALIDATION_ERROR }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'rates:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (input.status !== 'active' && input.status !== 'archived') {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const existing = this.ctx.storage.sql
+            .exec(`SELECT status FROM package WHERE package_id = ?`, input.packageId)
+            .toArray() as Array<{ status: string }>;
+          const row = existing[0];
+          if (!row) throw new Error(PACKAGE_NOT_FOUND);
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE package SET status = ?, updated_at = ? WHERE package_id = ?`,
+            input.status,
+            now,
+            input.packageId,
+          );
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'rate_package.changed',
+            payload: {
+              propertyId,
+              packageId: input.packageId,
+              op: 'status',
+              status: input.status,
+              at: now,
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'rates.set_package_status',
+            entityType: 'package',
+            entityId: input.packageId,
+            beforeJson: { status: row.status },
+            afterJson: { status: input.status },
+          });
+
+          return { ok: true as const, packageId: input.packageId, status: input.status };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof Error && e.message === PACKAGE_NOT_FOUND) {
+        return { ok: false, error: PACKAGE_NOT_FOUND };
+      }
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * Apply an active package to a stay. Implements catalog `reservations.apply_package`.
+   * Fingerprint allowlist: `{ reservationId, packageId }`.
+   * Room portion via `allocate` (LAST remainder); nights get `is_override=1`.
+   * No `availability_day` write.
+   */
+  async tryApplyPackage(
+    actor: ActorContext,
+    input: { reservationId: string; packageId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; packageId: string }
+    | { ok: false; error: typeof PACKAGE_NOT_FOUND }
+    | { ok: false; error: typeof PACKAGE_ALREADY_APPLIED }
+    | { ok: false; error: typeof PACKAGE_MISMATCH }
+    | { ok: false; error: typeof PACKAGE_NIGHTS_POSTED }
+    | { ok: false; error: typeof PACKAGE_PRICE_BELOW_COMPONENTS }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof RESERVATION_NOT_ACTIVE }
+    | { ok: false; error: typeof PRODUCT_NOT_FOUND | typeof PRODUCT_NOT_POSTABLE }
+    | { ok: false; error: typeof CURRENCY_UNSET }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'reservations:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    if (!this.getPropertyIdSync()) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const stayRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, rate_plan_id, arrival_date, departure_date, status, package_id
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            rate_plan_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+            package_id: string | null;
+          }>;
+          const stay = stayRows[0];
+          if (!stay) return { ok: false as const, error: NOT_FOUND };
+          if (
+            stay.status !== 'pending' &&
+            stay.status !== 'confirmed' &&
+            stay.status !== 'checked_in'
+          ) {
+            return { ok: false as const, error: RESERVATION_NOT_ACTIVE };
+          }
+          if (stay.package_id != null && stay.package_id !== '') {
+            return { ok: false as const, error: PACKAGE_ALREADY_APPLIED };
+          }
+
+          const pkgRows = this.ctx.storage.sql
+            .exec(
+              `SELECT package_id, room_type_id, rate_plan_id, nights, price_minor, currency, component_tax, status
+               FROM package WHERE package_id = ?`,
+              input.packageId,
+            )
+            .toArray() as Array<{
+            package_id: string;
+            room_type_id: string;
+            rate_plan_id: string;
+            nights: number;
+            price_minor: number;
+            currency: string;
+            component_tax: PackageComponentTaxMode;
+            status: string;
+          }>;
+          const pkg = pkgRows[0];
+          if (!pkg || pkg.status !== 'active') {
+            return { ok: false as const, error: PACKAGE_NOT_FOUND };
+          }
+
+          let stayNights: string[];
+          try {
+            stayNights = enumerateStayDates(stay.arrival_date, stay.departure_date);
+          } catch {
+            return { ok: false as const, error: NOT_FOUND };
+          }
+          if (
+            stay.room_type_id !== pkg.room_type_id ||
+            stay.rate_plan_id !== pkg.rate_plan_id ||
+            stayNights.length !== pkg.nights
+          ) {
+            return { ok: false as const, error: PACKAGE_MISMATCH };
+          }
+
+          for (const stayDate of stayNights) {
+            if (this.nightConsumedSync(input.reservationId, stayDate)) {
+              return { ok: false as const, error: PACKAGE_NIGHTS_POSTED };
+            }
+          }
+
+          const components = this.loadPackageComponentsSync(input.packageId);
+          const roomPortion = packageRoomPortionMinor(pkg.price_minor, pkg.nights, components);
+          if (roomPortion < 0) {
+            return { ok: false as const, error: PACKAGE_PRICE_BELOW_COMPONENTS };
+          }
+
+          const currency = pkg.currency || this.readStoredLedgerCurrencySync();
+          if (!currency) return { ok: false as const, error: CURRENCY_UNSET };
+
+          const weights = stayNights.map(() => 1);
+          const allocated =
+            stayNights.length === 0 ? [] : allocate(roomPortion, weights, { policy: 'LAST' });
+
+          const roomNightAfter: Array<{ stayDate: string; amountMinor: number }> = [];
+          for (let i = 0; i < stayNights.length; i++) {
+            const stayDate = stayNights[i]!;
+            const amountMinor = allocated[i]!;
+            this.ctx.storage.sql.exec(
+              `INSERT INTO reservation_rate_night (
+                 reservation_id, stay_date, amount_minor, currency, rate_plan_id, is_override
+               ) VALUES (?, ?, ?, ?, ?, 1)
+               ON CONFLICT(reservation_id, stay_date) DO UPDATE SET
+                 amount_minor = excluded.amount_minor,
+                 currency = excluded.currency,
+                 rate_plan_id = excluded.rate_plan_id,
+                 is_override = 1`,
+              input.reservationId,
+              stayDate,
+              amountMinor,
+              currency,
+              stay.rate_plan_id,
+            );
+            roomNightAfter.push({ stayDate, amountMinor });
+          }
+
+          const lastNight = this.shiftRecurringDate(stay.departure_date, -1);
+          const taxChargeCode = pkg.component_tax === 'ROOM' ? 'ROOM' : null;
+          const createdBy = this.auditActorSync(actor);
+          const now = Date.now();
+          const componentRows: Array<{
+            recurringChargeId: string;
+            componentNo: number;
+            productId: string;
+            amountMinor: number;
+            pattern: RecurringChargePattern;
+            dates: string[] | null;
+          }> = [];
+
+          const activeCount = this.ctx.storage.sql
+            .exec(
+              `SELECT COUNT(*) AS n FROM recurring_charge WHERE reservation_id = ? AND status = 'active'`,
+              input.reservationId,
+            )
+            .toArray() as Array<{ n: number }>;
+          if (Number(activeCount[0]?.n ?? 0) + components.length > 20) {
+            return { ok: false as const, error: LIMIT_EXCEEDED };
+          }
+
+          for (const component of components) {
+            const loaded = this.loadPostableProductSync(component.productId);
+            if (!loaded.ok) return loaded;
+            const product = loaded.product;
+
+            let pattern: RecurringChargePattern;
+            let startDate: string;
+            let endDate: string | null;
+            let dates: string[] = [];
+            if (component.schedule === 'EVERY_NIGHT') {
+              pattern = 'NIGHTLY';
+              startDate = stay.arrival_date;
+              endDate = lastNight;
+            } else if (component.schedule === 'ARRIVAL') {
+              pattern = 'ARRIVAL';
+              startDate = stay.arrival_date;
+              endDate = stay.arrival_date;
+            } else if (component.schedule === 'LAST_NIGHT') {
+              pattern = 'LAST_NIGHT';
+              startDate = stay.arrival_date;
+              endDate = null;
+            } else {
+              // SET_NIGHT n → DATES [arrival + n − 1]
+              const setNight = component.setNight;
+              if (setNight == null || !Number.isInteger(setNight) || setNight < 1) {
+                return { ok: false as const, error: PACKAGE_MISMATCH };
+              }
+              pattern = 'DATES';
+              const stayDate = this.shiftRecurringDate(stay.arrival_date, setNight - 1);
+              if (stayDate < stay.arrival_date || stayDate >= stay.departure_date) {
+                return { ok: false as const, error: PACKAGE_MISMATCH };
+              }
+              dates = [stayDate];
+              startDate = stayDate;
+              endDate = stayDate;
+            }
+
+            const recurringChargeId = `${input.reservationId}:pkg:${input.packageId}:c${component.componentNo}`;
+            this.ctx.storage.sql.exec(
+              `INSERT INTO recurring_charge (
+                 recurring_charge_id, reservation_id, pattern, product_id, charge_code, description,
+                 unit_amount_minor, quantity, start_date, end_date, status,
+                 created_at, created_by, cancelled_at, cancelled_by,
+                 days_mask, package_id, tax_charge_code
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'active', ?, ?, NULL, NULL, NULL, ?, ?)`,
+              recurringChargeId,
+              input.reservationId,
+              pattern,
+              product.product_id,
+              product.charge_code,
+              product.name,
+              component.amountMinor,
+              startDate,
+              endDate,
+              now,
+              createdBy,
+              input.packageId,
+              taxChargeCode,
+            );
+            for (const stayDate of dates) {
+              this.ctx.storage.sql.exec(
+                `INSERT INTO recurring_charge_date (recurring_charge_id, stay_date) VALUES (?, ?)`,
+                recurringChargeId,
+                stayDate,
+              );
+            }
+            componentRows.push({
+              recurringChargeId,
+              componentNo: component.componentNo,
+              productId: component.productId,
+              amountMinor: component.amountMinor,
+              pattern,
+              dates: dates.length > 0 ? dates : null,
+            });
+          }
+
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation SET package_id = ?, updated_at = ? WHERE reservation_id = ?`,
+            input.packageId,
+            now,
+            input.reservationId,
+          );
+
+          this.appendAuditLogSync({
+            actor: createdBy,
+            commandId: 'reservations.apply_package',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: { packageId: null },
+            afterJson: {
+              packageId: input.packageId,
+              roomNights: roomNightAfter,
+              components: componentRows,
+            },
+            reservationId: input.reservationId,
+          });
+
+          return { ok: true as const, packageId: input.packageId };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** `get_packages` — active by default; `status=all` includes archived. */
+  async listPackages(status: 'active' | 'all' = 'active'): Promise<{ ok: true; packages: PackageListItem[] }> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(
+        status === 'all'
+          ? `SELECT package_id, code, name, room_type_id, rate_plan_id, nights, price_minor,
+                    currency, component_tax, status
+             FROM package ORDER BY code`
+          : `SELECT package_id, code, name, room_type_id, rate_plan_id, nights, price_minor,
+                    currency, component_tax, status
+             FROM package WHERE status = 'active' ORDER BY code`,
+      )
+      .toArray() as Array<{
+      package_id: string;
+      code: string;
+      name: string;
+      room_type_id: string;
+      rate_plan_id: string;
+      nights: number;
+      price_minor: number;
+      currency: string;
+      component_tax: PackageComponentTaxMode;
+      status: 'active' | 'archived';
+    }>;
+    return {
+      ok: true,
+      packages: rows.map((r) => ({
+        packageId: r.package_id,
+        code: r.code,
+        name: r.name,
+        roomTypeId: r.room_type_id,
+        ratePlanId: r.rate_plan_id,
+        nights: r.nights,
+        priceMinor: r.price_minor,
+        currency: r.currency,
+        componentTax: r.component_tax,
+        status: r.status,
+        components: this.loadPackageComponentsSync(r.package_id),
+      })),
+    };
   }
 
   /**
@@ -19044,6 +20020,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return `${yy}-${mm}-${dd}`;
   }
 
+  private loadRecurringChargeDatesSync(recurringChargeId: string): string[] {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT stay_date FROM recurring_charge_date
+         WHERE recurring_charge_id = ?
+         ORDER BY stay_date`,
+        recurringChargeId,
+      )
+      .toArray() as Array<{ stay_date: string }>;
+    return rows.map((r) => r.stay_date);
+  }
+
   private mapRecurringChargeRow(row: {
     recurring_charge_id: string;
     reservation_id: string;
@@ -19060,10 +20048,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     created_by: string;
     cancelled_at: number | null;
     cancelled_by: string | null;
+    days_mask?: number | null;
+    tax_charge_code?: string | null;
+    package_id?: string | null;
   }): {
     recurringChargeId: string;
     reservationId: string;
-    pattern: 'NIGHTLY';
+    pattern: RecurringChargePattern;
     productId: string;
     chargeCode: string;
     description: string;
@@ -19076,11 +20067,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     createdBy: string;
     cancelledAt: number | null;
     cancelledBy: string | null;
+    daysMask: number | null;
+    dates: string[];
+    taxChargeCode: string | null;
+    packageId: string | null;
   } {
+    const pattern = (row.pattern as RecurringChargePattern) ?? 'NIGHTLY';
+    const dates = pattern === 'DATES' ? this.loadRecurringChargeDatesSync(row.recurring_charge_id) : [];
     return {
       recurringChargeId: row.recurring_charge_id,
       reservationId: row.reservation_id,
-      pattern: 'NIGHTLY',
+      pattern,
       productId: row.product_id,
       chargeCode: row.charge_code,
       description: row.description,
@@ -19093,6 +20090,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       createdBy: row.created_by,
       cancelledAt: row.cancelled_at,
       cancelledBy: row.cancelled_by,
+      daysMask: row.days_mask ?? null,
+      dates,
+      taxChargeCode: row.tax_charge_code ?? null,
+      packageId: row.package_id ?? null,
     };
   }
 
@@ -19115,6 +20116,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       created_by: string;
       cancelled_at: number | null;
       cancelled_by: string | null;
+      days_mask: number | null;
+      tax_charge_code: string | null;
+      package_id: string | null;
     }>;
     return rows[0] ?? null;
   }
@@ -19141,6 +20145,674 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return { ok: true, charges: rows.map((row) => this.mapRecurringChargeRow(row)) };
   }
 
+  /**
+   * `get_reservation_proforma` — read-only stay estimate (B1).
+   * Writes nothing; night lines reuse `buildNightChargeLines` + `rateNightAmountSync(..., { persist: false })`.
+   */
+  async readReservationProforma(reservationId: string): Promise<
+    | {
+        ok: true;
+        reservationId: string;
+        status: string;
+        currency: string;
+        presentation: unknown;
+        confirmationToken: string;
+        arrivalDate: string;
+        departureDate: string;
+        nights: number;
+        adults: number;
+        children: number;
+        roomTypeName: string | null;
+        roomCode: string | null;
+        ratePlanName: string | null;
+        packageName: string | null;
+        guestRef: string;
+        posted: Array<{
+          businessDate: string;
+          lines: Array<{
+            chargeCode: string;
+            label: string;
+            amountMinor: number;
+            taxMinor: number;
+            source: string;
+          }>;
+        }>;
+        estimated: Array<{
+          stayDate: string;
+          lines: Array<{
+            chargeCode: string;
+            label: string;
+            amountMinor: number;
+            taxMinor: number;
+            source: string;
+          }>;
+        }>;
+        totals: {
+          baseMinor: number;
+          taxMinor: number;
+          estimatedTotalMinor: number;
+          advancePaidMinor: number;
+          balanceMinor: number;
+        };
+        taxSummary: Array<{ outputChargeCode: string; label: string; amountMinor: number }>;
+        warnings: Array<{ stayDate?: string; code: string }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND | typeof INVALID_STATUS | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    return this.readReservationProformaSync(reservationId);
+  }
+
+  private readReservationProformaSync(reservationId: string):
+    | {
+        ok: true;
+        reservationId: string;
+        status: string;
+        currency: string;
+        presentation: unknown;
+        confirmationToken: string;
+        arrivalDate: string;
+        departureDate: string;
+        nights: number;
+        adults: number;
+        children: number;
+        roomTypeName: string | null;
+        roomCode: string | null;
+        ratePlanName: string | null;
+        packageName: string | null;
+        guestRef: string;
+        posted: Array<{
+          businessDate: string;
+          lines: Array<{
+            chargeCode: string;
+            label: string;
+            amountMinor: number;
+            taxMinor: number;
+            source: string;
+          }>;
+        }>;
+        estimated: Array<{
+          stayDate: string;
+          lines: Array<{
+            chargeCode: string;
+            label: string;
+            amountMinor: number;
+            taxMinor: number;
+            source: string;
+          }>;
+        }>;
+        totals: {
+          baseMinor: number;
+          taxMinor: number;
+          estimatedTotalMinor: number;
+          advancePaidMinor: number;
+          balanceMinor: number;
+        };
+        taxSummary: Array<{ outputChargeCode: string; label: string; amountMinor: number }>;
+        warnings: Array<{ stayDate?: string; code: string }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND | typeof INVALID_STATUS | typeof CURRENCY_UNSET } {
+    const resRows = this.ctx.storage.sql
+      .exec(
+        `SELECT r.reservation_id, r.guest_ref, r.status, r.room_type_id, r.rate_plan_id,
+                r.arrival_date, r.departure_date, r.adults, r.children,
+                rm.code AS room_code,
+                COALESCE(rt_alloc.name, rt_book.name) AS room_type_name,
+                rp.name AS rate_plan_name,
+                pkg.name AS package_name
+         FROM reservation r
+         LEFT JOIN room rm ON rm.room_id = r.room_id
+         LEFT JOIN room_type rt_alloc ON rt_alloc.room_type_id = r.allocated_room_type_id
+         LEFT JOIN room_type rt_book ON rt_book.room_type_id = r.room_type_id
+         LEFT JOIN rate_plan rp ON rp.rate_plan_id = r.rate_plan_id
+         LEFT JOIN package pkg ON pkg.package_id = r.package_id
+         WHERE r.reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      guest_ref: string;
+      status: string;
+      room_type_id: string;
+      rate_plan_id: string;
+      arrival_date: string;
+      departure_date: string;
+      adults: number;
+      children: number;
+      room_code: string | null;
+      room_type_name: string | null;
+      rate_plan_name: string | null;
+      package_name: string | null;
+    }>;
+    const reservation = resRows[0];
+    if (!reservation) return { ok: false, error: NOT_FOUND };
+    if (
+      reservation.status !== 'pending' &&
+      reservation.status !== 'confirmed' &&
+      reservation.status !== 'checked_in'
+    ) {
+      return { ok: false, error: INVALID_STATUS };
+    }
+
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+
+    const presentation = this.readConfigValueSync('pms.documents.proforma');
+    let stayDates: string[];
+    try {
+      stayDates = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+    } catch {
+      return { ok: false, error: NOT_FOUND };
+    }
+
+    const guestWindowId = this.guestFolioWindowId(reservationId);
+    const guestLines = this.ctx.storage.sql
+      .exec(
+        `SELECT fl.folio_line_id, fl.charge_code, fl.amount_minor, fl.ledger_amount_minor,
+                fl.source, fl.business_date, fl.tax_of, fl.created_at
+         FROM folio_line fl
+         WHERE fl.reservation_id = ? AND fl.folio_window_id = ?`,
+        reservationId,
+        guestWindowId,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      charge_code: string;
+      amount_minor: number;
+      ledger_amount_minor: number;
+      source: string | null;
+      business_date: string | null;
+      tax_of: string | null;
+      created_at: number;
+    }>;
+
+    const taxByParent = new Map<string, number>();
+    for (const row of guestLines) {
+      if (!row.tax_of) continue;
+      taxByParent.set(row.tax_of, (taxByParent.get(row.tax_of) ?? 0) + row.amount_minor);
+    }
+
+    const existingFolioLineIds = new Set(guestLines.map((row) => row.folio_line_id));
+
+    const chargeCodeLabel = (code: string): string => {
+      const rows = this.ctx.storage.sql
+        .exec(`SELECT name FROM charge_code WHERE code = ?`, code)
+        .toArray() as Array<{ name: string }>;
+      return rows[0]?.name ?? code;
+    };
+    const labelCache = new Map<string, string>();
+    const labelFor = (code: string): string => {
+      const cached = labelCache.get(code);
+      if (cached !== undefined) return cached;
+      const label = chargeCodeLabel(code);
+      labelCache.set(code, label);
+      return label;
+    };
+
+    const chargeCodeActive = (code: string): boolean => {
+      try {
+        this.assertChargeCodeSync(code, { requireActive: true });
+        return true;
+      } catch (e) {
+        if (e instanceof ChargeCodeNotFoundError) return false;
+        throw e;
+      }
+    };
+
+    const schedules = this.ctx.storage.sql
+      .exec(
+        `SELECT recurring_charge_id, charge_code, unit_amount_minor, quantity, pattern, days_mask,
+                tax_charge_code, start_date, end_date
+         FROM recurring_charge
+         WHERE reservation_id = ? AND status = 'active'
+         ORDER BY recurring_charge_id`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      recurring_charge_id: string;
+      charge_code: string;
+      unit_amount_minor: number;
+      quantity: number;
+      pattern: string;
+      days_mask: number | null;
+      tax_charge_code: string | null;
+      start_date: string;
+      end_date: string | null;
+    }>;
+
+    const datesBySchedule = new Map<string, string[]>();
+    for (const schedule of schedules) {
+      if (schedule.pattern === 'DATES') {
+        datesBySchedule.set(
+          schedule.recurring_charge_id,
+          this.loadRecurringChargeDatesSync(schedule.recurring_charge_id),
+        );
+      }
+    }
+
+    type ProformaLine = {
+      chargeCode: string;
+      label: string;
+      amountMinor: number;
+      taxMinor: number;
+      source: string;
+    };
+    const postedByDate = new Map<string, ProformaLine[]>();
+    const estimated: Array<{ stayDate: string; lines: ProformaLine[] }> = [];
+    const warnings: Array<{ stayDate?: string; code: string }> = [];
+    const taxSummaryMap = new Map<string, number>();
+
+    const addTaxSummary = (outputChargeCode: string, amountMinor: number) => {
+      taxSummaryMap.set(outputChargeCode, (taxSummaryMap.get(outputChargeCode) ?? 0) + amountMinor);
+    };
+
+    // Posted part: every non-payment parent on the GUEST window, any business date.
+    // Manual charges often leave business_date NULL — group by property-local created_at date
+    // (same idea as FolioScreen: businessDate ?? instantDate(createdAt)).
+    for (const row of guestLines) {
+      if (row.tax_of != null || row.charge_code === 'PAYMENT') continue;
+      const businessDate =
+        row.business_date ?? this.closedAtBusinessDateSync(row.created_at);
+      const taxMinor = taxByParent.get(row.folio_line_id) ?? 0;
+      for (const taxRow of guestLines) {
+        if (taxRow.tax_of === row.folio_line_id) {
+          addTaxSummary(taxRow.charge_code, taxRow.amount_minor);
+        }
+      }
+      const bucket = postedByDate.get(businessDate) ?? [];
+      bucket.push({
+        chargeCode: row.charge_code,
+        label: labelFor(row.charge_code),
+        amountMinor: row.amount_minor,
+        taxMinor,
+        source: row.source ?? '',
+      });
+      postedByDate.set(businessDate, bucket);
+    }
+    const posted = [...postedByDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([businessDate, lines]) => ({ businessDate, lines }));
+
+    // DATES schedules whose listed dates fall outside the stay window.
+    for (const schedule of schedules) {
+      if (schedule.pattern !== 'DATES') continue;
+      for (const d of datesBySchedule.get(schedule.recurring_charge_id) ?? []) {
+        if (d < reservation.arrival_date || d >= reservation.departure_date) {
+          warnings.push({ stayDate: d, code: 'date_outside_stay' });
+        }
+      }
+    }
+
+    const stay = {
+      arrivalDate: reservation.arrival_date,
+      departureDate: reservation.departure_date,
+    };
+
+    for (const stayDate of stayDates) {
+      if (this.nightConsumedSync(reservationId, stayDate)) continue;
+
+      const resolveNightTax = (args: {
+        chargeCode: string;
+        taxChargeCode: string;
+        amountMinor: number;
+        source: string;
+        bandBaseMinor?: number;
+      }) => {
+        const prepared = this.prepareChargeTaxSync({
+          parentSource: args.source,
+          chargeCode: args.chargeCode,
+          taxChargeCode: args.taxChargeCode,
+          postingDate: stayDate,
+          posted: {
+            amountMinor: args.amountMinor,
+            txnCurrency: currency,
+            ledgerAmountMinor: args.amountMinor,
+            fxRate: '1',
+            fxRateAt: 0,
+          },
+          ...(args.bandBaseMinor !== undefined ? { bandBaseMinor: args.bandBaseMinor } : {}),
+        });
+        if (!prepared) return { netLedgerMinor: args.amountMinor, lines: [] as NightChargeTaxLine[] };
+        return { netLedgerMinor: prepared.netLedgerMinor, lines: prepared.lines };
+      };
+
+      let rateMinor: number | null = null;
+      try {
+        rateMinor = this.rateNightAmountSync(
+          reservationId,
+          reservation.room_type_id,
+          reservation.rate_plan_id,
+          stayDate,
+          { persist: false },
+        );
+      } catch (e) {
+        if (e instanceof RateMissingError) {
+          rateMinor = null;
+        } else {
+          throw e;
+        }
+      }
+
+      const inclusionRows = this.ctx.storage.sql
+        .exec(
+          `SELECT inclusion_no, charge_code, amount_minor, basis, price_mode, inclusion_tax, band_join
+           FROM reservation_inclusion_night
+           WHERE reservation_id = ? AND stay_date = ?
+           ORDER BY inclusion_no`,
+          reservationId,
+          stayDate,
+        )
+        .toArray() as Array<{
+        inclusion_no: number;
+        charge_code: string;
+        amount_minor: number;
+        basis: string;
+        price_mode: string;
+        inclusion_tax: string;
+        band_join: number;
+      }>;
+
+      const nightLines: ProformaLine[] = [];
+
+      /** Folio parents store net (`postedAtNet`); estimate must match that, not draft gross. */
+      const pushEstimateFromDrafts = (drafts: NightChargeLineDraft[]) => {
+        for (const line of drafts) {
+          if (existingFolioLineIds.has(line.folioLineId)) continue;
+          const taxMinor = line.taxLines.reduce((s, t) => s + t.amountMinor, 0);
+          for (const t of line.taxLines) {
+            addTaxSummary(t.outputChargeCode, t.amountMinor);
+          }
+          nightLines.push({
+            chargeCode: line.chargeCode,
+            label: labelFor(line.chargeCode),
+            amountMinor: line.netLedgerMinor,
+            taxMinor,
+            source: line.source,
+          });
+        }
+      };
+
+      const roomBuilt = buildNightChargeLines({
+        reservationId,
+        stayDate,
+        rateMinor,
+        adults: reservation.adults,
+        children: reservation.children,
+        stay,
+        inclusions: inclusionRows.map((row) => ({
+          inclusionNo: row.inclusion_no,
+          chargeCode: row.charge_code,
+          amountMinor: row.amount_minor,
+          basis: row.basis,
+          priceMode: row.price_mode,
+          inclusionTax: row.inclusion_tax,
+          bandJoin: row.band_join === 1,
+        })),
+        recurring: [],
+        resolveTax: resolveNightTax,
+        chargeCodeActive,
+      });
+
+      if (!roomBuilt.ok) {
+        warnings.push({ stayDate, code: roomBuilt.warning });
+      } else {
+        for (const w of roomBuilt.warnings) {
+          warnings.push({ stayDate, code: w });
+        }
+        pushEstimateFromDrafts(roomBuilt.lines);
+      }
+
+      const recurringBuilt = buildNightChargeLines({
+        reservationId,
+        stayDate,
+        rateMinor: 0,
+        adults: 0,
+        children: 0,
+        stay,
+        inclusions: [],
+        recurring: schedules.map((schedule) => ({
+          recurringChargeId: schedule.recurring_charge_id,
+          chargeCode: schedule.charge_code,
+          unitAmountMinor: schedule.unit_amount_minor,
+          quantity: schedule.quantity,
+          pattern: schedule.pattern as RecurringChargePattern,
+          daysMask: schedule.days_mask,
+          taxChargeCode: schedule.tax_charge_code,
+          startDate: schedule.start_date,
+          endDate: schedule.end_date,
+          dates: datesBySchedule.get(schedule.recurring_charge_id),
+        })),
+        resolveTax: resolveNightTax,
+        chargeCodeActive,
+        includeRoomLine: false,
+      });
+
+      if (recurringBuilt.ok) {
+        for (const w of recurringBuilt.warnings) {
+          warnings.push({ stayDate, code: w });
+        }
+        pushEstimateFromDrafts(recurringBuilt.lines);
+      }
+
+      estimated.push({ stayDate, lines: nightLines });
+    }
+
+    let baseMinor = 0;
+    let taxMinor = 0;
+    for (const night of [...posted, ...estimated]) {
+      for (const line of night.lines) {
+        baseMinor += line.amountMinor;
+        taxMinor += line.taxMinor;
+      }
+    }
+
+    // Net money received on the GUEST window (payments minus refunds). PAYMENT ledger is negative.
+    let advancePaidMinor = 0;
+    for (const row of guestLines) {
+      if (row.charge_code === 'PAYMENT' && row.tax_of == null) {
+        advancePaidMinor += -row.ledger_amount_minor;
+      }
+    }
+    if (advancePaidMinor < 0) advancePaidMinor = 0;
+
+    const estimatedTotalMinor = baseMinor + taxMinor;
+    const balanceMinor = estimatedTotalMinor - advancePaidMinor;
+
+    const taxSummary = [...taxSummaryMap.entries()]
+      .map(([outputChargeCode, amountMinor]) => ({
+        outputChargeCode,
+        label: labelFor(outputChargeCode),
+        amountMinor,
+      }))
+      .sort((a, b) => a.outputChargeCode.localeCompare(b.outputChargeCode));
+
+    const confirmationToken =
+      reservation.reservation_id.length <= 8
+        ? reservation.reservation_id
+        : reservation.reservation_id.slice(-8);
+
+    return {
+      ok: true,
+      reservationId,
+      status: reservation.status,
+      currency,
+      presentation,
+      confirmationToken,
+      arrivalDate: reservation.arrival_date,
+      departureDate: reservation.departure_date,
+      nights: stayDates.length,
+      adults: reservation.adults,
+      children: reservation.children,
+      roomTypeName: reservation.room_type_name || null,
+      roomCode: reservation.room_code ?? null,
+      ratePlanName: reservation.rate_plan_name ?? null,
+      packageName: reservation.package_name ?? null,
+      guestRef: reservation.guest_ref,
+      posted,
+      estimated,
+      totals: {
+        baseMinor,
+        taxMinor,
+        estimatedTotalMinor,
+        advancePaidMinor,
+        balanceMinor,
+      },
+      taxSummary,
+      warnings,
+    };
+  }
+
+  /** `get_reservation_registration_card` — stay facts only (no guest PII). */
+  async readReservationRegistrationCard(reservationId: string): Promise<
+    | {
+        ok: true;
+        reservationId: string;
+        confirmationToken: string;
+        arrivalDate: string;
+        departureDate: string;
+        nights: number;
+        adults: number;
+        children: number;
+        roomTypeName: string | null;
+        roomCode: string | null;
+        ratePlanName: string | null;
+        packageName: string | null;
+        inclusionLabels: string[];
+        specialRequests: string | null;
+        vipFlag: boolean;
+        presentation: unknown;
+        guestRef: string;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    return this.readReservationRegistrationCardSync(reservationId);
+  }
+
+  private readReservationRegistrationCardSync(reservationId: string):
+    | {
+        ok: true;
+        reservationId: string;
+        confirmationToken: string;
+        arrivalDate: string;
+        departureDate: string;
+        nights: number;
+        adults: number;
+        children: number;
+        roomTypeName: string | null;
+        roomCode: string | null;
+        ratePlanName: string | null;
+        packageName: string | null;
+        inclusionLabels: string[];
+        specialRequests: string | null;
+        vipFlag: boolean;
+        presentation: unknown;
+        guestRef: string;
+      }
+    | { ok: false; error: typeof NOT_FOUND } {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT r.reservation_id, r.guest_ref, r.arrival_date, r.departure_date, r.adults, r.children,
+                r.front_office_comment, r.vip_flag, r.room_id, r.room_type_id, r.allocated_room_type_id,
+                r.rate_plan_id, r.package_id,
+                rm.code AS room_code,
+                COALESCE(rt_alloc.name, rt_book.name) AS room_type_name,
+                rp.name AS rate_plan_name,
+                pkg.name AS package_name
+         FROM reservation r
+         LEFT JOIN room rm ON rm.room_id = r.room_id
+         LEFT JOIN room_type rt_alloc ON rt_alloc.room_type_id = r.allocated_room_type_id
+         LEFT JOIN room_type rt_book ON rt_book.room_type_id = r.room_type_id
+         LEFT JOIN rate_plan rp ON rp.rate_plan_id = r.rate_plan_id
+         LEFT JOIN package pkg ON pkg.package_id = r.package_id
+         WHERE r.reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      guest_ref: string;
+      arrival_date: string;
+      departure_date: string;
+      adults: number;
+      children: number;
+      front_office_comment: string | null;
+      vip_flag: number;
+      room_id: string | null;
+      room_type_id: string;
+      allocated_room_type_id: string | null;
+      rate_plan_id: string;
+      package_id: string | null;
+      room_code: string | null;
+      room_type_name: string | null;
+      rate_plan_name: string | null;
+      package_name: string | null;
+    }>;
+    const row = rows[0];
+    if (!row) return { ok: false, error: NOT_FOUND };
+
+    let nights: number;
+    try {
+      nights = enumerateStayDates(row.arrival_date, row.departure_date).length;
+    } catch {
+      return { ok: false, error: NOT_FOUND };
+    }
+
+    const inclusionRows = this.ctx.storage.sql
+      .exec(
+        `SELECT label FROM reservation_inclusion_night
+         WHERE reservation_id = ?
+         ORDER BY stay_date, inclusion_no`,
+        reservationId,
+      )
+      .toArray() as Array<{ label: string }>;
+    const inclusionLabels: string[] = [];
+    const seenLabels = new Set<string>();
+    for (const incl of inclusionRows) {
+      if (!incl.label || seenLabels.has(incl.label)) continue;
+      seenLabels.add(incl.label);
+      inclusionLabels.push(incl.label);
+    }
+    if (inclusionLabels.length === 0) {
+      const planInclusions = this.ctx.storage.sql
+        .exec(
+          `SELECT label FROM rate_plan_inclusion
+           WHERE rate_plan_id = ?
+           ORDER BY inclusion_no`,
+          row.rate_plan_id,
+        )
+        .toArray() as Array<{ label: string }>;
+      for (const incl of planInclusions) {
+        if (!incl.label || seenLabels.has(incl.label)) continue;
+        seenLabels.add(incl.label);
+        inclusionLabels.push(incl.label);
+      }
+    }
+
+    const presentation = this.readConfigValueSync('pms.documents.registration_card');
+    const confirmationToken =
+      row.reservation_id.length <= 8 ? row.reservation_id : row.reservation_id.slice(-8);
+
+    return {
+      ok: true,
+      reservationId: row.reservation_id,
+      confirmationToken,
+      arrivalDate: row.arrival_date,
+      departureDate: row.departure_date,
+      nights,
+      adults: row.adults,
+      children: row.children,
+      roomTypeName: row.room_type_name || null,
+      roomCode: row.room_code ?? null,
+      ratePlanName: row.rate_plan_name ?? null,
+      packageName: row.package_name ?? null,
+      inclusionLabels,
+      specialRequests: row.front_office_comment,
+      vipFlag: row.vip_flag === 1,
+      presentation,
+      guestRef: row.guest_ref,
+    };
+  }
+
   /** Implements catalog `folio.schedule_recurring_charge`. */
   async tryScheduleRecurringCharge(
     actor: ActorContext,
@@ -19149,8 +20821,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       reservationId: string;
       productId: string;
       quantity: number;
-      startDate: string;
-      endDate: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      pattern?: RecurringChargePattern;
+      daysMask?: number | null;
+      dates?: string[] | null;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -19163,6 +20838,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof RESERVATION_NOT_ACTIVE }
     | { ok: false; error: typeof RECURRING_CHARGE_DATES_INVALID }
+    | { ok: false; error: typeof DATE_OUTSIDE_STAY }
     | { ok: false; error: typeof RECURRING_CHARGE_EXISTS }
     | { ok: false; error: typeof LIMIT_EXCEEDED }
     | { ok: false; error: typeof PRODUCT_NOT_FOUND }
@@ -19201,8 +20877,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       reservationId: string;
       productId: string;
       quantity: number;
-      startDate: string;
-      endDate: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      pattern?: RecurringChargePattern;
+      daysMask?: number | null;
+      dates?: string[] | null;
     },
   ):
     | { ok: true; charge: ReturnType<PropertyDO['mapRecurringChargeRow']> }
@@ -19210,6 +20889,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof RESERVATION_NOT_ACTIVE }
     | { ok: false; error: typeof RECURRING_CHARGE_DATES_INVALID }
+    | { ok: false; error: typeof DATE_OUTSIDE_STAY }
     | { ok: false; error: typeof RECURRING_CHARGE_EXISTS }
     | { ok: false; error: typeof LIMIT_EXCEEDED }
     | { ok: false; error: typeof PRODUCT_NOT_FOUND }
@@ -19227,11 +20907,32 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 99) {
       return { ok: false, error: VALIDATION_ERROR };
     }
+
+    const pattern: RecurringChargePattern = input.pattern ?? 'NIGHTLY';
     if (
-      !this.isRecurringCalendarDate(input.startDate) ||
-      (input.endDate != null && !this.isRecurringCalendarDate(input.endDate))
+      pattern !== 'NIGHTLY' &&
+      pattern !== 'ARRIVAL' &&
+      pattern !== 'LAST_NIGHT' &&
+      pattern !== 'DAYS_OF_WEEK' &&
+      pattern !== 'DATES'
     ) {
-      return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+
+    if (input.daysMask != null && pattern !== 'DAYS_OF_WEEK') {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    let daysMask: number | null = null;
+    if (pattern === 'DAYS_OF_WEEK') {
+      if (
+        input.daysMask == null ||
+        !Number.isInteger(input.daysMask) ||
+        input.daysMask < 1 ||
+        input.daysMask > 127
+      ) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      daysMask = input.daysMask;
     }
 
     if (this.loadRecurringChargeSync(input.recurringChargeId)) {
@@ -19254,11 +20955,54 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
     const earliest = stay.arrival_date > businessDate ? stay.arrival_date : businessDate;
     const lastNight = this.shiftRecurringDate(stay.departure_date, -1);
-    if (input.startDate < earliest || input.startDate > lastNight) {
-      return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
-    }
-    if (input.endDate != null && (input.endDate < input.startDate || input.endDate > lastNight)) {
-      return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+
+    let startDate: string;
+    let endDate: string | null;
+    let dates: string[] = [];
+
+    if (pattern === 'ARRIVAL') {
+      startDate = stay.arrival_date;
+      endDate = stay.arrival_date;
+    } else if (pattern === 'LAST_NIGHT') {
+      startDate = stay.arrival_date;
+      endDate = null;
+    } else if (pattern === 'DATES') {
+      if (!Array.isArray(input.dates) || input.dates.length < 1) {
+        return { ok: false, error: VALIDATION_ERROR };
+      }
+      if (input.dates.length > RECURRING_CHARGE_DATES_MAX) {
+        return { ok: false, error: LIMIT_EXCEEDED };
+      }
+      const seen = new Set<string>();
+      for (const d of input.dates) {
+        if (typeof d !== 'string' || !this.isRecurringCalendarDate(d)) {
+          return { ok: false, error: VALIDATION_ERROR };
+        }
+        if (d < stay.arrival_date || d >= stay.departure_date) {
+          return { ok: false, error: DATE_OUTSIDE_STAY };
+        }
+        if (seen.has(d)) return { ok: false, error: VALIDATION_ERROR };
+        seen.add(d);
+      }
+      dates = [...seen].sort();
+      startDate = dates[0]!;
+      endDate = dates[dates.length - 1]!;
+    } else {
+      // NIGHTLY | DAYS_OF_WEEK — client start/end with existing stay bounds
+      if (typeof input.startDate !== 'string' || !this.isRecurringCalendarDate(input.startDate)) {
+        return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+      }
+      if (input.endDate != null && !this.isRecurringCalendarDate(input.endDate)) {
+        return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+      }
+      if (input.startDate < earliest || input.startDate > lastNight) {
+        return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+      }
+      if (input.endDate != null && (input.endDate < input.startDate || input.endDate > lastNight)) {
+        return { ok: false, error: RECURRING_CHARGE_DATES_INVALID };
+      }
+      startDate = input.startDate;
+      endDate = input.endDate ?? null;
     }
 
     const active = this.ctx.storage.sql
@@ -19279,20 +21023,30 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       `INSERT INTO recurring_charge (
          recurring_charge_id, reservation_id, pattern, product_id, charge_code, description,
          unit_amount_minor, quantity, start_date, end_date, status,
-         created_at, created_by, cancelled_at, cancelled_by
-       ) VALUES (?, ?, 'NIGHTLY', ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL)`,
+         created_at, created_by, cancelled_at, cancelled_by,
+         days_mask, package_id, tax_charge_code
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL, ?, NULL, NULL)`,
       input.recurringChargeId,
       input.reservationId,
+      pattern,
       product.product_id,
       product.charge_code,
       product.name,
       product.default_amount_minor,
       input.quantity,
-      input.startDate,
-      input.endDate,
+      startDate,
+      endDate,
       now,
       createdBy,
+      daysMask,
     );
+    for (const stayDate of dates) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO recurring_charge_date (recurring_charge_id, stay_date) VALUES (?, ?)`,
+        input.recurringChargeId,
+        stayDate,
+      );
+    }
     const stored = this.loadRecurringChargeSync(input.recurringChargeId);
     if (!stored) throw new Error(INTERNAL_ERROR);
     const charge = this.mapRecurringChargeRow(stored);
@@ -19426,6 +21180,69 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     let postedCount = 0;
     let failedCount = 0;
 
+    const chargeCodeActive = (code: string): boolean => {
+      try {
+        this.assertChargeCodeSync(code, { requireActive: true });
+        return true;
+      } catch (e) {
+        if (e instanceof ChargeCodeNotFoundError) return false;
+        throw e;
+      }
+    };
+
+    const resolveNightTax = (args: {
+      chargeCode: string;
+      taxChargeCode: string;
+      amountMinor: number;
+      source: string;
+      bandBaseMinor?: number;
+    }) => {
+      const prepared = this.prepareChargeTaxSync({
+        parentSource: args.source,
+        chargeCode: args.chargeCode,
+        taxChargeCode: args.taxChargeCode,
+        postingDate: businessDate,
+        posted: {
+          amountMinor: args.amountMinor,
+          txnCurrency: ledgerCurrency,
+          ledgerAmountMinor: args.amountMinor,
+          fxRate: '1',
+          fxRateAt: 0,
+        },
+        ...(args.bandBaseMinor !== undefined ? { bandBaseMinor: args.bandBaseMinor } : {}),
+      });
+      if (!prepared) return { netLedgerMinor: args.amountMinor, lines: [] as NightChargeTaxLine[] };
+      return { netLedgerMinor: prepared.netLedgerMinor, lines: prepared.lines };
+    };
+
+    const insertDraftLine = (
+      line: NightChargeLineDraft,
+      reservationId: string,
+      folioWindowId: string,
+      fxRateAt: number,
+    ) => {
+      this.insertTaxableChargeSync({
+        folioLineId: line.folioLineId,
+        folioWindowId,
+        reservationId,
+        chargeCode: line.chargeCode,
+        taxChargeCode: line.taxChargeCode,
+        posted: {
+          amountMinor: line.amountMinor,
+          txnCurrency: ledgerCurrency,
+          ledgerAmountMinor: line.amountMinor,
+          fxRate: '1',
+          fxRateAt,
+        },
+        source: line.source,
+        businessDate,
+        postingDate: businessDate,
+        ...(line.bandBaseMinor !== undefined
+          ? { bandBaseMinor: line.bandBaseMinor, taxBandBaseMinor: line.bandBaseMinor }
+          : {}),
+      });
+    };
+
     for (const reservation of reservations) {
       try {
         const rateMinor = this.rateNightAmountSync(
@@ -19452,121 +21269,64 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           inclusion_tax: string;
           band_join: number;
         }>;
-        const lines: Array<{
-          folioLineId: string;
-          chargeCode: string;
-          taxChargeCode: string;
-          amountMinor: number;
-          bandJoin: boolean;
-        }> = [];
-        let includedMinor = 0;
-        for (const row of inclusionRows) {
-          const units = inclusionUnits(row.basis, reservation.adults, reservation.children);
-          if (units <= 0) continue;
-          const value = row.amount_minor * units;
-          if (row.price_mode === 'INCLUDED') includedMinor += value;
-          lines.push({
-            folioLineId: `${reservation.reservation_id}:inclusion:${row.inclusion_no}:${businessDate}`,
+
+        const built = buildNightChargeLines({
+          reservationId: reservation.reservation_id,
+          stayDate: businessDate,
+          rateMinor,
+          adults: reservation.adults,
+          children: reservation.children,
+          // Stay bounds unused when recurring is empty (room + inclusion pass).
+          stay: { arrivalDate: businessDate, departureDate: businessDate },
+          inclusions: inclusionRows.map((row) => ({
+            inclusionNo: row.inclusion_no,
             chargeCode: row.charge_code,
-            taxChargeCode: row.inclusion_tax === 'ROOM' ? 'ROOM' : row.charge_code,
-            amountMinor: value,
-            bandJoin: row.band_join === 1 || row.inclusion_tax === 'ROOM',
-          });
-        }
-        const roomAmount = rateMinor - includedMinor;
-        if (roomAmount < 0) {
-          this.recordNightAuditInclusionExceptionSync(
-            reservation.reservation_id,
-            businessDate,
-            'inclusion_exceeds_rate',
-          );
+            amountMinor: row.amount_minor,
+            basis: row.basis,
+            priceMode: row.price_mode,
+            inclusionTax: row.inclusion_tax,
+            bandJoin: row.band_join === 1,
+          })),
+          recurring: [],
+          resolveTax: resolveNightTax,
+          chargeCodeActive,
+        });
+
+        if (!built.ok) {
+          if (built.warning === 'inclusion_exceeds_rate') {
+            this.recordNightAuditInclusionExceptionSync(
+              reservation.reservation_id,
+              businessDate,
+              'inclusion_exceeds_rate',
+            );
+            failedCount += 1;
+            continue;
+          }
+          if (built.warning === 'inclusion_charge_code_inactive') {
+            this.recordNightAuditInclusionExceptionSync(
+              reservation.reservation_id,
+              businessDate,
+              'inclusion_charge_code_inactive',
+            );
+            failedCount += 1;
+            continue;
+          }
+          // no_rate is surfaced via RateMissingError from rateNightAmountSync above
           failedCount += 1;
           continue;
         }
-        const roomLine = {
-          folioLineId: `${reservation.reservation_id}:room:${businessDate}`,
-          chargeCode: 'ROOM',
-          taxChargeCode: 'ROOM',
-          amountMinor: roomAmount,
-          bandJoin: false,
-        };
-        const postable = [roomLine, ...lines];
-        let inclusionCodeInactive = false;
-        for (const line of lines) {
-          try {
-            this.assertChargeCodeSync(line.chargeCode, { requireActive: true });
-            if (line.taxChargeCode !== line.chargeCode) {
-              this.assertChargeCodeSync(line.taxChargeCode, { requireActive: true });
-            }
-          } catch (e) {
-            if (e instanceof ChargeCodeNotFoundError) {
-              this.recordNightAuditInclusionExceptionSync(
-                reservation.reservation_id,
-                businessDate,
-                'inclusion_charge_code_inactive',
-              );
-              failedCount += 1;
-              inclusionCodeInactive = true;
-              break;
-            }
-            throw e;
-          }
-        }
-        if (inclusionCodeInactive) continue;
-        const anyBand = lines.some((line) => line.bandJoin);
-        const ownNets = new Map<string, number>();
-        if (anyBand) {
-          for (const line of postable) {
-            const prepared = this.prepareChargeTaxSync({
-              parentSource: line.folioLineId === roomLine.folioLineId ? 'NIGHT_AUDIT' : INCLUSION_LINE_SOURCE,
-              chargeCode: line.chargeCode,
-              taxChargeCode: line.taxChargeCode,
-              postingDate: businessDate,
-              posted: {
-                amountMinor: line.amountMinor,
-                txnCurrency: ledgerCurrency,
-                ledgerAmountMinor: line.amountMinor,
-                fxRate: '1',
-                fxRateAt: 0,
-              },
-            });
-            ownNets.set(line.folioLineId, prepared ? prepared.netLedgerMinor : line.amountMinor);
-          }
-        }
-        const bandBase = anyBand
-          ? [...ownNets.values()].reduce((sum, net) => sum + net, 0)
-          : undefined;
 
         this.ensureGuestFolioWindowSync(reservation.reservation_id);
         const folioWindowId = this.readGuestFolioWindowIdSync(reservation.reservation_id);
         const fxRateAt = Date.now();
-        for (const line of postable) {
-          if (line.folioLineId !== roomLine.folioLineId) {
+        for (const line of built.lines) {
+          if (line.source !== NIGHT_AUDIT_LINE_SOURCE) {
             const already = this.ctx.storage.sql
               .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, line.folioLineId)
               .toArray();
             if (already[0]) continue;
           }
-          const ownNet = ownNets.get(line.folioLineId);
-          const storeBand = bandBase !== undefined && ownNet !== undefined && bandBase !== ownNet;
-          this.insertTaxableChargeSync({
-            folioLineId: line.folioLineId,
-            folioWindowId,
-            reservationId: reservation.reservation_id,
-            chargeCode: line.chargeCode,
-            taxChargeCode: line.taxChargeCode,
-            posted: {
-              amountMinor: line.amountMinor,
-              txnCurrency: ledgerCurrency,
-              ledgerAmountMinor: line.amountMinor,
-              fxRate: '1',
-              fxRateAt,
-            },
-            source: line.folioLineId === roomLine.folioLineId ? 'NIGHT_AUDIT' : INCLUSION_LINE_SOURCE,
-            businessDate,
-            postingDate: businessDate,
-            ...(storeBand ? { bandBaseMinor: bandBase, taxBandBaseMinor: bandBase } : {}),
-          });
+          insertDraftLine(line, reservation.reservation_id, folioWindowId, fxRateAt);
         }
         postedCount += 1;
 
@@ -19597,18 +21357,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const schedules = this.ctx.storage.sql
       .exec(
         `SELECT rc.recurring_charge_id, rc.reservation_id, rc.charge_code,
-                rc.unit_amount_minor, rc.quantity
+                rc.unit_amount_minor, rc.quantity, rc.pattern, rc.days_mask,
+                rc.tax_charge_code, rc.start_date, rc.end_date,
+                r.arrival_date, r.departure_date
          FROM recurring_charge rc
          INNER JOIN reservation r ON r.reservation_id = rc.reservation_id
          WHERE rc.status = 'active'
            AND ${reservationStatusSql}
            AND COALESCE(r.no_post, 0) = 0
            AND r.arrival_date <= ? AND r.departure_date > ?
-           AND rc.start_date <= ?
-           AND (rc.end_date IS NULL OR rc.end_date >= ?)
          ORDER BY rc.reservation_id, rc.recurring_charge_id`,
-        businessDate,
-        businessDate,
         businessDate,
         businessDate,
       )
@@ -19618,42 +21376,72 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       charge_code: string;
       unit_amount_minor: number;
       quantity: number;
+      pattern: string;
+      days_mask: number | null;
+      tax_charge_code: string | null;
+      start_date: string;
+      end_date: string | null;
+      arrival_date: string;
+      departure_date: string;
     }>;
+
+    const datesBySchedule = new Map<string, string[]>();
+    const dateScheduleIds = schedules
+      .filter((s) => s.pattern === 'DATES')
+      .map((s) => s.recurring_charge_id);
+    if (dateScheduleIds.length > 0) {
+      for (const id of dateScheduleIds) {
+        datesBySchedule.set(id, this.loadRecurringChargeDatesSync(id));
+      }
+    }
 
     let recurringPostedCount = 0;
     for (const schedule of schedules) {
-      const folioLineId = `${schedule.reservation_id}:recurring:${schedule.recurring_charge_id}:${businessDate}`;
+      const pattern = schedule.pattern as RecurringChargePattern;
+      const built = buildNightChargeLines({
+        reservationId: schedule.reservation_id,
+        stayDate: businessDate,
+        rateMinor: 0,
+        adults: 0,
+        children: 0,
+        stay: { arrivalDate: schedule.arrival_date, departureDate: schedule.departure_date },
+        inclusions: [],
+        recurring: [
+          {
+            recurringChargeId: schedule.recurring_charge_id,
+            chargeCode: schedule.charge_code,
+            unitAmountMinor: schedule.unit_amount_minor,
+            quantity: schedule.quantity,
+            pattern,
+            daysMask: schedule.days_mask,
+            taxChargeCode: schedule.tax_charge_code,
+            startDate: schedule.start_date,
+            endDate: schedule.end_date,
+            dates: datesBySchedule.get(schedule.recurring_charge_id),
+          },
+        ],
+        resolveTax: resolveNightTax,
+        // Defer inactive-code throw to assert below so exception recording keeps the schedule id.
+        chargeCodeActive: () => true,
+        includeRoomLine: false,
+      });
+      if (!built.ok || built.lines.length === 0) continue;
+      const line = built.lines[0]!;
+
       try {
         const already = this.ctx.storage.sql
-          .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, folioLineId)
+          .exec(`SELECT folio_line_id FROM folio_line WHERE folio_line_id = ?`, line.folioLineId)
           .toArray() as Array<{ folio_line_id: string }>;
         if (already[0]) continue;
 
         this.assertChargeCodeSync(schedule.charge_code, { requireActive: true });
-        const amountMinor = schedule.unit_amount_minor * schedule.quantity;
         this.ensureGuestFolioWindowSync(schedule.reservation_id);
         const folioWindowId = this.readGuestFolioWindowIdSync(schedule.reservation_id);
         const fxRateAt = Date.now();
-        const posted: PostedLineAmount = {
-          amountMinor,
-          txnCurrency: ledgerCurrency,
-          ledgerAmountMinor: amountMinor,
-          fxRate: '1',
-          fxRateAt,
-        };
-        this.insertTaxableChargeSync({
-          folioLineId,
-          folioWindowId,
-          reservationId: schedule.reservation_id,
-          chargeCode: schedule.charge_code,
-          posted,
-          // Own source: `folio_line_audit_uniq` allows one NIGHT_AUDIT line per stay, night and
-          // charge code (the room night). Two schedules may share a charge code (breakfast and
-          // dinner on one F&B code); the deterministic line id already posts each once a night.
-          source: RECURRING_LINE_SOURCE,
-          businessDate,
-          postingDate: businessDate,
-        });
+        // Own source: `folio_line_audit_uniq` allows one NIGHT_AUDIT line per stay, night and
+        // charge code (the room night). Two schedules may share a charge code (breakfast and
+        // dinner on one F&B code); the deterministic line id already posts each once a night.
+        insertDraftLine(line, schedule.reservation_id, folioWindowId, fxRateAt);
         recurringPostedCount += 1;
       } catch (e) {
         if (e instanceof ChargeCodeNotFoundError) {
@@ -24465,7 +26253,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(`SELECT key, value_json, version FROM property_config`)
       .toArray() as Array<{ key: string; value_json: string; version: number }>;
     const stored = new Map(rows.map((r) => [r.key, r]));
-    return domainConfigKeys().map((entry) => {
+    const documentsPresentation = CONFIG_REGISTER.filter((e) => e.key.startsWith('pms.documents.'));
+    const seen = new Set<string>();
+    const entries = domainConfigKeys()
+      .concat(documentsPresentation)
+      .filter((e) => {
+        if (seen.has(e.key)) return false;
+        seen.add(e.key);
+        return true;
+      });
+    return entries.map((entry) => {
       const row = stored.get(entry.key);
       if (row) {
         return {

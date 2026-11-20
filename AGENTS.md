@@ -219,16 +219,19 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.24 (in-house stay changes, 2026-11-20) — update this table when you bump them:
+After roadmap R4.13 (packages + documents, 2026-11-20) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **118** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **192** routes, last id **`post_reservation_in_house_change`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `PROPERTY_SCHEMA_HEAD` | **48** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **122** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **199** routes, last id **`get_reservation_registration_card`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `AUDIT_WRITER_COMMAND_IDS` | **88** | `packages/contracts/src/register.test.ts` |
+| `PROPERTY_SCHEMA_HEAD` | **49** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length 6, includes **`id_proof_missing`** | `packages/contracts/src/register.test.ts` |
+
+Part B also registered **+2** `PRESENTATION` keys (`pms.documents.registration_card`, `pms.documents.proforma`) — asserted in `register.test.ts` only (no numeric CONFIG_REGISTER pin).
 
 There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
 

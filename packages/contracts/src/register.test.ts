@@ -235,6 +235,40 @@ describe('config register', () => {
       expect(isStructuredCloneable(e.default)).toBe(true);
     }
   });
+
+  it('pms.documents.* PRESENTATION keys have locked shapes', () => {
+    const card = getConfigEntry('pms.documents.registration_card');
+    expect(card?.class).toBe('PRESENTATION');
+    expect(card?.permission).toBe('settings:configure');
+    expect(card?.default).toEqual({
+      template: 'STANDARD',
+      headerText: '',
+      footerText: '',
+      show: {
+        ratePlan: true,
+        inclusions: true,
+        specialRequests: true,
+        idDocument: true,
+        signature: true,
+      },
+    });
+    expect(
+      card?.schema.safeParse({ ...(card!.default as Record<string, unknown>), template: 'WIDE' })
+        .success,
+    ).toBe(false);
+    const pro = getConfigEntry('pms.documents.proforma');
+    expect(pro?.class).toBe('PRESENTATION');
+    expect(pro?.default).toEqual({
+      template: 'STANDARD',
+      headerText: '',
+      footerText: '',
+      show: { perNight: true, taxSummary: true, advances: true, warnings: true },
+    });
+    expect(
+      pro?.schema.safeParse({ ...(pro!.default as Record<string, unknown>), template: 'FANCY' })
+        .success,
+    ).toBe(false);
+  });
 });
 
 describe('command catalog', () => {
@@ -332,7 +366,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(84);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(88);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -935,8 +969,9 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('post_reservation_in_house_change');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(192);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_reservation_registration_card');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_reservation_proforma');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(199);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -951,9 +986,65 @@ describe('command catalog', () => {
       commandId: 'reservations.change_in_house_stay',
       entitlement: 'pms.core',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[192]).toMatchObject({
+      id: 'get_packages',
+      scope: 'property',
+      permission: 'rates:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[193]).toMatchObject({
+      id: 'post_packages',
+      scope: 'property',
+      permission: 'rates:write',
+      commandId: 'rates.create_package',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[194]).toMatchObject({
+      id: 'patch_package',
+      scope: 'property',
+      permission: 'rates:write',
+      commandId: 'rates.update_package',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[195]).toMatchObject({
+      id: 'post_package_status',
+      scope: 'property',
+      permission: 'rates:write',
+      commandId: 'rates.set_package_status',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[196]).toMatchObject({
+      id: 'post_reservation_apply_package',
+      scope: 'property',
+      permission: 'reservations:write',
+      commandId: 'reservations.apply_package',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[197]).toMatchObject({
+      id: 'get_reservation_proforma',
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[198]).toMatchObject({
+      id: 'get_reservation_registration_card',
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(84);
-    expect(COMMAND_CATALOG).toHaveLength(118);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(88);
+    expect(COMMAND_CATALOG).toHaveLength(122);
+    const applyPackage = COMMAND_CATALOG.find((c) => c.id === 'reservations.apply_package');
+    expect(applyPackage).toMatchObject({
+      lane: 'INTERACTIVE',
+      degraded: 'FAIL_CLOSED',
+      idempotent: true,
+      entitlement: 'pms.core',
+      permission: 'reservations:write',
+      events: [],
+    });
+    expect(AUDIT_WRITER_COMMAND_IDS.has('reservations.apply_package')).toBe(true);
     const inHouse = COMMAND_CATALOG.find((c) => c.id === 'reservations.change_in_house_stay');
     expect(inHouse).toMatchObject({
       lane: 'INTERACTIVE',

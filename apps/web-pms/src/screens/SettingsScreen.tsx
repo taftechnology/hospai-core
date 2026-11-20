@@ -34,6 +34,8 @@ import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { badgeStatusWord } from '../status/badge-status-word.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { ProductsSettings } from './settings-products.js';
+import { PackagesSettings } from './settings-packages.js';
+import { DocumentsSettings } from './settings-documents.js';
 import { MaintenanceSettings } from './settings-maintenance.js';
 import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
@@ -269,6 +271,8 @@ export function SettingsScreen({
     | 'property'
     | 'charges'
     | 'products'
+    | 'packages'
+    | 'documents'
     | 'maintenance'
     | 'sources'
     | 'tax'
@@ -327,6 +331,10 @@ export function SettingsScreen({
     meShell.kind === 'authority' &&
     meShell.authority.kind === 'live' &&
     hasPropertyPermission(meShell.authority.me, 'folio:read');
+  const showPackagesTab =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    hasPropertyPermission(meShell.authority.me, 'rates:write');
   const showGuestsTab =
     meShell.kind === 'authority' &&
     meShell.authority.kind === 'live' &&
@@ -449,6 +457,10 @@ export function SettingsScreen({
         <Link className="ui-tab" to="/settings/accommodations" aria-current={activeTab === 'accommodations' ? 'page' : undefined}>Accommodations</Link>
         <Link className="ui-tab" to="/settings/charges" aria-current={activeTab === 'charges' ? 'page' : undefined}>Charges</Link>
         <Link className="ui-tab" to="/settings/products" aria-current={activeTab === 'products' ? 'page' : undefined}>Products</Link>
+        {showPackagesTab ? (
+          <Link className="ui-tab" to="/settings/packages" aria-current={activeTab === 'packages' ? 'page' : undefined}>Packages</Link>
+        ) : null}
+        <Link className="ui-tab" to="/settings/documents" aria-current={activeTab === 'documents' ? 'page' : undefined}>Documents</Link>
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
@@ -899,6 +911,22 @@ export function SettingsScreen({
       ) : null}
 
       {activeTab === 'products' ? <ProductsSettings onMessage={setMessage} /> : null}
+      {activeTab === 'packages' ? <PackagesSettings onMessage={setMessage} /> : null}
+      {activeTab === 'documents' ? (
+        configQ.isPending ? (
+          <Skeleton label="Loading settings" lines={3} />
+        ) : (
+          <DocumentsSettings
+            keys={keys}
+            reason={reason}
+            propertyId={propertyId}
+            onSaved={onSaved}
+            reasonControl={
+              <SettingsSystemReasonField reason={reason} onReasonChange={setReason} />
+            }
+          />
+        )
+      ) : null}
       {activeTab === 'maintenance' ? <MaintenanceSettings onMessage={setMessage} /> : null}
       {activeTab === 'sources' ? <SourcesSettings onMessage={setMessage} /> : null}
       {activeTab === 'users' ? <SettingsUsersTab /> : null}

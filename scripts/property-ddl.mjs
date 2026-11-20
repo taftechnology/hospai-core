@@ -93,6 +93,7 @@ if (process.argv.includes('--self-test')) {
   let BUYER_GST_V46_SQL;
   let RATE_OVERRIDE_V47_SQL;
   let UPI_TENDER_V48_SQL;
+  let PACKAGES_SCHEDULES_V49_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -161,6 +162,7 @@ if (process.argv.includes('--self-test')) {
       BUYER_GST_V46_SQL,
       RATE_OVERRIDE_V47_SQL,
       UPI_TENDER_V48_SQL,
+      PACKAGES_SCHEDULES_V49_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -637,6 +639,15 @@ const doPropertyTargets = [
 
 `,
     sql: UPI_TENDER_V48_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0049_packages_schedules.sql'),
+    header: `-- PropertyDO packages + schedule patterns — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: PACKAGES_SCHEDULES_V49_SQL,
   },
 ];
 

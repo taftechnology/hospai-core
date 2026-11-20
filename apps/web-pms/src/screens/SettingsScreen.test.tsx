@@ -82,6 +82,7 @@ function renderSettings(path: string) {
           <Route path="/settings/charges" element={<SettingsScreen tab="charges" />} />
           <Route path="/settings/tax" element={<SettingsScreen tab="tax" />} />
           <Route path="/settings/finance" element={<SettingsScreen tab="finance" />} />
+          <Route path="/settings/documents" element={<SettingsScreen tab="documents" />} />
           <Route path="/settings/users" element={<SettingsScreen tab="users" />} />
           <Route path="/city-ledger" element={<div>city-ledger-page</div>} />
           <Route path="/settings/system" element={<SettingsScreen tab="system" />} />
@@ -607,6 +608,31 @@ describe('SettingsScreen', () => {
     expect(await screen.findByRole('link', { name: 'Logs' })).toHaveProperty(
       'pathname',
       '/settings/logs',
+    );
+  });
+
+  it('packages tab link hidden without rates:write', async () => {
+    configureMe(['settings:configure']);
+    renderSettings('/settings/property');
+    await screen.findByTestId('settings-screen');
+    expect(screen.queryByRole('link', { name: 'Packages' })).toBeNull();
+  });
+
+  it('packages tab link shown with rates:write', async () => {
+    configureMe(['settings:configure', 'rates:write']);
+    renderSettings('/settings/property');
+    expect(await screen.findByRole('link', { name: 'Packages' })).toHaveProperty(
+      'pathname',
+      '/settings/packages',
+    );
+  });
+
+  it('documents tab link shown with settings:configure', async () => {
+    configureMe(['settings:configure']);
+    renderSettings('/settings/property');
+    expect(await screen.findByRole('link', { name: 'Documents' })).toHaveProperty(
+      'pathname',
+      '/settings/documents',
     );
   });
 

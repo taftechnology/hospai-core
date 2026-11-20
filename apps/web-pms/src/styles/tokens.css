@@ -128,6 +128,22 @@
   --color-room-inspected: #2b6cb0;
   --color-room-ooo: #a8302b;
 
+  /* Live room view conditions (R4.27): surface and its text colour, per theme. */
+  --color-cond-available: #dcf2e4;
+  --color-cond-available-fg: #17603f;
+  --color-cond-reserved: #dde9f5;
+  --color-cond-reserved-fg: #234a73;
+  --color-cond-occupied: #2b5a8a;
+  --color-cond-occupied-fg: #ffffff;
+  --color-cond-dirty: #fbeccb;
+  --color-cond-dirty-fg: #85480a;
+  --color-cond-maintenance: #fbe3e0;
+  --color-cond-maintenance-fg: #9c2420;
+  --color-cond-billed: #efe6f7;
+  --color-cond-billed-fg: #5b2a86;
+  --color-cond-unavailable: #ecebe6;
+  --color-cond-unavailable-fg: #57544d;
+
   /* 8-digit hex so shadow composites stay off the literal rule. */
   --color-shadow: #281e0a14;
   --color-shadow-overlay: #281e0a2e;
@@ -289,6 +305,21 @@
     --color-room-inspected: #8fbdea;
     --color-room-ooo: #f6a39c;
 
+    --color-cond-available: #17352a;
+    --color-cond-available-fg: #86dcaa;
+    --color-cond-reserved: #18304a;
+    --color-cond-reserved-fg: #a9cdf0;
+    --color-cond-occupied: #8fbdea;
+    --color-cond-occupied-fg: #0e1c2b;
+    --color-cond-dirty: #3d2c10;
+    --color-cond-dirty-fg: #f0c36e;
+    --color-cond-maintenance: #451d1a;
+    --color-cond-maintenance-fg: #f6a39c;
+    --color-cond-billed: #2e1c42;
+    --color-cond-billed-fg: #cfb3ee;
+    --color-cond-unavailable: #2b2a25;
+    --color-cond-unavailable-fg: #aaa79d;
+
     --color-shadow: #00000066;
     --color-shadow-overlay: #00000099;
     --color-scrim: #00000080;
@@ -349,6 +380,21 @@
   --color-room-dirty: #f2b35e;
   --color-room-inspected: #8fbdea;
   --color-room-ooo: #f6a39c;
+
+  --color-cond-available: #17352a;
+  --color-cond-available-fg: #86dcaa;
+  --color-cond-reserved: #18304a;
+  --color-cond-reserved-fg: #a9cdf0;
+  --color-cond-occupied: #8fbdea;
+  --color-cond-occupied-fg: #0e1c2b;
+  --color-cond-dirty: #3d2c10;
+  --color-cond-dirty-fg: #f0c36e;
+  --color-cond-maintenance: #451d1a;
+  --color-cond-maintenance-fg: #f6a39c;
+  --color-cond-billed: #2e1c42;
+  --color-cond-billed-fg: #cfb3ee;
+  --color-cond-unavailable: #2b2a25;
+  --color-cond-unavailable-fg: #aaa79d;
 
   --color-shadow: #00000066;
   --color-shadow-overlay: #00000099;
@@ -423,6 +469,21 @@
     --color-room-dirty: #b85c00;
     --color-room-inspected: #2b6cb0;
     --color-room-ooo: #a8302b;
+
+    --color-cond-available: #dcf2e4;
+    --color-cond-available-fg: #17603f;
+    --color-cond-reserved: #dde9f5;
+    --color-cond-reserved-fg: #234a73;
+    --color-cond-occupied: #2b5a8a;
+    --color-cond-occupied-fg: #ffffff;
+    --color-cond-dirty: #fbeccb;
+    --color-cond-dirty-fg: #85480a;
+    --color-cond-maintenance: #fbe3e0;
+    --color-cond-maintenance-fg: #9c2420;
+    --color-cond-billed: #efe6f7;
+    --color-cond-billed-fg: #5b2a86;
+    --color-cond-unavailable: #ecebe6;
+    --color-cond-unavailable-fg: #57544d;
 
     --color-shadow: #281e0a14;
     --color-shadow-overlay: #281e0a2e;

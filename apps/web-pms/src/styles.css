@@ -2438,3 +2438,111 @@ details.side-panel summary {
 .rates-matrix__bulk-actions .ui-input {
   inline-size: 100%;
 }
+
+/* Live room view (R4.27): rooms for today as compact tiles, grouped. Not a date grid. */
+.live-rooms__group + .live-rooms__group {
+  margin-block-start: var(--space-4);
+}
+
+.live-rooms__group-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.live-rooms__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.live-room {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-inline-size: 0;
+}
+
+.live-room__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.live-room__code {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.live-room__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.live-room__line {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.live-room__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+}
+
+.room-cond {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.room-cond--available {
+  background: var(--color-cond-available);
+  color: var(--color-cond-available-fg);
+}
+
+.room-cond--reserved {
+  background: var(--color-cond-reserved);
+  color: var(--color-cond-reserved-fg);
+}
+
+.room-cond--occupied {
+  background: var(--color-cond-occupied);
+  color: var(--color-cond-occupied-fg);
+}
+
+.room-cond--dirty {
+  background: var(--color-cond-dirty);
+  color: var(--color-cond-dirty-fg);
+}
+
+.room-cond--maintenance {
+  background: var(--color-cond-maintenance);
+  color: var(--color-cond-maintenance-fg);
+}
+
+.room-cond--billed {
+  background: var(--color-cond-billed);
+  color: var(--color-cond-billed-fg);
+}
+
+.room-cond--unavailable {
+  background: var(--color-cond-unavailable);
+  color: var(--color-cond-unavailable-fg);
+}

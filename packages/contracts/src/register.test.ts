@@ -980,15 +980,16 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_reservation_draft_bill');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('post_reservation_undo_check_out');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('post_folio_transfer_bulk');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('get_open_folios');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_folio_hold');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('post_folio_hold_release');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-9)?.id).toBe('get_reservation_registration_card');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-10)?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(207);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_room_board');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_reservation_draft_bill');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('post_reservation_undo_check_out');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('post_folio_transfer_bulk');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_open_folios');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_folio_hold');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('post_folio_hold_release');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-10)?.id).toBe('get_reservation_registration_card');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-11)?.id).toBe('get_reservation_proforma');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(208);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1111,6 +1112,14 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[206] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[207]).toMatchObject({
+      id: 'get_room_board',
+      scope: 'property',
+      permission: 'reservations:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[207] ?? {})).toBe(false);
     expect(COMMAND_CATALOG.find((c) => c.id === 'invoice.void')?.permission).toBe('folio:reverse');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.transfer_charges')).toMatchObject({
       lane: 'INTERACTIVE',

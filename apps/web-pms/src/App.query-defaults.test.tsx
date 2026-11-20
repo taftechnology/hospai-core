@@ -37,4 +37,27 @@ describe('App QueryClient defaults', () => {
 
     expect(queryFn).toHaveBeenCalledTimes(1);
   });
+
+  it('a successful mutation marks the room board stale; a failed one does not', async () => {
+    const client = createQueryClient();
+    client.setQueryData(['room-board', 'prop_demo'], { ok: true, rooms: [] });
+    client.setQueryData(['front-desk-tape', 'prop_demo', 'a', 'b'], { ok: true });
+    await client
+      .getMutationCache()
+      .build(client, {
+        mutationFn: async () => {
+          throw new Error('nope');
+        },
+      })
+      .execute(undefined)
+      .catch(() => undefined);
+    expect(client.getQueryState(['room-board', 'prop_demo'])?.isInvalidated).toBe(false);
+
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: async () => 'ok' })
+      .execute(undefined);
+    expect(client.getQueryState(['room-board', 'prop_demo'])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(['front-desk-tape', 'prop_demo', 'a', 'b'])?.isInvalidated).toBe(false);
+  });
 });

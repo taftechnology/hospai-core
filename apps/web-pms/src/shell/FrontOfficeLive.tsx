@@ -11,7 +11,7 @@ import {
 } from '@hospai/client-core';
 import { hasPropertyPermission, type Authority } from '../auth/me.js';
 import { tenant } from '../client.js';
-import { frontDeskTapeKey } from '../front-office-query-keys.js';
+import { frontDeskTapeKey, roomBoardKey } from '../front-office-query-keys.js';
 import { getClerkSessionToken } from '../providers/clerk-credentials.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { usePropertyTimeZone } from './PropertyFormat.js';
@@ -184,6 +184,7 @@ export function FrontOfficeLive({
         }
 
         void queryClient.invalidateQueries({ queryKey: ['board'] });
+        void queryClient.invalidateQueries({ queryKey: roomBoardKey(tenant.propertyId) });
       };
       socket.onclose = () => {
         if (cancelled) return;

@@ -119,6 +119,20 @@ describe('FrontOfficeLive', () => {
     expect(nextReconnectMs(20)).toBeLessThanOrEqual(10_000);
   });
 
+  it('a stream message invalidates the room board for this property only', async () => {
+    const socket = createFakeSocket();
+    const { client } = renderLive({ createSocket: () => socket });
+    client.setQueryData(['room-board', 'prop_demo'], { ok: true, rooms: [] });
+    client.setQueryData(['room-board', 'prop_other'], { ok: true, rooms: [] });
+    await waitForOpenHandler(socket);
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify(snapshot) });
+    await waitFor(() =>
+      expect(client.getQueryState(['room-board', 'prop_demo'])?.isInvalidated).toBe(true),
+    );
+    expect(client.getQueryState(['room-board', 'prop_other'])?.isInvalidated).toBe(false);
+  });
+
   it('snapshot then close shows watermark and keeps tape cache', async () => {
     const socket = createFakeSocket();
     const { client } = renderLive({ createSocket: () => socket });
@@ -194,7 +208,7 @@ describe('FrontOfficeLive', () => {
     });
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
     const deltaKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
-    expect(deltaKeys).toEqual([['board']]);
+    expect(deltaKeys).toEqual([['board'], ['room-board', 'prop_demo']]);
   });
 
   it('delta merges removedBlockIds into cached tape without tape invalidation', async () => {
@@ -231,7 +245,7 @@ describe('FrontOfficeLive', () => {
       expect(cached.blocks.map((b) => b.reservationId)).toEqual(['res_y']);
     });
     const deltaKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey?: unknown })?.queryKey);
-    expect(deltaKeys).toEqual([['board']]);
+    expect(deltaKeys).toEqual([['board'], ['room-board', 'prop_demo']]);
     expect(deltaKeys).not.toContainEqual(['front-desk-tape']);
   });
 

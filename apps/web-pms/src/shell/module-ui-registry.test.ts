@@ -8,6 +8,7 @@ describe('module UI nav merge', () => {
       'dashboard',
       'board',
       'arrivals',
+      'live-rooms',
       'reservations',
       'book',
       'housekeeping',

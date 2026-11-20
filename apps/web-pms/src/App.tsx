@@ -15,6 +15,7 @@ import { BookingScreen } from './screens/BookingScreen.js';
 import { BoardScreen } from './screens/BoardScreen.js';
 import { DashboardScreen } from './screens/DashboardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
+import { RoomBoardScreen } from './screens/RoomBoardScreen.js';
 import { ReservationsDirectoryScreen } from './screens/ReservationsDirectoryScreen.js';
 import { ReservationStayScreen } from './screens/ReservationStayScreen.js';
 import {
@@ -75,6 +76,9 @@ export const router = createBrowserRouter(
             {/* R1.14: the Dashboard is the report until R4.14 ships the named operational set. */}
             <Route path="reports" element={<Navigate to="/dashboard" replace />} />
             <Route path="board" element={<TapeChartScreen />} />
+            <Route path="rooms/live" element={<PermissionRoute permission="reservations:read" />}>
+              <Route index element={<RoomBoardScreen />} />
+            </Route>
             <Route path="arrivals" element={<BoardScreen mode="arrivals" />} />
             <Route path="departures" element={<BoardScreen mode="departures" />} />
             <Route path="in-house" element={<BoardScreen mode="in-house" />} />

@@ -661,7 +661,16 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** a draft changes nothing; a split foots to the minor unit; a settlement cancel reverses the payment once on replay; a clerk without the privilege gets 403; a transfer to another reservation still returns `transfer_cross_reservation` unless Q17 lifts it under F1.
   - **Scope out:** group master bill (**R4.1**); controlled negative adjustments and facility charge bills unless client Q16 asks.
 
-- [ ] **R4.27 Live room view**
+- [x] **R4.27 Live room view**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-20-live-room-view-design.md).
+    - **Route:** one property read, `get_room_board` (`reservations:read`, FAIL_CLOSED). It returns every non-archived room with its housekeeping status, today's OOO range, its in-house stay (with an active-invoice flag) and today's arrival.
+    - **Status per room:** one condition, from the pure `roomBoardCondition` in contracts, in this order: maintenance > billed (in house with an active GUEST invoice) > occupied > reserved > dirty > available. `unavailable` is never assigned, because HospAI has no out-of-service or block state, and empty groups are hidden.
+    - **Screen:** `/rooms/live` ("Live rooms", under Front Desk). Summary cards come from `get_front_desk_summary`. Filters cover room type and condition, and rooms can be grouped by condition or by type. Tiles show the condition word and the housekeeping word, the guest name through the property-scoped batch, and the date.
+    - **Links:** they go only to existing screens: Book (prefilled with the room), Check in, Folio, Release (`/maintenance`) and Assign (`/arrivals`).
+    - **Freshness:** the key is `['room-board', propertyId]`. `FrontOfficeLive` invalidates it, and a `MutationCache.onSuccess` invalidates the prefix after any successful mutation. That replaces per-site invalidation and only refetches while the screen is mounted.
+    - **Colours:** condition colours are tokens with light and dark values, checked by `check:web-pms-colors`.
+    - Built by a Claude Sonnet subagent (Cursor out of usage until 2026-12-11).
+    - Pins: routes 208 (last `get_room_board`); catalog, writers and schema unchanged.
   - **Depends:** **R1.3**, **R1.9**, **R4.29** (the billed state).
   - **Pilot checklist:** *Live room view by status*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Room Operations And Availability. **Prototype:** `RoomOpsLiveView.tsx`.
   - **Live:** `/board` is the tape: stays and OOO ranges with the current status word beside each room. It has no billed state and no grouping by condition. The housekeeping board has no occupancy. §16.6's earlier "covered by `/board`" is corrected.

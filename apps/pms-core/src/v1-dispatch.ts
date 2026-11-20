@@ -8101,6 +8101,23 @@ async function handleGetFrontDeskAvailableRooms(ctx: V1DispatchContext): Promise
   }
 }
 
+async function handleGetRoomBoard(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readRoomBoard();
+    if (!result.ok) return json({ ok: false, error: result.error }, 422);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -11928,6 +11945,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetReservationDraftBill,
+  },  {
+    id: 'get_room_board',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/room-board$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetRoomBoard,
   },
 ];
 

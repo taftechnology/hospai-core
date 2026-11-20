@@ -51,6 +51,17 @@ const CHROME_PAIRS = [
   ['--color-status-cancelled-fg', '--color-status-cancelled-surface'],
 ];
 
+/** Live room view conditions (R4.27). Checked wherever the stylesheet declares them. */
+const CONDITION_NAMES = [
+  'available',
+  'reserved',
+  'occupied',
+  'dirty',
+  'maintenance',
+  'billed',
+  'unavailable',
+];
+
 /** Non-text edges (fg prop, surface prop) at 3:1. */
 const NON_TEXT_PAIRS = [
   ['--color-field', '--color-surface-base'],
@@ -389,6 +400,9 @@ function themeMaps(cssByFile, errors) {
 function chromePairs(props) {
   const pairs = CHROME_PAIRS.slice();
   if (props.has('--sidebar')) pairs.push(['--ink', '--color-sidebar']);
+  for (const name of CONDITION_NAMES) {
+    if (props.has(`--color-cond-${name}`)) pairs.push([`--color-cond-${name}-fg`, `--color-cond-${name}`]);
+  }
   return pairs;
 }
 

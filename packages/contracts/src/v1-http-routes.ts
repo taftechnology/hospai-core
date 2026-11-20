@@ -1284,6 +1284,12 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
+  },  {
+    id: 'get_room_board',
+    scope: 'property',
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
   },
 ];
 

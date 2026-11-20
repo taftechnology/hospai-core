@@ -55,6 +55,7 @@ describe('me authority helpers', () => {
     );
     const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me }).map((e) => e.id);
     expect(ids).toContain('board');
+    expect(ids).toContain('live-rooms');
     expect(ids).toContain('reservations');
     expect(ids).not.toContain('in-house');
     expect(ids).not.toContain('departures');
@@ -321,5 +322,18 @@ describe('me authority helpers', () => {
         },
       }),
     ).toEqual({ kind: 'authority', authority: { kind: 'unknown' } });
+  });
+
+  it('Live rooms nav is gated by reservations:read, under Front Desk', () => {
+    const entry = NAV_ENTRIES.find((e) => e.id === 'live-rooms');
+    expect(entry).toMatchObject({
+      label: 'Live rooms',
+      path: '/rooms/live',
+      permission: 'reservations:read',
+    });
+    expect(entry!.order).toBeGreaterThan(NAV_ENTRIES.find((e) => e.id === 'arrivals')!.order);
+    const without: PropertyMe = { ...baseMe, permissions: ['folio:read'] };
+    const ids = filterNavEntries(NAV_ENTRIES, { kind: 'live', me: without }).map((e) => e.id);
+    expect(ids).not.toContain('live-rooms');
   });
 });

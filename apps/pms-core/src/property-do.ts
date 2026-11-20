@@ -5,6 +5,11 @@ import {
   formatInvoiceNumber,
   invoiceNumberProblem,
   type InvoiceSeries,
+  ROOM_BOARD_UNASSIGNED_ARRIVALS_MAX,
+  type RoomBoardResponse,
+  type RoomBoardRoom,
+  type RoomBoardUnassignedArrival,
+  roomBoardCondition,
   zonedWallClockMs,
 } from '@hospai/contracts';
 import {
@@ -14517,6 +14522,163 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       overstay,
       occupancy: { occupiedRooms, sellableRooms },
     };
+  }
+
+  /**
+   * Live room view (R4.27): every non-archived room for the property's business date with its
+   * in-house stay, today's assigned arrival, OOO cover and one server-decided condition. A pure
+   * read over room, room_ooo, reservation and invoice. It answers "which stay is in this room",
+   * never capacity (capacity stays in `readFrontOfficeSummary` / `availability_day`).
+   */
+  async readRoomBoard(): Promise<
+    RoomBoardResponse | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const sql = this.ctx.storage.sql;
+
+    const roomRows = sql
+      .exec(
+        `SELECT r.room_id, r.code, r.floor, r.room_type_id, r.status,
+                COALESCE(rt.name, '') AS room_type_name
+           FROM room r
+           LEFT JOIN room_type rt ON rt.room_type_id = r.room_type_id
+          WHERE r.archived_at IS NULL
+          ORDER BY r.code`,
+      )
+      .toArray() as Array<{
+      room_id: string;
+      code: string;
+      floor: string | null;
+      room_type_id: string;
+      status: string;
+      room_type_name: string;
+    }>;
+
+    // end_date is exclusive (a range ending today no longer covers today).
+    const oooByRoom = new Map<string, { oooId: string; reason: string | null; endDate: string }>();
+    const oooRows = sql
+      .exec(
+        `SELECT ooo_id, room_id, reason, end_date FROM room_ooo
+          WHERE start_date <= ? AND end_date > ?
+          ORDER BY end_date ASC, ooo_id ASC`,
+        businessDate,
+        businessDate,
+      )
+      .toArray() as Array<{ ooo_id: string; room_id: string; reason: string | null; end_date: string }>;
+    for (const o of oooRows) {
+      oooByRoom.set(o.room_id, { oooId: o.ooo_id, reason: o.reason, endDate: o.end_date });
+    }
+
+    const inHouseByRoom = new Map<
+      string,
+      {
+        reservationId: string;
+        guestRef: string;
+        departureDate: string;
+        vip: boolean;
+        dueOutToday: boolean;
+        billed: boolean;
+      }
+    >();
+    const inHouseRows = sql
+      .exec(
+        `SELECT r.reservation_id, r.room_id, r.guest_ref, r.departure_date, r.vip_flag,
+                EXISTS (
+                  SELECT 1 FROM invoice i
+                    JOIN folio_window w ON w.folio_window_id = i.folio_window_id
+                   WHERE i.reservation_id = r.reservation_id
+                     AND w.kind = 'GUEST'
+                     AND i.voided_at IS NULL
+                ) AS billed
+           FROM reservation r
+          WHERE r.status = 'checked_in' AND r.room_id IS NOT NULL
+          ORDER BY r.arrival_date ASC, r.reservation_id ASC`,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_id: string;
+      guest_ref: string;
+      departure_date: string;
+      vip_flag: number;
+      billed: number;
+    }>;
+    for (const r of inHouseRows) {
+      inHouseByRoom.set(r.room_id, {
+        reservationId: r.reservation_id,
+        guestRef: r.guest_ref,
+        departureDate: r.departure_date,
+        vip: r.vip_flag === 1,
+        dueOutToday: r.departure_date === businessDate,
+        billed: r.billed === 1,
+      });
+    }
+
+    const arrivalByRoom = new Map<string, { reservationId: string; guestRef: string; status: string }>();
+    const unassignedArrivals: RoomBoardUnassignedArrival[] = [];
+    const arrivalRows = sql
+      .exec(
+        `SELECT r.reservation_id, r.room_id, r.guest_ref, r.status, r.room_type_id,
+                COALESCE(rt.name, '') AS room_type_name
+           FROM reservation r
+           LEFT JOIN room_type rt ON rt.room_type_id = r.room_type_id
+          WHERE r.arrival_date = ? AND r.status IN ('pending', 'confirmed')
+          ORDER BY r.created_at ASC, r.reservation_id ASC`,
+        businessDate,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      room_id: string | null;
+      guest_ref: string;
+      status: string;
+      room_type_id: string;
+      room_type_name: string;
+    }>;
+    for (const a of arrivalRows) {
+      if (a.room_id) {
+        if (!arrivalByRoom.has(a.room_id)) {
+          arrivalByRoom.set(a.room_id, {
+            reservationId: a.reservation_id,
+            guestRef: a.guest_ref,
+            status: a.status,
+          });
+        }
+      } else if (unassignedArrivals.length < ROOM_BOARD_UNASSIGNED_ARRIVALS_MAX) {
+        unassignedArrivals.push({
+          reservationId: a.reservation_id,
+          guestRef: a.guest_ref,
+          status: a.status,
+          roomTypeId: a.room_type_id,
+          roomTypeName: a.room_type_name,
+        });
+      }
+    }
+
+    const rooms: RoomBoardRoom[] = roomRows.map((r) => {
+      const ooo = oooByRoom.get(r.room_id) ?? null;
+      const inHouse = inHouseByRoom.get(r.room_id) ?? null;
+      const arrival = arrivalByRoom.get(r.room_id) ?? null;
+      return {
+        roomId: r.room_id,
+        code: r.code,
+        floor: r.floor,
+        roomTypeId: r.room_type_id,
+        roomTypeName: r.room_type_name,
+        housekeepingStatus: r.status,
+        condition: roomBoardCondition({
+          housekeepingStatus: r.status,
+          oooCoversToday: ooo !== null,
+          inHouse: inHouse !== null,
+          inHouseBilled: inHouse?.billed === true,
+          arrivalAssignedToday: arrival !== null,
+        }),
+        ooo,
+        inHouse,
+        arrival,
+      };
+    });
+    return { ok: true, businessDate, asOf: Date.now(), rooms, unassignedArrivals };
   }
 
   private async assertFrontOfficeStreamAuthorized(

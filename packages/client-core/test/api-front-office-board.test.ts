@@ -50,6 +50,19 @@ describe('front-office board client methods', () => {
     expect(body.asOf).toBe(1);
   });
 
+  it('getRoomBoard GETs the property room-board path', async () => {
+    const client = testClient((path) => {
+      expect(path).toBe('/v1/properties/p%201/room-board');
+      return new Response(
+        JSON.stringify({ ok: true, businessDate: '2026-11-20', asOf: 1, rooms: [], unassignedArrivals: [] }),
+        { status: 200 },
+      );
+    });
+    const body = await client.getRoomBoard('p 1');
+    expect(body.businessDate).toBe('2026-11-20');
+    expect(body.rooms).toEqual([]);
+  });
+
   it('getFrontOfficeDirectory GETs window/date/status/cursor', async () => {
     const client = testClient((path) => {
       expect(path).toBe(

@@ -20,6 +20,7 @@ import type {
   PropertyScopedPermission,
   RatePlanInclusionInput,
   RatePlanListItem,
+  RoomBoardResponse,
   InclusionTaxMode,
   PackageComponentInput,
   PackageListItem,
@@ -508,6 +509,10 @@ export function createClient(opts: {
           floor: string | null;
         }>;
       };
+    },
+    async getRoomBoard(propertyId: string): Promise<RoomBoardResponse> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/room-board`);
+      return body as RoomBoardResponse;
     },
     async getFrontOfficeSummary(propertyId: string, date: string) {
       const qs = new URLSearchParams({ date });

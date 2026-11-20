@@ -40,3 +40,4 @@ export * from './gstin.js';
 export * from './gst-buyer.js';
 export * from './tender.js';
 export * from './recurring-charge-due.js';
+export * from './room-board.js';

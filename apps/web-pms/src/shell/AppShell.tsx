@@ -47,6 +47,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   dashboard: DashboardIcon,
   board: RoomPlanIcon,
   arrivals: CheckIcon,
+  'live-rooms': MonitorIcon,
   reservations: CalendarIcon,
   book: PlusIcon,
   housekeeping: BedIcon,

@@ -20,6 +20,8 @@ const noShowReservation = vi.fn();
 const cancelCheckIn = vi.fn();
 const listGuestDocuments = vi.fn();
 const getGuest = vi.fn();
+const getMe = vi.fn();
+const getReservationRateNights = vi.fn();
 
 const businessDate = { current: '2026-11-09' };
 
@@ -50,6 +52,8 @@ vi.mock('../client.js', () => ({
     cancelCheckIn: (...args: unknown[]) => cancelCheckIn(...args),
     listGuestDocuments: (...args: unknown[]) => listGuestDocuments(...args),
     getGuest: (...args: unknown[]) => getGuest(...args),
+    getMe: (...args: unknown[]) => getMe(...args),
+    getReservationRateNights: (...args: unknown[]) => getReservationRateNights(...args),
   },
 }));
 
@@ -95,6 +99,7 @@ function renderStay() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/reservations/res_1']}>
@@ -104,6 +109,7 @@ function renderStay() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { invalidateSpy };
 }
 
 describe('ReservationStayScreen', () => {
@@ -139,6 +145,27 @@ describe('ReservationStayScreen', () => {
       guestId: 'g1',
       erased: false,
       profile: { displayName: 'Ada Lovelace' },
+    });
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:read'],
+      orgPermissions: [],
+    });
+    getReservationRateNights.mockResolvedValue({
+      currency: 'INR',
+      nights: [
+        {
+          stayDate: '2026-11-12',
+          amountMinor: 500_000,
+          ratePlanId: 'BAR',
+          isOverride: false,
+          posted: false,
+        },
+      ],
     });
   });
 
@@ -228,7 +255,7 @@ describe('ReservationStayScreen', () => {
   it('modify sends every field and the opId changes with the body', async () => {
     getReservation.mockResolvedValue(stay('pending'));
     modifyReservation.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
-    renderStay();
+    const { invalidateSpy } = renderStay();
     await waitFor(() => expect(screen.getByTestId('stay-modify')).toBeTruthy());
     fireEvent.click(screen.getByTestId('stay-modify'));
     fireEvent.change(screen.getByTestId('modify-departure'), { target: { value: '2026-11-15' } });
@@ -250,6 +277,11 @@ describe('ReservationStayScreen', () => {
       'modify:res_1:rt2:2026-11-12:2026-11-15:3:1:BAR',
       body,
     );
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((call) => (call[0] as { queryKey: unknown }).queryKey);
+      expect(keys).toContainEqual(['reservation-rate-nights', 'prop_demo', 'res_1']);
+      expect(keys).toContainEqual(['reservation', 'prop_demo', 'res_1']);
+    });
   });
 
   it('not-found and a load error are different states', async () => {
@@ -300,5 +332,50 @@ describe('ReservationStayScreen', () => {
     expect(prefs.textContent).toContain('Quiet room');
     expect(prefs.textContent).toContain('Vegan');
     expect(prefs.textContent).toContain('Late arrival');
+  });
+
+  it('places nightly rates under Stay and shows the plan name, currency header, and formatted posted amount', async () => {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'admin',
+      permissions: ['reservations:read', 'rates:override'],
+      orgPermissions: [],
+    });
+    getReservationRateNights.mockResolvedValue({
+      currency: 'INR',
+      nights: [
+        {
+          stayDate: '2026-11-12',
+          amountMinor: 500_000,
+          ratePlanId: 'BAR',
+          isOverride: false,
+          posted: false,
+        },
+        {
+          stayDate: '2026-11-13',
+          amountMinor: 720_000,
+          ratePlanId: 'UNKNOWN',
+          isOverride: true,
+          posted: true,
+        },
+      ],
+    });
+    getReservation.mockResolvedValue(stay('confirmed'));
+    renderStay();
+    await waitFor(() => expect(screen.getByTestId('nightly-rates-table')).toBeTruthy());
+    const titles = screen.getAllByRole('heading', { level: 2 }).map((el) => el.textContent);
+    expect(titles.indexOf('Actions')).toBeLessThan(titles.indexOf('Stay'));
+    expect(titles.indexOf('Stay')).toBeLessThan(titles.indexOf('Nightly rates'));
+    expect(titles.indexOf('Nightly rates')).toBeLessThan(titles.indexOf('Damage deposit'));
+    const table = screen.getByTestId('nightly-rates-table');
+    expect(table.textContent).toContain('Amount (INR)');
+    await waitFor(() => expect(table.textContent).toContain('Best available'));
+    expect(table.textContent).toContain('UNKNOWN');
+    expect(table.textContent).toMatch(/₹7,200\.00/);
+    expect((screen.getByTestId('night-amount-2026-11-12') as HTMLInputElement).value).toBe('5000');
+    expect(screen.queryByTestId('night-amount-2026-11-13')).toBeNull();
   });
 });

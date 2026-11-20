@@ -193,6 +193,13 @@ import {
   INTERNAL_ERROR,
   DOMAIN_ERROR,
   LIMIT_EXCEEDED,
+  INVALID_REQUEST,
+  REASON_REQUIRED,
+  RATE_OVERRIDE_NOT_ALLOWED,
+  NIGHT_OUTSIDE_STAY,
+  NIGHT_ALREADY_POSTED,
+  OVERRIDE_BELOW_INCLUSIONS,
+  PRODUCT_INVALID_AMOUNT,
   PRODUCT_NOT_FOUND,
   PRODUCT_NOT_POSTABLE,
   RESERVATION_NOT_ACTIVE,
@@ -202,6 +209,8 @@ import {
   InvalidTenantIdError,
   RATES_BULK_UPDATE_MAX,
   RATE_PLAN_INCLUSION_MAX,
+  RATE_OVERRIDE_NIGHTS_MAX,
+  RATE_OVERRIDE_AMOUNT_MAX_MINOR,
   addedInclusionsMinor,
   inclusionUnits,
   ROOMS_BULK_STATUS_MAX,
@@ -9594,16 +9603,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const oldSet = new Set(oldNights);
     for (const stayDate of oldNights) {
       if (newSet.has(stayDate)) continue;
-      const consumed = this.ctx.storage.sql
-        .exec(
-          `SELECT 1 AS hit FROM folio_line
-           WHERE reservation_id = ? AND business_date = ? AND charge_code IN ('ROOM', 'NO_SHOW')
-           LIMIT 1`,
-          reservationId,
-          stayDate,
-        )
-        .toArray() as Array<{ hit: number }>;
-      if (consumed[0]) continue;
+      if (this.nightConsumedSync(reservationId, stayDate)) continue;
       this.ctx.storage.sql.exec(
         `DELETE FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
         reservationId,
@@ -9622,6 +9622,44 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /** ROOM / NO_SHOW folio line for the night — the same test as plan re-snapshot. */
+  private nightConsumedSync(reservationId: string, stayDate: string): boolean {
+    const consumed = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS hit FROM folio_line
+         WHERE reservation_id = ? AND business_date = ? AND charge_code IN ('ROOM', 'NO_SHOW')
+         LIMIT 1`,
+        reservationId,
+        stayDate,
+      )
+      .toArray() as Array<{ hit: number }>;
+    return Boolean(consumed[0]);
+  }
+
+  private includedValueMinorSync(
+    reservationId: string,
+    stayDate: string,
+    adults: number,
+    children: number,
+  ): number {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT amount_minor, basis, price_mode FROM reservation_inclusion_night
+         WHERE reservation_id = ? AND stay_date = ?`,
+        reservationId,
+        stayDate,
+      )
+      .toArray() as Array<{ amount_minor: number; basis: string; price_mode: string }>;
+    let total = 0;
+    for (const row of rows) {
+      if (row.price_mode !== 'INCLUDED') continue;
+      const units = inclusionUnits(row.basis, adults, children);
+      if (units <= 0) continue;
+      total += row.amount_minor * units;
+    }
+    return total;
+  }
+
   private resnapshotRateNightsForPlanChangeSync(
     reservationId: string,
     roomTypeId: string,
@@ -9629,25 +9667,37 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     nights: string[],
   ): void {
     const reservable: string[] = [];
+    const overridden: string[] = [];
     for (const stayDate of nights) {
-      const consumed = this.ctx.storage.sql
+      if (this.nightConsumedSync(reservationId, stayDate)) continue;
+      const rows = this.ctx.storage.sql
         .exec(
-          `SELECT 1 AS hit FROM folio_line
-           WHERE reservation_id = ? AND business_date = ? AND charge_code IN ('ROOM', 'NO_SHOW')
-           LIMIT 1`,
+          `SELECT is_override FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
           reservationId,
           stayDate,
         )
-        .toArray() as Array<{ hit: number }>;
-      if (!consumed[0]) reservable.push(stayDate);
-    }
-    for (const stayDate of reservable) {
+        .toArray() as Array<{ is_override: number }>;
+      if (rows[0]?.is_override === 1) {
+        overridden.push(stayDate);
+        continue;
+      }
       this.ctx.storage.sql.exec(
         `DELETE FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
         reservationId,
         stayDate,
       );
       this.deleteInclusionNightsSync(reservationId, stayDate);
+      reservable.push(stayDate);
+    }
+    for (const stayDate of overridden) {
+      this.ctx.storage.sql.exec(
+        `UPDATE reservation_rate_night SET rate_plan_id = ? WHERE reservation_id = ? AND stay_date = ?`,
+        ratePlanId,
+        reservationId,
+        stayDate,
+      );
+      this.deleteInclusionNightsSync(reservationId, stayDate);
+      this.snapshotInclusionNightsSync(reservationId, ratePlanId, [stayDate]);
     }
     if (reservable.length === 0) return;
     const promoRows = this.ctx.storage.sql
@@ -11226,6 +11276,340 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (mapped) return mapped;
       return { ok: false, error: INTERNAL_ERROR };
     }
+  }
+
+  /**
+   * Replace `reservation_rate_night.amount_minor` for unposted nights and set `is_override`.
+   * Fingerprint: `{ reservationId, nights, reason }` with nights sorted by stayDate.
+   * Does not touch availability and emits no event.
+   */
+  async tryOverrideNightRates(
+    actor: ActorContext,
+    input: {
+      reservationId: string;
+      nights: Array<{ stayDate: string; amountMinor: number }>;
+      reason: string;
+    },
+    idem: IdempotencyKey,
+    _provisional?: ProvisionalContext,
+  ): Promise<
+    | {
+        ok: true;
+        currency: string;
+        nights: Array<{
+          stayDate: string;
+          amountMinor: number | null;
+          ratePlanId: string | null;
+          isOverride: boolean;
+          posted: boolean;
+        }>;
+      }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof INVALID_REQUEST }
+    | { ok: false; error: typeof PRODUCT_INVALID_AMOUNT }
+    | { ok: false; error: typeof REASON_REQUIRED }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof RATE_OVERRIDE_NOT_ALLOWED }
+    | { ok: false; error: typeof NIGHT_OUTSIDE_STAY }
+    | { ok: false; error: typeof NIGHT_ALREADY_POSTED }
+    | { ok: false; error: typeof OVERRIDE_BELOW_INCLUSIONS }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof PROPERTY_ID_UNSET | typeof CURRENCY_UNSET }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'rates:override');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    if (!this.getPropertyIdSync()) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    const shape = this.rateOverrideShapeError(input);
+    if (shape) return shape;
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT room_type_id, rate_plan_id, arrival_date, departure_date, status, adults, children
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            room_type_id: string;
+            rate_plan_id: string;
+            arrival_date: string;
+            departure_date: string;
+            status: string;
+            adults: number;
+            children: number;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (
+            reservation.status !== 'pending' &&
+            reservation.status !== 'confirmed' &&
+            reservation.status !== 'checked_in'
+          ) {
+            return { ok: false as const, error: RATE_OVERRIDE_NOT_ALLOWED };
+          }
+
+          const nights = [...input.nights].sort((a, b) =>
+            a.stayDate < b.stayDate ? -1 : a.stayDate > b.stayDate ? 1 : 0,
+          );
+          const before: Array<{ stayDate: string; amountMinor: number | null }> = [];
+          for (const night of nights) {
+            if (
+              night.stayDate < reservation.arrival_date ||
+              night.stayDate >= reservation.departure_date
+            ) {
+              return { ok: false as const, error: NIGHT_OUTSIDE_STAY };
+            }
+            if (this.nightConsumedSync(input.reservationId, night.stayDate)) {
+              return { ok: false as const, error: NIGHT_ALREADY_POSTED };
+            }
+            const included = this.includedValueMinorSync(
+              input.reservationId,
+              night.stayDate,
+              reservation.adults,
+              reservation.children,
+            );
+            if (night.amountMinor < included) {
+              return { ok: false as const, error: OVERRIDE_BELOW_INCLUSIONS };
+            }
+            before.push({
+              stayDate: night.stayDate,
+              amountMinor: this.rateNightPreviewSync(
+                input.reservationId,
+                reservation.room_type_id,
+                reservation.rate_plan_id,
+                night.stayDate,
+              ),
+            });
+          }
+
+          const sibling = this.ctx.storage.sql
+            .exec(
+              `SELECT currency FROM reservation_rate_night WHERE reservation_id = ? LIMIT 1`,
+              input.reservationId,
+            )
+            .toArray() as Array<{ currency: string }>;
+          const currency = sibling[0]?.currency ?? this.readStoredLedgerCurrencySync();
+          if (!currency) return { ok: false as const, error: CURRENCY_UNSET };
+
+          const reason = input.reason.trim();
+          for (const night of nights) {
+            this.ctx.storage.sql.exec(
+              `INSERT INTO reservation_rate_night (
+                 reservation_id, stay_date, amount_minor, currency, rate_plan_id, is_override
+               ) VALUES (?, ?, ?, ?, ?, 1)
+               ON CONFLICT(reservation_id, stay_date) DO UPDATE SET
+                 amount_minor = excluded.amount_minor,
+                 currency = excluded.currency,
+                 rate_plan_id = excluded.rate_plan_id,
+                 is_override = 1`,
+              input.reservationId,
+              night.stayDate,
+              night.amountMinor,
+              currency,
+              reservation.rate_plan_id,
+            );
+          }
+
+          const after = nights.map((night) => ({
+            stayDate: night.stayDate,
+            amountMinor: night.amountMinor,
+          }));
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.override_night_rate',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: before,
+            afterJson: { nights: after, reason },
+            reservationId: input.reservationId,
+          });
+
+          const read = this.readReservationRateNightsSync(input.reservationId);
+          if (!read.ok) return { ok: false as const, error: NOT_FOUND };
+          return { ok: true as const, currency: read.currency, nights: read.nights };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async readReservationRateNights(reservationId: string): Promise<
+    | {
+        ok: true;
+        currency: string;
+        nights: Array<{
+          stayDate: string;
+          amountMinor: number | null;
+          ratePlanId: string | null;
+          isOverride: boolean;
+          posted: boolean;
+        }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    return this.readReservationRateNightsSync(reservationId);
+  }
+
+  private rateOverrideShapeError(input: {
+    nights: Array<{ stayDate: string; amountMinor: number }>;
+    reason: string;
+  }):
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof INVALID_REQUEST }
+    | { ok: false; error: typeof PRODUCT_INVALID_AMOUNT }
+    | { ok: false; error: typeof REASON_REQUIRED }
+    | null {
+    if (!Array.isArray(input.nights) || input.nights.length === 0) {
+      return { ok: false, error: INVALID_REQUEST };
+    }
+    if (input.nights.length > RATE_OVERRIDE_NIGHTS_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+    if (typeof input.reason !== 'string') return { ok: false, error: REASON_REQUIRED };
+    const reason = input.reason.trim();
+    if (reason.length < 1 || reason.length > 200) return { ok: false, error: REASON_REQUIRED };
+    const seen = new Set<string>();
+    for (const night of input.nights) {
+      if (
+        night == null ||
+        typeof night.stayDate !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(night.stayDate)
+      ) {
+        return { ok: false, error: INVALID_REQUEST };
+      }
+      if (seen.has(night.stayDate)) return { ok: false, error: INVALID_REQUEST };
+      seen.add(night.stayDate);
+      const amount = night.amountMinor;
+      if (
+        typeof amount !== 'number' ||
+        !Number.isInteger(amount) ||
+        amount < 0 ||
+        amount > RATE_OVERRIDE_AMOUNT_MAX_MINOR
+      ) {
+        return { ok: false, error: PRODUCT_INVALID_AMOUNT };
+      }
+    }
+    return null;
+  }
+
+  /** Current snapshot amount, else rate_day, else null. Does not insert. */
+  private rateNightPreviewSync(
+    reservationId: string,
+    roomTypeId: string,
+    ratePlanId: string,
+    stayDate: string,
+  ): number | null {
+    const snap = this.ctx.storage.sql
+      .exec(
+        `SELECT amount_minor FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
+        reservationId,
+        stayDate,
+      )
+      .toArray() as Array<{ amount_minor: number }>;
+    if (snap[0]) return snap[0].amount_minor;
+    try {
+      return this.rateDayAmountSync(roomTypeId, ratePlanId, stayDate);
+    } catch (e) {
+      if (e instanceof RateMissingError) return null;
+      throw e;
+    }
+  }
+
+  private readReservationRateNightsSync(reservationId: string):
+    | {
+        ok: true;
+        currency: string;
+        nights: Array<{
+          stayDate: string;
+          amountMinor: number | null;
+          ratePlanId: string | null;
+          isOverride: boolean;
+          posted: boolean;
+        }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof CURRENCY_UNSET } {
+    const resRows = this.ctx.storage.sql
+      .exec(
+        `SELECT room_type_id, rate_plan_id, arrival_date, departure_date
+         FROM reservation WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      room_type_id: string;
+      rate_plan_id: string;
+      arrival_date: string;
+      departure_date: string;
+    }>;
+    const reservation = resRows[0];
+    if (!reservation) return { ok: false, error: NOT_FOUND };
+    let stayDates: string[];
+    try {
+      stayDates = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+    } catch {
+      return { ok: false, error: NOT_FOUND };
+    }
+    const sibling = this.ctx.storage.sql
+      .exec(
+        `SELECT currency FROM reservation_rate_night WHERE reservation_id = ? LIMIT 1`,
+        reservationId,
+      )
+      .toArray() as Array<{ currency: string }>;
+    const currency = sibling[0]?.currency ?? this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    const nights = stayDates.map((stayDate) => {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT amount_minor, rate_plan_id, is_override
+           FROM reservation_rate_night WHERE reservation_id = ? AND stay_date = ?`,
+          reservationId,
+          stayDate,
+        )
+        .toArray() as Array<{ amount_minor: number; rate_plan_id: string; is_override: number }>;
+      const row = rows[0];
+      const posted = this.nightConsumedSync(reservationId, stayDate);
+      if (row) {
+        return {
+          stayDate,
+          amountMinor: row.amount_minor,
+          ratePlanId: row.rate_plan_id,
+          isOverride: row.is_override === 1,
+          posted,
+        };
+      }
+      return {
+        stayDate,
+        amountMinor: this.rateNightPreviewSync(
+          reservationId,
+          reservation.room_type_id,
+          reservation.rate_plan_id,
+          stayDate,
+        ),
+        ratePlanId: reservation.rate_plan_id,
+        isOverride: false,
+        posted,
+      };
+    });
+    return { ok: true, currency, nights };
   }
 
   private pickAutoAssignRoomSync(

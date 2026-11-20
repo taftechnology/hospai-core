@@ -63,6 +63,16 @@ export type ReplayTarget = {
     idem: { key: string; fingerprint: string },
     ctx: ProvisionalContext,
   ) => Promise<{ ok: boolean; error?: string }>;
+  tryOverrideNightRates: (
+    actor: ActorContext,
+    payload: {
+      reservationId: string;
+      nights: Array<{ stayDate: string; amountMinor: number }>;
+      reason: string;
+    },
+    idem: { key: string; fingerprint: string },
+    ctx: ProvisionalContext,
+  ) => Promise<{ ok: boolean; error?: string }>;
   trySetHousekeepingPriority: (
     actor: ActorContext,
     payload: {
@@ -167,6 +177,20 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
       stub.tryAssignHousekeeping(
         actor,
         payload as { roomId: string; businessDate: string; assigneeRef: string },
+        idem,
+        ctx,
+      ),
+  },
+  'reservations.override_night_rate': {
+    fingerprintInput: (p) => p,
+    invoke: (stub, actor, payload, idem, ctx) =>
+      stub.tryOverrideNightRates(
+        actor,
+        payload as {
+          reservationId: string;
+          nights: Array<{ stayDate: string; amountMinor: number }>;
+          reason: string;
+        },
         idem,
         ctx,
       ),

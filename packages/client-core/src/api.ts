@@ -1630,6 +1630,42 @@ export function createClient(opts: {
         },
       );
     },
+    async getReservationRateNights(propertyId: string, reservationId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/rate-nights`,
+      );
+      return body as {
+        currency: string;
+        nights: Array<{
+          stayDate: string;
+          amountMinor: number | null;
+          ratePlanId: string | null;
+          isOverride: boolean;
+          posted: boolean;
+        }>;
+      };
+    },
+    async overrideReservationNightRates(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      body: { nights: Array<{ stayDate: string; amountMinor: number }>; reason: string },
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/rate-override`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            nights: body.nights,
+            reason: body.reason,
+            idempotencyKey,
+          }),
+        },
+        { reservationId },
+      );
+    },
     async modifyReservation(
       propertyId: string,
       reservationId: string,

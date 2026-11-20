@@ -4,6 +4,7 @@ import {
   formatVarianceMinor,
   isCurrentOrPreviousBusinessDate,
   minorToMajorInput,
+  parseAmountToMinor,
   parseMajorToMinor,
   previousIsoDate,
 } from './money.js';
@@ -14,6 +15,9 @@ describe('money helpers', () => {
   it('prefills an editable amount as plain digits and parses it back', () => {
     expect(minorToMajorInput(450_000)).toBe('4500.00');
     expect(minorToMajorInput(10_000)).toBe('100.00');
+    expect(parseAmountToMinor('8000')).toBe(800_000);
+    expect(parseAmountToMinor('400.50')).toBe(40_050);
+    expect(parseAmountToMinor('0')).toBe(0);
     expect(parseMajorToMinor('100.00')).toBe(10_000);
     expect(parseMajorToMinor(minorToMajorInput(450_000))).toBe(450_000);
   });

@@ -21,6 +21,7 @@ const getMe = vi.fn();
 const getGuest = vi.fn();
 const addGuestDocument = vi.fn();
 const getGuestSettings = vi.fn();
+const getReservationRateNights = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -51,6 +52,7 @@ vi.mock('../client.js', () => ({
     getGuest: (...args: unknown[]) => getGuest(...args),
     addGuestDocument: (...args: unknown[]) => addGuestDocument(...args),
     getGuestSettings: (...args: unknown[]) => getGuestSettings(...args),
+    getReservationRateNights: (...args: unknown[]) => getReservationRateNights(...args),
   },
 }));
 
@@ -113,11 +115,11 @@ function renderCheckIn() {
 
 describe('CheckInScreen', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     listRatePlans.mockResolvedValue({
       ok: true,
       plans: [{ ratePlanId: 'rp_bar', code: 'BAR', name: 'Best Available Rate' }],
     });
-    vi.clearAllMocks();
     getReservation.mockResolvedValue({
       reservationId: 'res_1',
       roomTypeId: 'rt',
@@ -152,6 +154,18 @@ describe('CheckInScreen', () => {
       role: 'staff',
       permissions: ['reservations:write'],
       orgPermissions: [],
+    });
+    getReservationRateNights.mockResolvedValue({
+      currency: 'INR',
+      nights: [
+        {
+          stayDate: '2026-08-11',
+          amountMinor: 500_000,
+          ratePlanId: 'BAR',
+          isOverride: false,
+          posted: false,
+        },
+      ],
     });
     getGuest.mockResolvedValue({
       guestId: 'g1',
@@ -191,6 +205,29 @@ describe('CheckInScreen', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('nightly rates show the plan name and a formatted posted amount', async () => {
+    getReservationRateNights.mockResolvedValue({
+      currency: 'INR',
+      nights: [
+        {
+          stayDate: '2026-08-11',
+          amountMinor: 720_000,
+          ratePlanId: 'rp_bar',
+          isOverride: false,
+          posted: true,
+        },
+      ],
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('nightly-rates-toggle')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('nightly-rates-toggle'));
+    const table = screen.getByTestId('nightly-rates-table');
+    expect(table.textContent).toContain('Amount (INR)');
+    await waitFor(() => expect(table.textContent).toContain('Best Available Rate'));
+    expect(table.textContent).toContain('INR 7,200.00');
+    expect(screen.queryByTestId('night-amount-2026-08-11')).toBeNull();
   });
 
   it('53: explicit roomId sent on check-in; ROOM_NOT_READY shows override', async () => {

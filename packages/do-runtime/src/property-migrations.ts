@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 46. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 47. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1456,6 +1456,13 @@ END`,
 
 export const BUYER_GST_V46_SQL = BUYER_GST_V46_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v47 — hand-set nightly rate flag (R4.20). */
+export const RATE_OVERRIDE_V47_STATEMENTS = [
+  `ALTER TABLE reservation_rate_night ADD COLUMN is_override INTEGER NOT NULL DEFAULT 0`,
+] as const;
+
+export const RATE_OVERRIDE_V47_SQL = RATE_OVERRIDE_V47_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1686,5 +1693,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 46,
     name: 'buyer_gst',
     statements: BUYER_GST_V46_STATEMENTS,
+  },
+  {
+    version: 47,
+    name: 'rate_override',
+    statements: RATE_OVERRIDE_V47_STATEMENTS,
   },
 ] as const;

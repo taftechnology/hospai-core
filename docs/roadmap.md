@@ -585,7 +585,8 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** two rows post once each on retry; an advance on a confirmed stay reaches the guest window and survives check-in; checkout balance nets it; receipts number consecutively.
   - **Scope out:** group deposit allocation (**R4.1**); gateway capture (**R4.7**); a standalone advance page unless client Q21 asks for one.
 
-- [ ] **R4.20 Day-wise rate override on a reservation**
+- [x] **R4.20 Day-wise rate override on a reservation**
+  - **Done (2026-11-19):** [spec](superpowers/specs/2026-11-19-day-wise-rate-override-design.md). `reservations.override_night_rate` replaces the snapshotted nightly amount for chosen unposted nights (pending, confirmed, checked-in) with a required reason and an audit row; new permission `rates:override` (admin, owner). An `is_override` flag keeps overridden nights through date and plan changes. Tax resolves per night on the new amount, so a night can cross a GST slab. A *Nightly rates* editor sits on the stay card, at check-in (collapsed) and behind Book's *Show nightly rates*; Book posts the override after Hold or Confirm with Retry. Adds 1 command, 2 routes, PropertyDO migration 47.
   - **Depends:** **R1.4**, **R1.15**, **R3.6**.
   - **Pilot checklist:** *Day-wise rate overrides* in *New reservation*. The rates matrix (shipped) sets a plan's price per day; this is the clerk changing **one booking's** price for chosen nights. Nothing in pms-core supports it today.
   - **Locked:** the override replaces the snapshotted nightly amount on the stay (read the [reservations book](superpowers/specs/2026-07-27-reservations-book-design.md) and [modify](superpowers/specs/2026-07-27-reservations-modify-design.md) specs for where that snapshot lives — do not add a second price column). Integer minor units, a required reason, an audit-log write and its own permission. `POST_ROOM_CHARGES` posts the overridden amount, and **tax resolves per night on the overridden value** — in India that can move a night across a GST slab (§7.9 requirements 2 and 4). Modify keeps overrides on nights that remain.
@@ -1038,13 +1039,13 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R4.22** (2026-11-19):
+After **R4.20** (2026-11-19):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **115** |
-| `V1_HTTP_ROUTE_AUDIT` | **188** routes, last `get_invoice_buyer` |
-| `PROPERTY_SCHEMA_HEAD` | **46** |
+| `COMMAND_CATALOG` | length **116** |
+| `V1_HTTP_ROUTE_AUDIT` | **190** routes, last `post_reservation_rate_override` |
+| `PROPERTY_SCHEMA_HEAD` | **47** |
 | `ORG_SCHEMA_HEAD` | **13** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 

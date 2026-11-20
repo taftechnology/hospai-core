@@ -268,21 +268,24 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('INSERT INTO tax_rule_component')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE city_ledger_account ADD COLUMN')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE invoice ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE reservation_rate_night ADD COLUMN is_override')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 46', () => {
+  it('applies property migrations through version 47', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(46);
+    expect(v1).toBe(47);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(46);
-    expect(sql.schemaVersion).toHaveLength(46);
+    expect(v2).toBe(47);
+    expect(sql.schemaVersion).toHaveLength(47);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -736,7 +739,7 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(46);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(47);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

@@ -27,6 +27,7 @@ describe('stay mutation query keys', () => {
     expect(seen).toEqual(stayMutationQueryKeys('prop_1', 'res_1'));
     const consumers: unknown[][] = [
       ['reservation', 'prop_1', 'res_1'],
+      ['reservation-rate-nights', 'prop_1', 'res_1'],
       ['folio', 'prop_1', 'res_1'],
       ['folio-payments', 'prop_1', 'res_1'],
       ['board', 'arrivals', 'prop_1', '2026-11-09', null],

@@ -21,6 +21,7 @@ import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
+import { NightlyRatesEditor } from './NightlyRatesEditor.js';
 import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { useFormat } from '../shell/PropertyFormat.js';
@@ -441,6 +442,20 @@ export function CheckInScreen() {
           </div>
         }
       />
+      {reservationId ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Nightly rates</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <NightlyRatesEditor
+              propertyId={tenant.propertyId}
+              reservationId={reservationId}
+              collapsedDefault
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {reservationQ.isError ? (
         <Alert data-testid="check-in-reservation-error">

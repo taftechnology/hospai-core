@@ -91,6 +91,7 @@ if (process.argv.includes('--self-test')) {
   let EVENT_CONSUMER_EXCEPTION_V44_SQL;
   let ID_DOCUMENT_ON_FILE_V45_SQL;
   let BUYER_GST_V46_SQL;
+  let RATE_OVERRIDE_V47_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -157,6 +158,7 @@ if (process.argv.includes('--self-test')) {
       EVENT_CONSUMER_EXCEPTION_V44_SQL,
       ID_DOCUMENT_ON_FILE_V45_SQL,
       BUYER_GST_V46_SQL,
+      RATE_OVERRIDE_V47_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -615,6 +617,15 @@ const doPropertyTargets = [
 
 `,
     sql: BUYER_GST_V46_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0047_rate_override.sql'),
+    header: `-- PropertyDO reservation_rate_night.is_override — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: RATE_OVERRIDE_V47_SQL,
   },
 ];
 

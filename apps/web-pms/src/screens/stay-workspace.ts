@@ -13,6 +13,7 @@ export type StayModifyBody = {
 export function stayMutationQueryKeys(propertyId: string, reservationId: string): unknown[][] {
   return [
     ['reservation', propertyId, reservationId],
+    ['reservation-rate-nights', propertyId, reservationId],
     ['folio', propertyId, reservationId],
     ['folio-payments', propertyId, reservationId],
     ['board'],

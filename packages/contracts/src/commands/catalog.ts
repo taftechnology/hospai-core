@@ -181,6 +181,20 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes: INVENTORY_FAIL_CLOSED_NOTES,
   },
   {
+    id: 'reservations.override_night_rate',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'QUEUE_PROVISIONAL',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'rates:override',
+    notes:
+      'R4.20: replace reservation_rate_night.amount_minor for unposted nights and set is_override. ' +
+      'No availability write and no event. JSON idempotencyKey, nights sorted by stayDate before the fingerprint. ' +
+      'Kill-switch is the pms.core route switch. A queued replay re-checks rates:override for the original user.',
+  },
+  {
     id: 'reservations.confirm',
     prototypeAction: null,
     lane: 'INTERACTIVE',

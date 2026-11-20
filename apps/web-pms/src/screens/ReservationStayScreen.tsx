@@ -22,6 +22,7 @@ import {
   type AlertIntent,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
+import { NightlyRatesEditor } from './NightlyRatesEditor.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
@@ -324,6 +325,14 @@ export function ReservationStayScreen() {
         money={money}
         preferences={preferences}
       />
+      <Card>
+        <CardHeader>
+          <CardTitle>Nightly rates</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <NightlyRatesEditor propertyId={propertyId} reservationId={reservationId} />
+        </CardContent>
+      </Card>
       <DamagePanel
         reservationId={reservationId}
         loading={paymentsQ.isLoading}

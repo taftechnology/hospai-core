@@ -13,11 +13,19 @@ export function parseMajorToMinor(raw: string): number {
   return Math.round(Number(raw) * 100);
 }
 
-/** Trimmed major string with at most two decimal places → minor units, or null if invalid. */
+/**
+ * Trimmed major string with at most two decimal places → minor units, or null if invalid.
+ * Digits are scaled by padding, not by floating multiplication.
+ */
 export function parseAmountToMinor(raw: string): number | null {
   const trimmed = raw.trim();
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
-  return parseMajorToMinor(trimmed);
+  const [whole, frac = ''] = trimmed.split('.');
+  const digits = `${whole}${frac.padEnd(2, '0')}`.replace(/^0+(?=\d)/, '');
+  if (digits.length > 15) return null;
+  const value = Number(digits);
+  if (!Number.isSafeInteger(value)) return null;
+  return value;
 }
 
 /**

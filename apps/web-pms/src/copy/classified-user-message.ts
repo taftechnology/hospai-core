@@ -125,6 +125,13 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   product_exists: () => 'A product with that id already exists.',
   sku_taken: () => 'Another product already uses that SKU.',
   invalid_amount: () => 'Enter a price of zero or more, with at most two decimals.',
+  invalid_request: () => 'Check the nights and try again.',
+  reason_required: () => 'Give a reason for the rate change.',
+  rate_override_not_allowed: () =>
+    'Nightly rates can be changed on a pending, confirmed, or in-house stay.',
+  night_outside_stay: () => 'That date is outside this stay.',
+  night_already_posted: () => 'That night is already on the folio. Correct it there.',
+  override_below_inclusions: () => 'That amount is below what is included in the rate.',
   category_not_found: () => 'That category is missing or archived — pick an active category.',
   product_not_found: () => 'That product no longer exists — refresh the list.',
   product_not_postable: () =>

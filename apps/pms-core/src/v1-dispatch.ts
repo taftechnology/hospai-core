@@ -151,6 +151,10 @@ import {
   KEY_SHRED_FAILED,
   LAST_OWNER,
   LIMIT_EXCEEDED,
+  INVALID_REQUEST,
+  REASON_REQUIRED,
+  PRODUCT_INVALID_AMOUNT,
+  NIGHT_OUTSIDE_STAY,
   parseGuestPreferences,
   parseInvoiceBuyer,
   parseProfileGstBuyer,
@@ -169,6 +173,8 @@ import {
   NAMED_LIST_MAX_ENTRIES,
   RATES_BULK_UPDATE_MAX,
   RATE_PLAN_INCLUSION_MAX,
+  RATE_OVERRIDE_NIGHTS_MAX,
+  RATE_OVERRIDE_AMOUNT_MAX_MINOR,
   type RatePlanInclusionInput,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
@@ -2461,6 +2467,132 @@ async function handlePostReservations(ctx: V1DispatchContext): Promise<Response>
   }
 
   return json(result, 201);
+}
+
+type RateOverrideNight = { stayDate: string; amountMinor: number };
+
+function rateOverrideRequestError(body: {
+  nights?: unknown;
+  reason?: unknown;
+  idempotencyKey?: unknown;
+}): { error: typeof LIMIT_EXCEEDED | typeof INVALID_REQUEST | typeof PRODUCT_INVALID_AMOUNT | typeof REASON_REQUIRED } | { error: 'invalid_body' } | null {
+  if (typeof body.idempotencyKey !== 'string' || body.idempotencyKey.length === 0) {
+    return { error: 'invalid_body' };
+  }
+  if (!Array.isArray(body.nights) || body.nights.length === 0) return { error: INVALID_REQUEST };
+  if (body.nights.length > RATE_OVERRIDE_NIGHTS_MAX) return { error: LIMIT_EXCEEDED };
+  if (typeof body.reason !== 'string') return { error: REASON_REQUIRED };
+  const reason = body.reason.trim();
+  if (reason.length < 1 || reason.length > 200) return { error: REASON_REQUIRED };
+  const seen = new Set<string>();
+  for (const night of body.nights) {
+    if (night == null || typeof night !== 'object') return { error: INVALID_REQUEST };
+    const row = night as { stayDate?: unknown; amountMinor?: unknown };
+    if (typeof row.stayDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(row.stayDate)) {
+      return { error: INVALID_REQUEST };
+    }
+    if (seen.has(row.stayDate)) return { error: INVALID_REQUEST };
+    seen.add(row.stayDate);
+    const amount = row.amountMinor;
+    if (
+      typeof amount !== 'number' ||
+      !Number.isInteger(amount) ||
+      amount < 0 ||
+      amount > RATE_OVERRIDE_AMOUNT_MAX_MINOR
+    ) {
+      return { error: PRODUCT_INVALID_AMOUNT };
+    }
+  }
+  return null;
+}
+
+function sortRateOverrideNights(nights: RateOverrideNight[]): RateOverrideNight[] {
+  return [...nights].sort((a, b) => (a.stayDate < b.stayDate ? -1 : a.stayDate > b.stayDate ? 1 : 0));
+}
+
+async function handleGetReservationRateNights(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservationRateNights(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, commandErrorHttpStatus(result.error));
+    }
+    return json({ currency: result.currency, nights: result.nights }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostReservationRateOverride(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const bodyParsed = await parseJsonBody<{
+    nights: RateOverrideNight[];
+    reason: string;
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  const shape = rateOverrideRequestError(body);
+  if (shape) {
+    if (shape.error === 'invalid_body') return json({ error: 'invalid_body' }, 400);
+    return json({ ok: false, error: shape.error }, commandErrorHttpStatus(shape.error));
+  }
+
+  const nights = sortRateOverrideNights(
+    body.nights.map((night) => ({ stayDate: night.stayDate, amountMinor: night.amountMinor })),
+  );
+  const commandPayload = {
+    reservationId,
+    nights,
+    reason: body.reason.trim(),
+  };
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await commandFingerprint('reservations.override_night_rate', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryOverrideNightRates']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.override_night_rate',
+      routeId: 'post_reservation_rate_override',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () =>
+      resolvedCtx.resolved.stub.tryOverrideNightRates(actor, commandPayload, {
+        key: body.idempotencyKey,
+        fingerprint,
+      }),
+  });
+
+  if (invoked.kind === 'response') return invoked.response;
+  const result = invoked.result;
+  if (result.ok) {
+    return json({ currency: result.currency, nights: result.nights }, 200);
+  }
+  if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+  if (result.error === NIGHT_OUTSIDE_STAY) {
+    return json({ ok: false, error: result.error }, commandErrorHttpStatus(result.error));
+  }
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'rates:override',
+    successStatus: 200,
+  });
 }
 
 async function handleGetReservation(ctx: V1DispatchContext): Promise<Response> {
@@ -10639,6 +10771,25 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetInvoiceBuyer,
+  },
+  {
+    id: 'get_reservation_rate_nights',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/rate-nights$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationRateNights,
+  },
+  {
+    id: 'post_reservation_rate_override',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/rate-override$/,
+    permission: 'rates:override',
+    commandId: 'reservations.override_night_rate',
+    entitlement: 'pms.core',
+    handler: handlePostReservationRateOverride,
   },
 ];
 

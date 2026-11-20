@@ -332,7 +332,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(81);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(82);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -935,8 +935,8 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_invoice_buyer');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(188);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('post_reservation_rate_override');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(190);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -945,8 +945,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(81);
-    expect(COMMAND_CATALOG).toHaveLength(115);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(82);
+    expect(COMMAND_CATALOG).toHaveLength(116);
     for (const id of [
       'guests.add_document',
       'guests.attach_document_scan',

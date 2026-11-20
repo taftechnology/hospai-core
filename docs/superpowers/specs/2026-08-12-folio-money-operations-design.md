@@ -402,6 +402,7 @@ CREATE TABLE reservation_rate_night (
   amount_minor   INTEGER NOT NULL,
   currency       TEXT NOT NULL,
   rate_plan_id   TEXT NOT NULL,
+  is_override    INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (reservation_id, stay_date)
 );
 CREATE INDEX reservation_rate_night_plan_idx
@@ -416,7 +417,9 @@ Same moment lifecycle snapshots penalty fields: inventory first committed (`pend
 
 Inquiry create: **no** night rows (no inventory). Hold/confirm then snapshots.
 
-**Modify dates:** new nights are inserted from **current** `rate_day`; overlapping nights **keep** the original snapshot (do not silently reprice a quoted night). Nights that leave the stay are `DELETE`d **only if unconsumed**. A night is **consumed** when a `folio_line` exists for that `(reservation_id, stay_date)` with `charge_code IN ('ROOM', 'NO_SHOW')` (`business_date = stay_date`). Consumed snapshot rows are **retained** — deleting them would let a later penalty or repost fall back to mutable `rate_day` and reprice history. Append-only means a reversed ROOM line still counts as consumed (the original row remains). Plan change on modify is not in today’s modify contract — if `ratePlanId` is passed later, leftover; this chunk’s modify does not re-snapshot plan (lifecycle: modify does not re-snapshot penalty either).
+**Modify dates:** new nights are inserted from **current** `rate_day`; overlapping nights **keep** the original snapshot (do not silently reprice a quoted night). Nights that leave the stay are `DELETE`d **only if unconsumed**, including a night with `is_override = 1`. A night is **consumed** when a `folio_line` exists for that `(reservation_id, stay_date)` with `charge_code IN ('ROOM', 'NO_SHOW')` (`business_date = stay_date`). Consumed snapshot rows are **retained** — deleting them would let a later penalty or repost fall back to mutable `rate_day` and reprice history. Append-only means a reversed ROOM line still counts as consumed (the original row remains).
+
+**Plan change (R4.20 D7):** a plan-only change, or a plan change together with a date change, re-snapshots unconsumed nights from the new plan. A night with `is_override = 1` is not re-priced: it keeps `amount_minor`, takes the new `rate_plan_id`, and has its inclusion nights re-snapshotted for that plan. Posted nights keep both amount and plan id. `is_override` is set by `reservations.override_night_rate` (PropertyDO migration 47). Submitting the plan’s current `rate_day` amount still leaves `is_override = 1`.
 
 ### 8.3 Readers
 

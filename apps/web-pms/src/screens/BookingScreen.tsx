@@ -32,9 +32,11 @@ import {
   Textarea,
   Total,
 } from '@hospai/ui-kit';
+import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { TaxInclusionNote } from './tax-inclusion-note.js';
+import { NightlyRatesEditor, rateOverrideOpId, type NightlyRateDraft } from './NightlyRatesEditor.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import { validAmount } from './board-dialogs.js';
@@ -180,6 +182,8 @@ export function BookingScreen() {
   const [addonDraftQty, setAddonDraftQty] = useState('1');
   const [addonDraftPrice, setAddonDraftPrice] = useState('');
   const [failedAddons, setFailedAddons] = useState<FailedBookAddon[]>([]);
+  const [nightDraft, setNightDraft] = useState<NightlyRateDraft | null>(null);
+  const [rateOverrideFailed, setRateOverrideFailed] = useState<NightlyRateDraft | null>(null);
 
   const postableProducts = usePostableProducts();
 
@@ -301,7 +305,13 @@ export function BookingScreen() {
   }, [normalizedPromoCode, promos, ratePlanId, arrivalDate, lastNight]);
   const { matchedPromo, promoError, promoBlocked } = promoResolution;
 
-  const stayQuoteMinor = useMemo(() => {
+  const meQ = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+  });
+  const canOverrideRates = Boolean(meQ.data && hasPropertyPermission(meQ.data, 'rates:override'));
+
+  const quoteNights = useMemo(() => {
     if (!arrivalDate || !lastNight || lastNight < arrivalDate) return null;
     const nights: string[] = [];
     let cur = arrivalDate;
@@ -318,11 +328,23 @@ export function BookingScreen() {
     }
     if (nights.length === 0 || nights.some((n) => !byDate.has(n))) return null;
     const applyInput = matchedPromo ? promoApplyInput(matchedPromo) : null;
-    return nights.reduce((sum, n) => {
-      const base = byDate.get(n) ?? 0;
-      return sum + (applyInput ? applyPromoToAmountMinor(base, applyInput) : base);
-    }, 0);
-  }, [arrivalDate, lastNight, ratesQ.data, matchedPromo]);
+    return nights.map((stayDate) => {
+      const base = byDate.get(stayDate) ?? 0;
+      return {
+        stayDate,
+        amountMinor: applyInput ? applyPromoToAmountMinor(base, applyInput) : base,
+        ratePlanId,
+        isOverride: false,
+        posted: false,
+      };
+    });
+  }, [arrivalDate, lastNight, ratesQ.data, matchedPromo, ratePlanId]);
+
+  const stayQuoteMinor = useMemo(() => {
+    if (!quoteNights) return null;
+    if (nightDraft?.dirty) return nightDraft.totalMinor;
+    return quoteNights.reduce((sum, night) => sum + night.amountMinor, 0);
+  }, [quoteNights, nightDraft]);
 
   const typesQ = useQuery({
     queryKey: ['room-types', propertyId, 'active'],
@@ -450,10 +472,12 @@ export function BookingScreen() {
 
   const partyOk = adults >= 1 && children >= 0;
   const quoteComplete = stayQuoteMinor != null;
+  const nightlyReasonMissing = nightDraft?.dirty === true && nightDraft.reason.length === 0;
   const confirmEnabled =
     !bookFailClosed &&
     !plansEmpty &&
     quoteComplete &&
+    !nightlyReasonMissing &&
     !promoBlocked &&
     quoteAriVersion != null &&
     roomTypeId != null &&
@@ -505,6 +529,23 @@ export function BookingScreen() {
     return { failures, queued };
   }
 
+  async function postRateOverride(
+    draft: NightlyRateDraft,
+  ): Promise<{ failed: boolean; queued: boolean }> {
+    const opId = rateOverrideOpId(reservationId, draft.nights, draft.reason);
+    try {
+      const result = await api.overrideReservationNightRates(
+        propertyId,
+        reservationId,
+        opId,
+        { nights: draft.nights, reason: draft.reason },
+      );
+      return { failed: false, queued: isQueuedResult(result) };
+    } catch {
+      return { failed: true, queued: false };
+    }
+  }
+
   const retryAddonsMutation = useMutation({
     mutationFn: () => postBookAddons(failedAddons),
     onSuccess: (result) => {
@@ -523,6 +564,24 @@ export function BookingScreen() {
           state: { createdReservationId: reservationId },
         });
       }
+    },
+  });
+
+  const retryRateOverrideMutation = useMutation({
+    mutationFn: () => {
+      if (!rateOverrideFailed) throw new Error('no override');
+      return postRateOverride(rateOverrideFailed);
+    },
+    onSuccess: (result) => {
+      if (result.failed) return;
+      setRateOverrideFailed(null);
+      if (result.queued) {
+        setQueuedNotice('Nightly rates are queued and will apply when the property is reachable.');
+        return;
+      }
+      void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
+        state: { createdReservationId: reservationId },
+      });
     },
   });
 
@@ -586,13 +645,36 @@ export function BookingScreen() {
         },
         opId,
       );
+      const override =
+        (status === 'pending' || status === 'confirmed') && nightDraft?.dirty
+          ? await postRateOverride(nightDraft)
+          : { failed: false, queued: false };
       if ((status === 'pending' || status === 'confirmed') && addonLines.length > 0) {
         const posted = await postBookAddons(addonLines);
-        return { status, addonFailures: posted.failures, addonQueued: posted.queued };
+        return {
+          status,
+          addonFailures: posted.failures,
+          addonQueued: posted.queued,
+          rateFailed: override.failed,
+          rateQueued: override.queued,
+          rateDraft: nightDraft?.dirty ? nightDraft : null,
+        };
       }
-      return { status, addonFailures: [] as FailedBookAddon[], addonQueued: false };
+      return {
+        status,
+        addonFailures: [] as FailedBookAddon[],
+        addonQueued: false,
+        rateFailed: override.failed,
+        rateQueued: override.queued,
+        rateDraft: nightDraft?.dirty ? nightDraft : null,
+      };
     },
     onSuccess: (result) => {
+      if (result.rateFailed && result.rateDraft) {
+        setRateOverrideFailed(result.rateDraft);
+      } else {
+        setRateOverrideFailed(null);
+      }
       if (result.addonQueued) {
         setFailedAddons(result.addonFailures);
         setQueuedNotice(
@@ -605,6 +687,11 @@ export function BookingScreen() {
       if (result.addonFailures.length > 0) {
         setFailedAddons(result.addonFailures);
         setMessage('Booking created — some add-ons could not be posted.');
+        return;
+      }
+      if (result.rateFailed) {
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
         return;
       }
       void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
@@ -1184,6 +1271,15 @@ export function BookingScreen() {
               )
             }
           />
+          {quoteNights ? (
+            <NightlyRatesEditor
+              propertyId={propertyId}
+              preview={{ currency: '', nights: quoteNights }}
+              canOverride={canOverrideRates}
+              collapsedDefault
+              onDraftChange={setNightDraft}
+            />
+          ) : null}
           <TaxInclusionNote propertyId={tenant.propertyId} />
         </CardContent>
         <CardFooter>
@@ -1224,6 +1320,21 @@ export function BookingScreen() {
         </CardFooter>
       </Card>
 
+      {rateOverrideFailed ? (
+        <Alert data-testid="rate-override-failure-alert">
+          <p>Booking saved; the nightly rates were not applied</p>
+          <div className="ui-row">
+            <Button
+              type="button"
+              data-testid="retry-rate-override"
+              disabled={retryRateOverrideMutation.isPending}
+              onClick={() => retryRateOverrideMutation.mutate()}
+            >
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
       {failedAddons.length > 0 ? (
         <Alert data-testid="addon-failure-alert">
           <p>Booking created — these add-ons could not be posted:</p>

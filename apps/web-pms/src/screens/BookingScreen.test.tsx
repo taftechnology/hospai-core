@@ -20,6 +20,8 @@ const addFolioLine = vi.fn();
 const listGuestDocuments = vi.fn();
 const readGuestDocument = vi.fn();
 const getGuestDocumentScan = vi.fn();
+const getMe = vi.fn();
+const overrideReservationNightRates = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -48,6 +50,8 @@ vi.mock('../client.js', () => ({
     listGuestDocuments: (...a: unknown[]) => listGuestDocuments(...a),
     readGuestDocument: (...a: unknown[]) => readGuestDocument(...a),
     getGuestDocumentScan: (...a: unknown[]) => getGuestDocumentScan(...a),
+    getMe: (...a: unknown[]) => getMe(...a),
+    overrideReservationNightRates: (...a: unknown[]) => overrideReservationNightRates(...a),
   },
 }));
 
@@ -262,6 +266,19 @@ describe('BookingScreen', () => {
     listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
     addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
     listGuestDocuments.mockResolvedValue({ ok: true, documents: [], requireIdAtCheckIn: false });
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'admin',
+      permissions: ['rates:override', 'reservations:write'],
+      orgPermissions: [],
+    });
+    overrideReservationNightRates.mockResolvedValue({
+      classified: { class: 'live' },
+      body: { currency: 'INR', nights: [] },
+    });
   });
 
   afterEach(() => {
@@ -380,6 +397,98 @@ describe('BookingScreen', () => {
       expect(loc.getAttribute('data-search')).toContain('date=2026-08-11');
       expect(loc.getAttribute('data-state')).toMatch(/createdReservationId/);
     });
+    expect(overrideReservationNightRates).not.toHaveBeenCalled();
+  });
+
+  it('posts an edited nightly rate after confirm, as integer minor units, and retries the same body', async () => {
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('nightly-rates-toggle')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('nightly-rates-toggle'));
+    const rates = screen.getByTestId('nightly-rates-table');
+    expect(rates.textContent).toContain('Amount (INR)');
+    await waitFor(() => expect(rates.textContent).toContain('Best Available'));
+    const amount = screen.getByTestId('night-amount-2026-08-11') as HTMLInputElement;
+    expect(amount.value).toBe('150');
+    fireEvent.change(amount, { target: { value: '200' } });
+    fireEvent.change(screen.getByTestId('nightly-rate-reason'), { target: { value: 'Walk-in' } });
+    await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toMatch(/200/));
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(overrideReservationNightRates).toHaveBeenCalled());
+    const body = overrideReservationNightRates.mock.calls[0]![3] as {
+      nights: Array<{ stayDate: string; amountMinor: number }>;
+      reason: string;
+    };
+    expect(body.nights).toEqual([{ stayDate: '2026-08-11', amountMinor: 20_000 }]);
+    expect(body.reason).toBe('Walk-in');
+    expect(Number.isInteger(body.nights[0]!.amountMinor)).toBe(true);
+    const opId = overrideReservationNightRates.mock.calls[0]![2];
+
+    overrideReservationNightRates.mockRejectedValueOnce(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { error: 'night_already_posted' },
+        retryAfterMs: null,
+      }),
+    );
+    cleanup();
+    overrideReservationNightRates.mockReset();
+    overrideReservationNightRates
+      .mockRejectedValueOnce(
+        new ClassifiedError({
+          class: 'client_error',
+          status: 422,
+          body: { error: 'night_already_posted' },
+          retryAfterMs: null,
+        }),
+      )
+      .mockResolvedValue({ classified: { class: 'live' }, body: { currency: 'INR', nights: [] } });
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-name'), { target: { value: 'Ada' } });
+    await waitFor(() => expect(screen.getByTestId('nightly-rates-toggle')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('nightly-rates-toggle'));
+    fireEvent.change(screen.getByTestId('night-amount-2026-08-11'), { target: { value: '200' } });
+    fireEvent.change(screen.getByTestId('nightly-rate-reason'), { target: { value: 'Walk-in' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() =>
+      expect(screen.getByTestId('rate-override-failure-alert').textContent).toContain(
+        'Booking saved; the nightly rates were not applied',
+      ),
+    );
+    const firstOp = overrideReservationNightRates.mock.calls[0]![2];
+    const firstBody = overrideReservationNightRates.mock.calls[0]![3];
+    fireEvent.click(screen.getByTestId('retry-rate-override'));
+    await waitFor(() => expect(overrideReservationNightRates).toHaveBeenCalledTimes(2));
+    expect(overrideReservationNightRates.mock.calls[1]![2]).toBe(firstOp);
+    expect(overrideReservationNightRates.mock.calls[1]![3]).toEqual(firstBody);
+    expect(opId).toBeTypeOf('string');
+  });
+
+  it('hides nightly amount inputs without rates:override', async () => {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:write'],
+      orgPermissions: [],
+    });
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    await waitFor(() => expect(screen.getByTestId('nightly-rates-toggle')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('nightly-rates-toggle'));
+    expect(screen.queryByTestId('night-amount-2026-08-11')).toBeNull();
+    const rates = screen.getByTestId('nightly-rates-table');
+    expect(rates.textContent).toContain('Amount (INR)');
+    await waitFor(() => expect(rates.textContent).toContain('Best Available'));
+    expect(rates.textContent).toMatch(/₹150\.00/);
   });
 
   it('find existing Ada: pick uses guestRef; no createGuest', async () => {

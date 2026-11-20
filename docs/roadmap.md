@@ -678,7 +678,16 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** a checked-in stay shows occupied with its guest; a checked-out room shows dirty; OOO shows maintenance; a bill awaiting settlement shows billed; hotel A sees only hotel A; card counts match `get_front_desk_summary`.
   - **Scope out:** calendar settings; door lock and Wi-Fi actions.
 
-- [ ] **R4.28 Room operations grid depth**
+- [x] **R4.28 Room operations grid depth**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-20-tape-grid-depth-design.md).
+    - **No second grid:** `/board` is widened, with the same `--tape-*` math and the 14-day cap (F2 holds until Q18).
+    - **Occupancy row:** one cell per date under the Free row, from the same `get_property_availability` query: Σ sold / Σ (physical − blocked), with the fraction over a percent. It sits behind `inventory:read`, and a room-type filter narrows it.
+    - **Per-date states:** `get_front_desk_tape` stay rows gain `invoiced` (also on the websocket delta), so in-house invoiced bars read "Billed". OOO bars read "Maintenance". Today's cell of a dirty, unoccupied, unreserved room reads "Dirty". The legend lists them all.
+    - **Filters:** room type and "Status today" through the shared `roomBoardCondition`, held in the URL (`?type=&status=`). The tape key is unchanged, and "No rooms match these filters" has its own state.
+    - **Header:** the Room Plan header and legend now wrap at 768 px, and the grid fills the remaining height.
+    - Built by a Claude Sonnet subagent.
+    - Pins unchanged (127 / 208 / 93 / 51).
+    - Left as found: the day header labels are tight at 768 px.
   - **Depends:** **R4.27** (shared room condition).
   - **Pilot checklist:** *Room operations grid / tape*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Room Operations And Availability. **Prototype:** `TapeChart.tsx`.
   - **Live:** `/board`, capped at 14 days (`MAX_TAPE_UI_DAYS`), with OOO ranges and the room's current status word. No occupancy row or per-date state.

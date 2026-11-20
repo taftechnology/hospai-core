@@ -3,6 +3,7 @@ import { shouldRetry, retryDelay } from '@hospai/client-core';
 import { Skeleton } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../../client.js';
 import { hasPropertyPermission } from '../../auth/me.js';
+import { occupancyForDate } from './tape-filter.js';
 
 export function TapeFreeRow({
   dates,
@@ -46,35 +47,77 @@ export function TapeFreeRow({
   }
 
   return (
-    <div
-      className="tape-row tape-row--free"
-      role="row"
-      style={{ ['--tape-cols' as string]: tapeCols }}
-    >
-      <div className="tape-room tape-corner" role="rowheader">
-        Free
+    <div className="tape-foot" role="rowgroup">
+      <div
+        className="tape-row tape-row--free"
+        role="row"
+        style={{ ['--tape-cols' as string]: tapeCols }}
+      >
+        <div className="tape-room tape-corner" role="rowheader">
+          Free
+        </div>
+        {dates.map((d, i) => {
+          const failed = freeQ.isError;
+          const value = byDate.get(d);
+          const zero = freeQ.isSuccess && value === 0;
+          return (
+            <div
+              key={d}
+              className={`tape-free tape-head${zero ? ' tape-free--none' : ''}`}
+              role="gridcell"
+              style={{ ['--tape-col' as string]: String(2 + i * 2) }}
+            >
+              {pending ? (
+                <Skeleton label="Loading free rooms" width="1.5rem" height="0.75rem" />
+              ) : failed ? (
+                'Unavailable'
+              ) : (
+                value
+              )}
+            </div>
+          );
+        })}
       </div>
-      {dates.map((d) => {
-        const failed = freeQ.isError;
-        const value = byDate.get(d);
-        const zero = freeQ.isSuccess && value === 0;
-        return (
-          <div
-            key={d}
-            className={`tape-free tape-head${zero ? ' tape-free--none' : ''}`}
-            role="gridcell"
-            style={{ ['--tape-col' as string]: String(2 + dates.indexOf(d) * 2) }}
-          >
-            {pending ? (
-              <Skeleton label="Loading free rooms" width="1.5rem" height="0.75rem" />
-            ) : failed ? (
-              'Unavailable'
-            ) : (
-              value
-            )}
-          </div>
-        );
-      })}
+      <div
+        className="tape-row tape-row--occ"
+        role="row"
+        data-testid="tape-occupancy-row"
+        style={{ ['--tape-cols' as string]: tapeCols }}
+      >
+        <div className="tape-room tape-corner" role="rowheader">
+          Occupancy
+        </div>
+        {dates.map((d, i) => {
+          const occ = freeQ.isSuccess ? occupancyForDate(freeQ.data.items, roomTypeIdsOnTape, d) : null;
+          return (
+            <div
+              key={d}
+              className="tape-free tape-free--stack tape-head tabular-nums"
+              role="gridcell"
+              data-testid={`tape-occupancy-${d}`}
+              style={{ ['--tape-col' as string]: String(2 + i * 2) }}
+              title={
+                occ
+                  ? `${occ.occupied} of ${occ.sellable} sellable rooms sold${occ.percent == null ? '' : `, ${occ.percent}%`}`
+                  : undefined
+              }
+            >
+              {pending ? (
+                <Skeleton label="Loading occupancy" width="1.5rem" height="0.75rem" />
+              ) : freeQ.isError || occ == null ? (
+                'Unavailable'
+              ) : (
+                <>
+                  <span>
+                    {occ.occupied}/{occ.sellable}
+                  </span>
+                  <span>{occ.percent == null ? '—' : `${occ.percent}%`}</span>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

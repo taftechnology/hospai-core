@@ -26,7 +26,13 @@ export function TapeLegend() {
         <i className="ui-stay ui-stay--pending" aria-hidden /> Pending
       </span>
       <span>
-        <i className="ui-stay ui-stay--blocked" aria-hidden /> Out of order
+        <i className="ui-stay ui-stay--blocked" aria-hidden /> Maintenance
+      </span>
+      <span>
+        <i className="room-cond room-cond--billed" aria-hidden /> Billed
+      </span>
+      <span>
+        <i className="room-cond room-cond--dirty" aria-hidden /> Dirty today
       </span>
       <span>
         <i className="tape-legend__free" aria-hidden /> Free

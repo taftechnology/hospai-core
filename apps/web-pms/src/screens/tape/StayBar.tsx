@@ -65,7 +65,8 @@ export function StayBar({
   const narrow = span.colEnd - span.colStart <= 2;
   const visibleName = narrow ? compactGuestName(guestName) : guestName;
   const word = stateKey ? STAY_STATE_WORD[stateKey] : block.status;
-  const ariaName = `${guestName}, ${word}, ${date(arrival)} – ${date(departure)}`;
+  const billed = block.status === 'checked_in' && block.invoiced === true;
+  const ariaName = `${guestName}, ${word}${billed ? ', Billed' : ''}, ${date(arrival)} – ${date(departure)}`;
 
   const meQ = useQuery({
     queryKey: ['me', tenant.propertyId],
@@ -117,6 +118,11 @@ export function StayBar({
         {showDueIcon ? <LogOutIcon /> : null}
         {showOverstayIcon ? <AlertCircleIcon /> : null}
         <span>{visibleName}</span>
+        {billed ? (
+          <span className="room-cond room-cond--billed" data-testid="badge-billed">
+            Billed
+          </span>
+        ) : null}
         {block.vipFlag === true ? (
           <span className="ui-badge status-vip" data-testid="badge-vip">
             VIP
@@ -141,6 +147,7 @@ export function StayBar({
             {isReservationStatus(block.status) ? (
               <StatusBadge status={block.status} />
             ) : null}
+            {billed ? <span className="room-cond room-cond--billed">Billed</span> : null}
           </div>
           <div className="stay-popover-stats ui-stat-grid">
             <StatField

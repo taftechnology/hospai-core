@@ -271,6 +271,30 @@ describe('room board [R4.27]', () => {
     expect(roomOf(await board(h), rm).condition).toBe('occupied');
   });
 
+  it('4b. the tape marks an in-house stay invoiced while its GUEST invoice is active [R4.28]', async () => {
+    const h = await provisionHotel('user_rb_4b');
+    const rm = await addRoom(h, '411');
+    const reservationId = await createStay(h, rm, h.bd, addCalendarDays(h.bd, 1));
+    await h.stub.writeConfigValueForTest('pms.invoice.gen_mode', 'Manually');
+    const tapeStay = async () => {
+      const t = await h.stub.readFrontOfficeTape(h.bd, addCalendarDays(h.bd, 1));
+      const hit = t.blocks.find((b) => b.reservationId === reservationId);
+      if (!hit) throw new Error('stay missing from tape');
+      return hit;
+    };
+    expect((await tapeStay()).invoiced).toBe(false);
+    const gen = { reservationId, folioWindowId: `${reservationId}:GUEST` };
+    const generated = await h.stub.tryGenerateInvoice(asUser(h.actor), gen, await idemFor('gen-rb4b', gen));
+    expect(generated).toMatchObject({ ok: true });
+    if (!generated.ok) throw new Error('invoice');
+    expect((await tapeStay()).invoiced).toBe(true);
+    const voidIn = { invoiceId: generated.invoiceId, reason: 'regenerate' };
+    expect(await h.stub.tryVoidInvoice(asUser(h.actor), voidIn, await idemFor('void-rb4b', voidIn))).toMatchObject({
+      ok: true,
+    });
+    expect((await tapeStay()).invoiced).toBe(false);
+  });
+
   it('5. an assigned arrival today is reserved even when the room is dirty; unassigned arrivals are listed apart', async () => {
     const h = await provisionHotel('user_rb_5');
     const rm = await addRoom(h, '501');

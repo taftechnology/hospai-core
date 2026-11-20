@@ -508,7 +508,7 @@ type FrontOfficeDelta = {
     status: string;
     floor: string | null;
   }>;
-  blocks?: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
+  blocks?: Array<ReturnType<PropertyDO['mapFrontDeskListRow']> & { invoiced: boolean }>;
   ooo?: Array<{ oooId: string; roomId: string; startDate: string; endDate: string; reason: string | null }>;
   removedBlockIds?: string[];
   removedOooIds?: string[];
@@ -14247,7 +14247,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       status: string;
       floor: string | null;
     }>;
-    blocks: Array<ReturnType<PropertyDO['mapFrontDeskListRow']>>;
+    blocks: Array<ReturnType<PropertyDO['mapFrontDeskListRow']> & { invoiced: boolean }>;
     ooo: Array<{ oooId: string; roomId: string; startDate: string; endDate: string; reason: string | null }>;
   }> {
     this.assertRpcAvailable();
@@ -14273,7 +14273,14 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(
         `SELECT reservation_id, room_type_id, guest_ref, arrival_date, departure_date, status, room_id,
                 adults, children, front_office_comment, vip_flag, dnd_flag, confirm_by, rate_plan_id,
-                source_code, market_segment_code
+                source_code, market_segment_code,
+                (status = 'checked_in' AND EXISTS (
+                  SELECT 1 FROM invoice i
+                    JOIN folio_window w ON w.folio_window_id = i.folio_window_id
+                   WHERE i.reservation_id = reservation.reservation_id
+                     AND w.kind = 'GUEST'
+                     AND i.voided_at IS NULL
+                )) AS invoiced
          FROM reservation
          WHERE status IN ('pending', 'confirmed', 'checked_in')
            AND arrival_date <= ?
@@ -14281,7 +14288,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         toDate,
         fromDate,
       )
-      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0]>;
+      .toArray() as Array<Parameters<PropertyDO['mapFrontDeskListRow']>[0] & { invoiced: number }>;
     const toExclusive = enumerateFromDate(toDate, 2)[1]!;
     const oooRows = this.ctx.storage.sql
       .exec(
@@ -14310,7 +14317,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         status: r.status,
         floor: r.floor,
       })),
-      blocks: blockRows.map((row) => this.mapFrontDeskListRow(row)),
+      blocks: blockRows.map((row) => ({ ...this.mapFrontDeskListRow(row), invoiced: row.invoiced === 1 })),
       ooo: oooRows.map((o) => ({
         oooId: o.ooo_id,
         roomId: o.room_id,
@@ -14857,7 +14864,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (!row || !OCCUPYING_STATUSES.has(row.status)) {
         return { removedBlockIds: [reservationId] };
       }
-      return { blocks: [this.mapFrontDeskListRow(row)] };
+      const invoiced =
+        row.status === 'checked_in' &&
+        this.ctx.storage.sql
+          .exec(
+            `SELECT 1 FROM invoice i
+               JOIN folio_window w ON w.folio_window_id = i.folio_window_id
+              WHERE i.reservation_id = ? AND w.kind = 'GUEST' AND i.voided_at IS NULL
+              LIMIT 1`,
+            reservationId,
+          )
+          .toArray().length > 0;
+      return { blocks: [{ ...this.mapFrontDeskListRow(row), invoiced }] };
     }
     if (eventType === 'room.ooo_changed') {
       const oooId = typeof p.oooId === 'string' ? p.oooId : null;

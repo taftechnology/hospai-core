@@ -63,7 +63,8 @@ describe('TapeFreeRow', () => {
       }),
     );
     renderRow();
-    expect(await screen.findByText('Unavailable')).toBeTruthy();
+    // The free row and the occupancy row share one read, so both say Unavailable.
+    expect((await screen.findAllByText('Unavailable')).length).toBe(2);
     expect(screen.queryByText('0')).toBeNull();
   });
 });

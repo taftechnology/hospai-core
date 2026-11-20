@@ -420,7 +420,7 @@ export function createClient(opts: {
           status: string;
           floor: string | null;
         }>;
-        blocks: FrontDeskItem[];
+        blocks: Array<FrontDeskItem & { invoiced?: boolean }>;
         ooo: Array<{
           oooId: string;
           roomId: string;

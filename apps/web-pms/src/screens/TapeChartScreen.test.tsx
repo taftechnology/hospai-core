@@ -295,7 +295,8 @@ describe('TapeChartScreen', () => {
       }),
     );
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
-    expect(await screen.findByText('Room type unavailable')).toBeTruthy();
+    // The band title and the room-type filter option both carry the fallback label.
+    expect((await screen.findAllByText('Room type unavailable')).length).toBeGreaterThan(0);
     expect(screen.queryByText('rt_missing')).toBeNull();
   });
 

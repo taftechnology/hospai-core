@@ -24,13 +24,17 @@ import {
   EmptyState,
   PageHeader,
   Skeleton,
+  Field,
+  NativeSelect,
   Tabs,
+  Toolbar,
   RoomStatus,
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
+import { ROOM_CONDITION_ORDER, isRoomCondition, roomConditionWord } from '../status/room-condition.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { bookHref } from '../status/book-href.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
@@ -38,6 +42,12 @@ import { PlusIcon } from '../shell/icons.js';
 import { BoardSummary } from './board-summary.js';
 import { TapeLegend } from './tape/TapeLegend.js';
 import { TapeGrid } from './tape/TapeGrid.js';
+import {
+  filterRoomsByCondition,
+  filterRoomsByType,
+  tapeRoomConditions,
+  type TapeCondition,
+} from './tape/tape-filter.js';
 
 function dateFromSearchParam(raw: string | null): string | null {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
@@ -88,6 +98,10 @@ function typeLabel(id: string, types: RoomTypeLabel[]): string {
 
 export function TapeChartScreen() {
   const [params] = useSearchParams();
+  const typeFilter = params.get('type') ?? '';
+  const statusRaw = params.get('status') ?? '';
+  const statusFilter: TapeCondition | '' =
+    isRoomCondition(statusRaw) && statusRaw !== 'unavailable' ? statusRaw : '';
   const navigate = useNavigate();
   const fromParam = dateFromSearchParam(params.get('from'));
   const toParam = dateFromSearchParam(params.get('to'));
@@ -128,6 +142,8 @@ export function TapeChartScreen() {
     sp.set('from', nextFrom);
     sp.set('to', nextTo);
     if (nextView === 'available') sp.set('view', 'available');
+    if (typeFilter) sp.set('type', typeFilter);
+    if (statusFilter) sp.set('status', statusFilter);
     return `?${sp.toString()}`;
   }
 
@@ -137,6 +153,15 @@ export function TapeChartScreen() {
     setTo(clamped.to);
     setTapeWindowHint(clamped.clamped ? 'Room plan shows up to 14 days.' : null);
     void navigate({ search: windowSearch(clamped.from, clamped.to, view) }, { replace: true });
+  }
+
+  function writeFilters(next: { type?: string; status?: string }) {
+    const sp = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(next)) {
+      if (value) sp.set(key, value);
+      else sp.delete(key);
+    }
+    void navigate({ search: `?${sp.toString()}` }, { replace: true });
   }
 
   const stepDays = from && to ? inclusiveDayCount(from, to) : 7;
@@ -192,6 +217,19 @@ export function TapeChartScreen() {
   const typeRows = (typesQ.data?.roomTypes ?? []) as RoomTypeLabel[];
   const dates = from && to ? inclusiveDates(from, to) : [];
   const today = timeZone ? propertyLocalToday(timeZone) : null;
+
+  const todayInWindow = today != null && from != null && to != null && today >= from && today <= to;
+  const conditions =
+    todayInWindow && today ? tapeRoomConditions({ rooms, blocks, ooo, today }) : null;
+  const roomsOfType = filterRoomsByType(rooms, typeFilter);
+  const shownRooms = filterRoomsByCondition(roomsOfType, statusFilter, conditions);
+  const typeOptionMap = new Map<string, string>();
+  for (const r of rooms) {
+    if (!typeOptionMap.has(r.roomTypeId)) typeOptionMap.set(r.roomTypeId, typeLabel(r.roomTypeId, typeRows));
+  }
+  const typeOptions = [...typeOptionMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const availabilityTypeIds = new Set(roomsOfType.map((r) => r.roomTypeId));
+  const filtering = typeFilter !== '' || statusFilter !== '';
 
   let body: ReactNode;
   if (loadError) {
@@ -269,6 +307,19 @@ export function TapeChartScreen() {
     }
   } else if (rooms.length === 0) {
     body = <EmptyState kind="empty" title="No rooms yet — create rooms in Inventory." />;
+  } else if (shownRooms.length === 0) {
+    body = (
+      <EmptyState
+        kind="nomatch"
+        data-testid="tape-no-match"
+        title="No rooms match these filters."
+        action={
+          <Button type="button" size="sm" onClick={() => writeFilters({ type: '', status: '' })}>
+            Clear filters
+          </Button>
+        }
+      />
+    );
   } else {
     body = (
       <TapeGrid
@@ -276,7 +327,10 @@ export function TapeChartScreen() {
         to={to}
         dates={dates}
         today={today}
-        rooms={rooms}
+        rooms={shownRooms}
+        conditions={conditions}
+        availabilityTypeIds={availabilityTypeIds}
+        hideUnassigned={statusFilter !== ''}
         blocks={blocks}
         ooo={ooo}
         states={states}
@@ -323,7 +377,6 @@ export function TapeChartScreen() {
             Available
           </Link>
         </Tabs>
-        <TapeLegend />
         <div className="room-plan-controls__end">
           {from && to ? (
             <DateRange
@@ -341,8 +394,63 @@ export function TapeChartScreen() {
           </Button>
         </div>
       </div>
+      <TapeLegend />
       {tapeWindowHint ? <p className="muted room-plan-hint">{tapeWindowHint}</p> : null}
       <Card className="tape-wrap">
+        {view === 'tape' && rooms.length > 0 ? (
+          <Toolbar>
+            <div className="tape-filters" data-testid="tape-filters">
+              <Field
+                label="Room type"
+                control={
+                  <NativeSelect
+                    data-testid="tape-filter-type"
+                    value={typeFilter}
+                    onChange={(e) => writeFilters({ type: e.target.value })}
+                  >
+                    <option value="">All room types</option>
+                    {typeOptions.map(([id, name]) => (
+                      <option key={id} value={id}>
+                        {name}
+                      </option>
+                    ))}
+                    {typeFilter && !typeOptions.some(([id]) => id === typeFilter) ? (
+                      <option value={typeFilter}>Room type unavailable</option>
+                    ) : null}
+                  </NativeSelect>
+                }
+              />
+              <Field
+                label="Status today"
+                hint={
+                  conditions == null && today != null
+                    ? 'Today is outside this date range.'
+                    : undefined
+                }
+                control={
+                  <NativeSelect
+                    data-testid="tape-filter-status"
+                    value={statusFilter}
+                    disabled={conditions == null}
+                    onChange={(e) => writeFilters({ status: e.target.value })}
+                  >
+                    <option value="">All statuses</option>
+                    {ROOM_CONDITION_ORDER.filter((c) => c !== 'unavailable').map((c) => (
+                      <option key={c} value={c}>
+                        {roomConditionWord(c)}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+              {filtering ? (
+                <Button type="button" size="sm" onClick={() => writeFilters({ type: '', status: '' })}>
+                  Clear filters
+                </Button>
+              ) : null}
+            </div>
+          </Toolbar>
+        ) : null}
         {view === 'available' && availableQ.isSuccess ? (
           <CardHeader>
             <CardTitle>Available Rooms</CardTitle>

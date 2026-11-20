@@ -3,7 +3,6 @@ import { Link } from 'react-router';
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -14,6 +13,7 @@ import { useFormat } from '../../shell/PropertyFormat.js';
 import { assignLanes, stayTracks, type StayTrackSpan } from './stay-tracks.js';
 import { BlockedBar, StayBar } from './StayBar.js';
 import { TapeFreeRow } from './TapeFreeRow.js';
+import type { TapeCondition } from './tape-filter.js';
 
 type RoomRow = {
   roomId: string;
@@ -68,7 +68,7 @@ function barTabIndexFor(rowIndex: number, focus: FocusCell, span: StayTrackSpan)
 
 function oooBarLabel(reason: string | null): string {
   const trimmed = reason?.trim();
-  return trimmed ? `Out of order · ${trimmed}` : 'Out of order';
+  return trimmed ? `Maintenance · ${trimmed}` : 'Maintenance';
 }
 
 export function TapeGrid({
@@ -81,6 +81,9 @@ export function TapeGrid({
   ooo,
   states,
   typeRows,
+  conditions,
+  availabilityTypeIds,
+  hideUnassigned,
 }: {
   from: string;
   to: string;
@@ -91,10 +94,15 @@ export function TapeGrid({
   ooo: OooRow[];
   states: Record<string, GuestRowState | undefined>;
   typeRows: RoomTypeLabel[];
+  /** Each room's condition today, or null when today is outside the window. */
+  conditions: Map<string, TapeCondition> | null;
+  /** Room types the Free and Occupancy rows total over (room-type filter only). */
+  availabilityTypeIds: Set<string>;
+  /** A status filter is on: unassigned lanes are not rooms, so they step aside. */
+  hideUnassigned: boolean;
 }) {
   const { date, tapeDay } = useFormat();
   const tapeCols = String(Math.max(dates.length, 1));
-  const roomTypeIdsOnTape = useMemo(() => new Set(rooms.map((r) => r.roomTypeId)), [rooms]);
 
   const groups: Array<{ typeId: string; rooms: RoomRow[] }> = [];
   const seen = new Set<string>();
@@ -111,6 +119,7 @@ export function TapeGrid({
   const unassignedByType = new Map<string, FrontDeskItem[]>();
   for (const b of blocks) {
     if (b.roomId == null) {
+      if (hideUnassigned) continue;
       const tid = blockTypeId(b) || groups[0]?.typeId || '';
       const list = unassignedByType.get(tid) ?? [];
       list.push(b);
@@ -184,6 +193,11 @@ export function TapeGrid({
   }
 
   let renderRow = 1;
+
+  /** Dirty today: only the business-date column, only where the shared condition says dirty. */
+  function dirtyHere(roomId: string, d: string): boolean {
+    return d === today && conditions?.get(roomId) === 'dirty';
+  }
 
   return (
     <div
@@ -336,23 +350,31 @@ export function TapeGrid({
                             roomId: room.roomId,
                           })}
                           aria-label={`Book ${typeName} on ${date(d)}`}
-                          className={`tape-cell tape-cell--bookable${d === today ? ' tape-cell--today' : ''}`}
+                          className={`tape-cell tape-cell--bookable${d === today ? ' tape-cell--today' : ''}${dirtyHere(room.roomId, d) ? ' tape-cell--state' : ''}`}
                           role="gridcell"
                           tabIndex={cellTabIndexFor(rIdx, col, focus, roomBarSpans)}
                           onFocus={() => setFocus({ row: rIdx, col })}
                           style={{ ['--tape-col' as string]: String(2 + i * 2) }}
-                        />
+                        >
+                          {dirtyHere(room.roomId, d) ? (
+                            <span className="room-cond room-cond--dirty">Dirty</span>
+                          ) : null}
+                        </Link>
                       );
                     }
                     return (
                       <div
                         key={d}
-                        className={`tape-cell${d === today ? ' tape-cell--today' : ''}`}
+                        className={`tape-cell${d === today ? ' tape-cell--today' : ''}${dirtyHere(room.roomId, d) ? ' tape-cell--state' : ''}`}
                         role="gridcell"
                         tabIndex={cellTabIndexFor(rIdx, col, focus, roomBarSpans)}
                         onFocus={() => setFocus({ row: rIdx, col })}
                         style={{ ['--tape-col' as string]: String(2 + i * 2) }}
-                      />
+                      >
+                        {dirtyHere(room.roomId, d) ? (
+                          <span className="room-cond room-cond--dirty">Dirty</span>
+                        ) : null}
+                      </div>
                     );
                   })}
                   {roomBlocks.map((block) => {
@@ -397,7 +419,7 @@ export function TapeGrid({
       <TapeFreeRow
         dates={dates}
         tapeCols={tapeCols}
-        roomTypeIdsOnTape={roomTypeIdsOnTape}
+        roomTypeIdsOnTape={availabilityTypeIds}
         from={from}
         to={to}
       />

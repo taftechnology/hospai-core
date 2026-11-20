@@ -55,7 +55,7 @@ Foreign-currency charges: tax is computed in ledger currency (as today). For an 
 
 Registered config keys, saved through the existing Settings path, read in the DO when an invoice is issued and copied into its snapshot (so they are read, not decoration):
 - `pms.tax.location` — `{ country: ISO 3166-1 alpha-2, region: string | null, locality: string | null }`. §7.9 requirement 1: per property, not per org.
-- `pms.tax.registrations` — up to 4 `{ label, number }` (e.g. `GSTIN`, `GST/HST No.`). Printed on the invoice. Validation is length and charset only; the format check per country is a later preset concern.
+- `pms.tax.registrations` — up to 4 `{ label, number }` (e.g. `GSTIN`, `GST/HST No.`). Printed on the invoice. Validation is length and charset, except a row labelled GSTIN, which must pass the GSTN format and checksum (`invalid_gstin`). Other countries stay length and charset.
 
 ### 2.5 Property declarations — dated, read inside the transaction
 

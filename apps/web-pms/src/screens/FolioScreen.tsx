@@ -1,4 +1,12 @@
 import {
+  GST_STATE_CODES,
+  UNREGISTERED_BUYER_NAME_ADDRESS_THRESHOLD_MINOR,
+  gstinProblem,
+  gstinStateCode,
+  sellerGstinFromRegistrations,
+  type GstBuyerFields,
+} from '@hospai/contracts';
+import {
   foldFolioLines,
   folioActionPolicy,
   partitionQueuedByReservation,
@@ -25,6 +33,7 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  Dialog,
   EmptyState,
   Field,
   Input,
@@ -133,11 +142,21 @@ type InvoiceSnapshotLine = {
   chargeCode?: string;
   amountMinor?: number;
   ledgerAmountMinor?: number;
+  hsnSac?: string | null;
 };
 
 type InvoiceSnapshot = {
+  schemaVersion?: number;
   invoiceNumber?: string;
   invoiceDate?: string;
+  seller?: { gstin?: string | null; stateCode?: string | null };
+  placeOfSupplyStateCode?: string | null;
+  buyer?: ({
+    type?: string;
+    party?: string;
+    buyerSnapshotId?: string;
+    fields?: GstBuyerFields;
+  } & GstBuyerFields) | null;
   lines?: InvoiceSnapshotLine[];
   taxSummary?: Array<{ label?: string; amountMinor?: number; taxRuleId?: string; taxComponent?: string }>;
   taxLocation?: { country?: string; region?: string | null; locality?: string | null };
@@ -150,6 +169,50 @@ type InvoiceSnapshot = {
   };
   presentation?: Record<string, unknown>;
 };
+
+function placeOfSupplyLabel(code: string): string {
+  const name = GST_STATE_CODES[code];
+  return name ? `${code} — ${name}` : code;
+}
+
+function recordedBuyerFields(
+  buyer: InvoiceSnapshot['buyer'],
+  individual: GstBuyerFields | undefined,
+): GstBuyerFields {
+  if (!buyer) return {};
+  if (buyer.party === 'INDIVIDUAL') return individual ?? buyer.fields ?? {};
+  return {
+    ...(buyer.fields ?? {}),
+    ...(buyer.gstin ? { gstin: buyer.gstin } : {}),
+    ...(buyer.legalName ? { legalName: buyer.legalName } : {}),
+    ...(buyer.tradeName ? { tradeName: buyer.tradeName } : {}),
+    ...(buyer.address ? { address: buyer.address } : {}),
+    ...(buyer.city ? { city: buyer.city } : {}),
+    ...(buyer.state ? { state: buyer.state } : {}),
+    ...(buyer.pin ? { pin: buyer.pin } : {}),
+    ...(buyer.stateCode ? { stateCode: buyer.stateCode } : {}),
+  };
+}
+
+function BuyerDetails({ fields, testId }: { fields: GstBuyerFields; testId: string }) {
+  const lines = [
+    fields.legalName ? `Legal name ${fields.legalName}` : null,
+    fields.tradeName ? `Trade name ${fields.tradeName}` : null,
+    fields.gstin ? `GSTIN ${fields.gstin}` : null,
+    fields.address ?? null,
+    fields.city ?? null,
+    fields.state ?? null,
+    fields.pin ? `PIN ${fields.pin}` : null,
+    fields.stateCode ? `State code ${fields.stateCode}` : null,
+  ].filter((line): line is string => Boolean(line));
+  return (
+    <div data-testid={testId}>
+      {lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </div>
+  );
+}
 
 function presentationFlag(presentation: Record<string, unknown> | undefined, key: string): boolean {
   if (!presentation) return true;
@@ -457,13 +520,17 @@ export function FolioScreen() {
   const { money, date, dateRange, instantDate, fmt } = useFormat();
   const queryClient = useQueryClient();
   const [message, setMessageText] = useState<string | null>(null);
-  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention'>('exception');
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention' | 'settled'>('exception');
   const setMessage = (text: string | null) => {
     setMessageIntent('exception');
     setMessageText(text);
   };
   const setQueuedNotice = (text: string) => {
     setMessageIntent('attention');
+    setMessageText(text);
+  };
+  const setSettledNotice = (text: string) => {
+    setMessageIntent('settled');
     setMessageText(text);
   };
   const [chargeCode, setChargeCode] = useState('MISC');
@@ -512,6 +579,9 @@ export function FolioScreen() {
   const [chargeCodesRequested, setChargeCodesRequested] = useState(false);
   const [fxRatesEditorOpen, setFxRatesEditorOpen] = useState(false);
   const [domainConfigRequested, setDomainConfigRequested] = useState(false);
+  const [buyerOpen, setBuyerOpen] = useState(false);
+  const [buyerType, setBuyerType] = useState<'UNREGISTERED' | 'REGISTERED'>('UNREGISTERED');
+  const [buyerFields, setBuyerFields] = useState<GstBuyerFields>({});
   const [folioAdvancedOpen, setFolioAdvancedOpen] = useState(false);
 
   const folioQ = useQuery({
@@ -592,6 +662,19 @@ export function FolioScreen() {
     queryKey: ['invoice', propertyId, activeInvoiceId],
     queryFn: () => api.getInvoice(propertyId, activeInvoiceId!),
     enabled: Boolean(activeInvoiceId),
+  });
+  const invoiceBuyerQ = useQuery({
+    queryKey: ['invoice-buyer', propertyId, activeInvoiceId],
+    queryFn: () => api.getInvoiceBuyer(propertyId, activeInvoiceId!),
+    enabled:
+      Boolean(activeInvoiceId) &&
+      (invoiceQ.data?.body as { snapshot?: InvoiceSnapshot } | undefined)?.snapshot?.buyer?.party ===
+        'INDIVIDUAL',
+  });
+  const cityLedgerForBuyerQ = useQuery({
+    queryKey: ['city-ledger-accounts', propertyId],
+    queryFn: () => api.fetchCityLedgerAccounts(propertyId),
+    enabled: buyerOpen,
   });
 
   const policy = folioActionPolicy({
@@ -690,6 +773,56 @@ export function FolioScreen() {
     ? 'Requires permission folio:adjust. Ask a manager.'
     : policy.reasons.split;
 
+  const guestProfileGst = useMemo(() => {
+    const body = guestsQ.data as
+      | { guests?: Record<string, { profile?: { gstBuyer?: GstBuyerFields } }> }
+      | undefined;
+    if (!guestRef) return undefined;
+    return body?.guests?.[guestRef]?.profile?.gstBuyer;
+  }, [guestsQ.data, guestRef]);
+  const profileHasGstBuyer = Boolean(guestProfileGst && Object.keys(guestProfileGst).length > 0);
+
+  function prefillBuyerFields(): GstBuyerFields {
+    const company = windows.find((w) => w.kind === 'COMPANY' && w.billedParty);
+    const accounts =
+      (
+        cityLedgerForBuyerQ.data?.body as
+          | { accounts?: Array<{ accountId: string; name: string; gst?: GstBuyerFields | null }> }
+          | undefined
+      )?.accounts ?? [];
+    const account = company
+      ? accounts.find((a) => a.accountId === company.billedParty || a.name === company.billedParty)
+      : undefined;
+    return { ...(account?.gst ?? guestProfileGst ?? {}) };
+  }
+
+  function buyerPayloadFields(): Record<string, string> | null {
+    const fields: Record<string, string> = {};
+    for (const [key, value] of Object.entries(buyerFields)) {
+      if (typeof value === 'string' && value.trim()) fields[key] = value.trim();
+    }
+    if (buyerType === 'REGISTERED') {
+      const code = gstinStateCode(fields.gstin ?? '');
+      if (code) fields.stateCode = code;
+    }
+    return Object.keys(fields).length > 0 ? fields : null;
+  }
+
+  const sellerGstin = sellerGstinFromRegistrations(
+    configKeys?.find((k) => k.key === 'pms.tax.registrations')?.value,
+  ).gstin;
+  const nonPaymentTotalMinor = (folioQ.data?.lines ?? []).reduce((sum, line) => {
+    if (line.source === 'PAYMENT') return sum;
+    return sum + (line.ledgerAmountMinor ?? line.amountMinor ?? 0);
+  }, 0);
+  const showUnregisteredNameWarning =
+    buyerOpen &&
+    buyerType === 'UNREGISTERED' &&
+    ledgerCurrency === 'INR' &&
+    nonPaymentTotalMinor >= UNREGISTERED_BUYER_NAME_ADDRESS_THRESHOLD_MINOR &&
+    !buyerFields.legalName?.trim() &&
+    !buyerFields.address?.trim();
+
   const fold = useMemo(() => {
     const lines = (folioQ.data?.lines ?? []) as FolioLine[];
     return foldFolioLines(
@@ -710,6 +843,13 @@ export function FolioScreen() {
   const damageHeld = heldAmount(payments, 'DAMAGE');
   const balanceMinor = folioQ.data?.balanceMinor;
   const windows = folioQ.data?.windows ?? [];
+  const buyerSourceNote = buyerOpen
+    ? windows.some((w) => w.kind === 'COMPANY')
+      ? 'Prefilled from the company account when it has GST details. You can edit every field.'
+      : guestProfileGst
+        ? 'Prefilled from the guest profile. You can edit every field.'
+        : null
+    : null;
   const openWindows = windows.filter((w) => w.status === 'OPEN');
   const guestWindowId =
     windows.find((w) => w.kind === 'GUEST')?.folioWindowId ?? `${reservationId}:GUEST`;
@@ -785,7 +925,7 @@ export function FolioScreen() {
       if (isQueuedResult(result)) {
         setQueuedNotice(queuedWriteCopy());
       } else {
-        setMessage('Charge posted.');
+        setSettledNotice('Charge posted.');
       }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
@@ -817,7 +957,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Cash payment recorded.');
+      setSettledNotice('Cash payment recorded.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
@@ -853,7 +993,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Card authorized.');
+      setSettledNotice('Card authorized.');
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
@@ -892,7 +1032,7 @@ export function FolioScreen() {
         setForfeitPostedMinor(amountMinor);
       }
       await api.capturePayment(propertyId, payment.paymentId, { amountMinor }, captureOp);
-      setMessage('Damage deposit forfeited.');
+      setSettledNotice('Damage deposit forfeited.');
       setForfeitPaymentId(null);
       setForfeitPostedMinor(null);
       setForfeitNote(null);
@@ -924,7 +1064,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Chargeback recorded.');
+      setSettledNotice('Chargeback recorded.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
@@ -951,7 +1091,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('FX adjustment posted.');
+      setSettledNotice('FX adjustment posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -974,7 +1114,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('FX rate created.');
+      setSettledNotice('FX rate created.');
       void queryClient.invalidateQueries({ queryKey: ['fx-rates', propertyId] });
     },
   });
@@ -999,7 +1139,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Capture posted.');
+      setSettledNotice('Capture posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
@@ -1023,7 +1163,7 @@ export function FolioScreen() {
       return api.splitFolioLine(propertyId, splitLineId, splitPayload(), opId);
     },
     onSuccess: () => {
-      setMessage('Split posted.');
+      setSettledNotice('Split posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -1044,7 +1184,7 @@ export function FolioScreen() {
       return api.splitFolioLine(propertyId, splitLineId, splitPayload(), opId);
     },
     onSuccess: () => {
-      setMessage('Payment split posted.');
+      setSettledNotice('Payment split posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -1062,7 +1202,9 @@ export function FolioScreen() {
     mutationFn: async (overrideBalance: boolean) => {
       if (!policy.canCheckout) throw new Error('policy_blocked_checkout');
       if (invoiceGenMode === 'Automatically') {
-        const gen = await generateInvoiceForFolio(`invoice:checkout:${reservationId}`);
+        const gen = await generateInvoiceForFolio(`invoice:checkout:${reservationId}`, {
+          generatedBy: 'checkout',
+        });
         const invoiceId = invoiceIdFromGenerateResult(gen);
         if (invoiceId) setActiveInvoiceId(invoiceId);
       }
@@ -1087,7 +1229,7 @@ export function FolioScreen() {
           setCaptureDueRetry(true);
           setMessage('Checkout succeeded but auto-capture failed. Retry capture-due.');
         } else {
-          setMessage('Checked out.');
+          setSettledNotice('Checked out.');
         }
         if (autoCapture === 'captured') {
           void queryClient.invalidateQueries({
@@ -1125,7 +1267,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Window closed.');
+      setSettledNotice('Window closed.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -1142,7 +1284,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Window reopened.');
+      setSettledNotice('Window reopened.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -1160,7 +1302,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('COMPANY window opened.');
+      setSettledNotice('COMPANY window opened.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -1184,11 +1326,11 @@ export function FolioScreen() {
       const destWindow = windows.find((w) => w.folioWindowId === input.destinationFolioWindowId);
       const destIsCompany = destWindow?.kind === 'COMPANY';
       if (destIsCompany && result.cityLedgerSynced === true) {
-        setMessage('Charge transferred.');
+        setSettledNotice('Charge transferred.');
       } else if (destIsCompany) {
-        setMessage('Moved to company folio.');
+        setSettledNotice('Moved to company folio.');
       } else {
-        setMessage('Charge transferred.');
+        setSettledNotice('Charge transferred.');
       }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
@@ -1207,7 +1349,7 @@ export function FolioScreen() {
     },
     onSuccess: (_data, paymentId) => {
       const voided = (paymentsQ.data?.payments ?? []).find((p) => p.paymentId === paymentId);
-      setMessage(voided?.purpose === 'DAMAGE' ? 'Damage deposit released.' : 'Payment voided.');
+      setSettledNotice(voided?.purpose === 'DAMAGE' ? 'Damage deposit released.' : 'Payment voided.');
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
       });
@@ -1227,7 +1369,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: (_data, input) => {
-      setMessage(
+      setSettledNotice(
         input.outcome === 'authorized' ? 'Payment marked authorized.' : 'Payment marked declined.',
       );
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
@@ -1250,7 +1392,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Payment refunded.');
+      setSettledNotice('Payment refunded.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
@@ -1304,7 +1446,7 @@ export function FolioScreen() {
       );
     },
     onSuccess: () => {
-      setMessage('Discount posted.');
+      setSettledNotice('Discount posted.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
     },
   });
@@ -1325,11 +1467,19 @@ export function FolioScreen() {
     return null;
   }
 
-  async function generateInvoiceForFolio(idempotencyKey?: string) {
+  async function generateInvoiceForFolio(
+    idempotencyKey?: string,
+    extra?: {
+      generatedBy?: 'checkout' | 'desk';
+      buyer?: { type: 'REGISTERED' | 'UNREGISTERED'; fields: Record<string, string> } | null;
+    },
+  ) {
     try {
       return await api.generateInvoice(propertyId, {
         reservationId,
         idempotencyKey,
+        ...(extra?.generatedBy ? { generatedBy: extra.generatedBy } : {}),
+        ...(extra && 'buyer' in extra ? { buyer: extra.buyer } : {}),
       });
     } catch (err) {
       if (err instanceof ClassifiedError) {
@@ -1350,15 +1500,26 @@ export function FolioScreen() {
     }
   }
 
-  const generateInv = useFolioActionMutation({
+  const generateInv = useFolioActionMutation<
+    Awaited<ReturnType<typeof generateInvoiceForFolio>>,
+    { buyer: { type: 'REGISTERED' | 'UNREGISTERED'; fields: Record<string, string> } | null }
+  >({
     fallback: 'Invoice generation failed',
     setMessage,
-    mutationFn: () => generateInvoiceForFolio(`invoice:desk:${reservationId}:${crypto.randomUUID()}`),
+    mutationFn: (vars) =>
+      generateInvoiceForFolio(`invoice:desk:${reservationId}:${crypto.randomUUID()}`, {
+        generatedBy: 'desk',
+        buyer: vars.buyer,
+      }),
     onSuccess: (result) => {
       const invoiceId = invoiceIdFromGenerateResult(result);
       if (invoiceId) {
         setActiveInvoiceId(invoiceId);
-        setMessage('Invoice opened.');
+        setBuyerOpen(false);
+        setSettledNotice('Invoice opened.');
+        void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+        void queryClient.invalidateQueries({ queryKey: ['invoice', propertyId, invoiceId] });
+        void queryClient.invalidateQueries({ queryKey: ['invoice-buyer', propertyId, invoiceId] });
       } else {
         setMessage('Invoice generation failed.');
       }
@@ -1378,7 +1539,7 @@ export function FolioScreen() {
     onSuccess: () => {
       setActiveInvoiceId(null);
       void queryClient.removeQueries({ queryKey: ['invoice', propertyId, activeInvoiceId] });
-      setMessage('Invoice voided.');
+      setSettledNotice('Invoice voided.');
     },
   });
 
@@ -1395,7 +1556,7 @@ export function FolioScreen() {
     },
     onSuccess: () => {
       setCaptureDueRetry(false);
-      setMessage('Due holds captured.');
+      setSettledNotice('Due holds captured.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['folio-payments', propertyId, reservationId],
@@ -1419,7 +1580,7 @@ export function FolioScreen() {
       if (isQueuedResult(result)) {
         setQueuedNotice(queuedWriteCopy());
       } else {
-        setMessage(noPost ? 'No-post cleared.' : 'No-post set.');
+        setSettledNotice(noPost ? 'No-post cleared.' : 'No-post set.');
       }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
@@ -1453,7 +1614,7 @@ export function FolioScreen() {
       return api.earlyDepart(propertyId, reservationId, `early-depart:${reservationId}`);
     },
     onSuccess: () => {
-      setMessage('Stay shortened to today. Guest remains in house until checkout.');
+      setSettledNotice('Stay shortened to today. Guest remains in house until checkout.');
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
       void queryClient.invalidateQueries({
         queryKey: ['reservation', propertyId, reservationId],
@@ -1568,6 +1729,10 @@ export function FolioScreen() {
     typeof invoiceFooterRaw === 'string' && invoiceFooterRaw.trim().length > 0
       ? invoiceFooterRaw.trim()
       : null;
+  const invoiceRegistrations = (invoiceSnapshot?.taxRegistrations ?? []).filter((reg) => {
+    if (!invoiceSnapshot?.seller?.gstin) return true;
+    return (reg.label ?? '').trim().toLowerCase() !== 'gstin';
+  });
   const folioDegraded = readState(folioQ) === 'fail_closed' || readState(reservationQ) === 'fail_closed';
 
   const ledgerChargesMinor = ledgerRows.reduce((sum, r) => sum + r.chargeMinor, 0);
@@ -2141,6 +2306,14 @@ export function FolioScreen() {
         </CardContent>
       </Card>
 
+      {profileHasGstBuyer ? (
+        <Alert data-testid="checkout-gst-warning">
+          <AlertTitle>Guest profile has GST details</AlertTitle>
+          Checkout does not copy an individual's GST onto the invoice. Void the checkout invoice and
+          regenerate it from this folio if the stay should carry those details.
+        </Alert>
+      ) : null}
+
       {canGenerateInvoice ? (
         <section>
           <Button
@@ -2149,13 +2322,161 @@ export function FolioScreen() {
             disabled={generateInv.isPending}
             onClick={() => {
               setDomainConfigRequested(true);
-              generateInv.mutate();
+              setBuyerType('UNREGISTERED');
+              setBuyerFields(prefillBuyerFields());
+              setBuyerOpen(true);
             }}
           >
             Generate invoice
           </Button>
         </section>
       ) : null}
+
+      <Dialog
+        open={buyerOpen}
+        title="Invoice buyer"
+        data-testid="invoice-buyer-dialog"
+        onClose={() => setBuyerOpen(false)}
+        footer={
+          <>
+            <Button type="button" onClick={() => setBuyerOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="primary"
+              data-testid="invoice-buyer-confirm"
+              disabled={generateInv.isPending || (buyerType === 'REGISTERED' && gstinProblem(buyerFields.gstin ?? '') !== null)}
+              onClick={() => {
+                const fields = buyerPayloadFields();
+                generateInv.mutate(
+                  fields
+                    ? { buyer: { type: buyerType, fields } }
+                    : { buyer: null },
+                );
+              }}
+            >
+              Generate invoice
+            </Button>
+          </>
+        }
+      >
+        <Field
+          label="Buyer"
+          control={
+            <NativeSelect
+              aria-label="Buyer type"
+              value={buyerType}
+              onChange={(e) => setBuyerType(e.target.value === 'REGISTERED' ? 'REGISTERED' : 'UNREGISTERED')}
+            >
+              <option value="UNREGISTERED">Unregistered</option>
+              <option value="REGISTERED">Registered business</option>
+            </NativeSelect>
+          }
+        />
+        {buyerSourceNote ? <p className="muted">{buyerSourceNote}</p> : null}
+        {buyerType === 'REGISTERED' && !sellerGstin ? (
+          <Alert data-testid="seller-gstin-warning">
+            <AlertTitle>Hotel GSTIN is not set</AlertTitle>
+            A registered buyer can still be invoiced. Add the hotel GSTIN in{' '}
+            <Link className="ui-link-btn" to="/settings/tax">
+              Settings → Tax
+            </Link>
+            .
+          </Alert>
+        ) : null}
+        {showUnregisteredNameWarning ? (
+          <Alert data-testid="unregistered-name-warning">
+            <AlertTitle>Name and address</AlertTitle>
+            This invoice is at least ₹50,000. An unregistered buyer should have a name and address.
+          </Alert>
+        ) : null}
+        <Field
+          label="GSTIN"
+          control={
+            <Input
+              aria-label="Buyer GSTIN"
+              value={buyerFields.gstin ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, gstin: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="Legal name"
+          control={
+            <Input
+              aria-label="Buyer legal name"
+              value={buyerFields.legalName ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, legalName: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="Trade name"
+          control={
+            <Input
+              aria-label="Buyer trade name"
+              value={buyerFields.tradeName ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, tradeName: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="Address"
+          control={
+            <Input
+              aria-label="Buyer address"
+              value={buyerFields.address ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, address: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="City"
+          control={
+            <Input
+              aria-label="Buyer city"
+              value={buyerFields.city ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, city: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="State"
+          control={
+            <Input
+              aria-label="Buyer state"
+              value={buyerFields.state ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, state: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="PIN"
+          control={
+            <Input
+              aria-label="Buyer PIN"
+              value={buyerFields.pin ?? ''}
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, pin: e.target.value }))}
+            />
+          }
+        />
+        <Field
+          label="State code"
+          control={
+            <Input
+              aria-label="Buyer state code"
+              readOnly={buyerType === 'REGISTERED'}
+              value={
+                buyerType === 'REGISTERED'
+                  ? (gstinStateCode(buyerFields.gstin ?? '') ?? '')
+                  : (buyerFields.stateCode ?? '')
+              }
+              onChange={(e) => setBuyerFields((prev) => ({ ...prev, stateCode: e.target.value }))}
+            />
+          }
+        />
+      </Dialog>
 
       {activeInvoiceId && invoiceQ.isSuccess ? (
         <Card data-testid="invoice-view">
@@ -2166,11 +2487,41 @@ export function FolioScreen() {
           {invoiceSnapshot?.invoiceDate ? (
             <p className="muted">{date(invoiceSnapshot.invoiceDate)}</p>
           ) : null}
+          {invoiceSnapshot?.schemaVersion !== 2 ? (
+            <p data-testid="invoice-buyer-legacy">No buyer details (issued before buyer capture)</p>
+          ) : (
+            <>
+              {invoiceSnapshot.seller?.gstin ? <p>Seller GSTIN {invoiceSnapshot.seller.gstin}</p> : null}
+              {invoiceSnapshot.placeOfSupplyStateCode ? (
+                <p data-testid="invoice-place-of-supply">
+                  Place of supply {placeOfSupplyLabel(invoiceSnapshot.placeOfSupplyStateCode)}
+                </p>
+              ) : null}
+              {invoiceSnapshot.buyer?.party === 'BUSINESS' ? (
+                <BuyerDetails
+                  testId="invoice-buyer-business"
+                  fields={recordedBuyerFields(invoiceSnapshot.buyer, undefined)}
+                />
+              ) : null}
+              {invoiceSnapshot.buyer?.party === 'INDIVIDUAL' ? (
+                <BuyerDetails
+                  testId="invoice-buyer-individual"
+                  fields={recordedBuyerFields(
+                    invoiceSnapshot.buyer,
+                    (
+                      invoiceBuyerQ.data?.body as { buyer?: { fields?: GstBuyerFields } } | undefined
+                    )?.buyer?.fields,
+                  )}
+                />
+              ) : null}
+            </>
+          )}
           {invoiceSnapshot?.lines && invoiceSnapshot.lines.length > 0 ? (
             <ul className="ui-list">
               {invoiceSnapshot.lines.map((line, i) => (
                 <li key={`${line.chargeName ?? line.chargeCode ?? 'line'}-${i}`}>
-                  {line.chargeName ?? line.chargeCode ?? 'Line'}{' '}
+                  {line.chargeName ?? line.chargeCode ?? 'Line'}
+                  {line.hsnSac ? ` HSN ${line.hsnSac}` : ''}{' '}
                   {money(
                     typeof line.ledgerAmountMinor === 'number'
                       ? line.ledgerAmountMinor
@@ -2189,9 +2540,9 @@ export function FolioScreen() {
                 .join(', ')}
             </p>
           ) : null}
-          {invoiceSnapshot?.taxRegistrations && invoiceSnapshot.taxRegistrations.length > 0 ? (
+          {invoiceRegistrations.length > 0 ? (
             <ul className="ui-list">
-              {invoiceSnapshot.taxRegistrations.map((reg) => (
+              {invoiceRegistrations.map((reg) => (
                 <li key={`${reg.label ?? ''}:${reg.number ?? ''}`}>
                   {reg.label} {reg.number}
                 </li>

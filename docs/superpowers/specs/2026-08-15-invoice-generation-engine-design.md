@@ -165,7 +165,7 @@ private formatInvoiceNumberSync(counter: number): string {
 
 #### Financial-year series (R1.12)
 
-Optional DOMAIN key `pms.invoice.series` (`continuous` default | `gst_financial_year`). Financial year is **April–March**, derived from the snapshot `invoiceDate` (the existing `date_rule`, computed once per generate). Counter storage: `__meta.invoice_counter` for `continuous`; `__meta.invoice_counter.fy.NN-NN` (FY label from `invoiceDate`) for `gst_financial_year`. Formatting uses `formatInvoiceNumber` in `@hospai/contracts`. The 16-character GST rule is refused as `invoice_number_invalid` (422) at generate and at config write of `prefix` / `suffix` / `starting_idx` / `series`, with **no** counter move. `starting_idx` seeds only when `invoice` has no rows; later FYs start at 1. R2 object key encodes the number with `encodeURIComponent`. Uniqueness is per property; two properties on one GSTIN must use different prefixes until **R4.22** (no GSTIN column in Phase 1).
+Optional DOMAIN key `pms.invoice.series` (`continuous` default | `gst_financial_year`). Financial year is **April–March**, derived from the snapshot `invoiceDate` (the existing `date_rule`, computed once per generate). Counter storage: `__meta.invoice_counter` for `continuous`; `__meta.invoice_counter.fy.NN-NN` (FY label from `invoiceDate`) for `gst_financial_year`. Formatting uses `formatInvoiceNumber` in `@hospai/contracts`. The 16-character GST rule is refused as `invoice_number_invalid` (422) at generate and at config write of `prefix` / `suffix` / `starting_idx` / `series`, with **no** counter move. `starting_idx` seeds only when `invoice` has no rows; later FYs start at 1. R2 object key encodes the number with `encodeURIComponent`. Uniqueness is per property. Seller GSTIN and buyer capture are specified in [buyer GST classification](2026-11-19-buyer-gst-classification-design.md) §3.1; two properties on one GSTIN still use different prefixes.
 
 ### Lock 3 — R2 object + snapshot JSON
 
@@ -180,7 +180,7 @@ Optional DOMAIN key `pms.invoice.series` (`continuous` default | `gst_financial_
 3. `await bucket.put(r2Key, encoded)`.
 4. `INSERT` index row in same command txn (after await, before idempotency commit — if put fails, txn rolls back and counter bump rolls back).
 
-**Snapshot schema** (`schemaVersion: 1`):
+**Snapshot schema** (`schemaVersion: 2` for invoices issued after buyer capture; readers still accept `schemaVersion: 1`):
 
 | Field | Source |
 |---|---|

@@ -1690,7 +1690,8 @@ than retrofitting India afterwards.
    roadmap R4.22). Editing a company or guest later must not change an issued invoice. Plaintext
    stays out of the invoice's R2 snapshot, so an individual's details are held encrypted in OrgDO,
    keyed by invoice. Classification (HSN/SAC in India) is one attribute of the product class, not
-   a copy on each product.
+   a copy on each product. The accepted behaviour is
+   [buyer GST classification](docs/superpowers/specs/2026-11-19-buyer-gst-classification-design.md).
 
 **First market: India — the pilot client** (decided 2026-10-27; supersedes the 2026-09-12
 Canada-first call for R3.6). The pilot is one Indian hotel switching from BluePMS; what it uses is

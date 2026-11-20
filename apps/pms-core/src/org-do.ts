@@ -56,6 +56,10 @@ import {
   guestCrmExceedsCaps,
   normalizeGuestCrmFields,
   parseGuestPreferences,
+  parseProfileGstBuyer,
+  canonicalGstBuyerJson,
+  gstBuyerFieldsSha256,
+  type GstBuyerFields,
   GUEST_DOCUMENT_KINDS,
   ConsentWriteSchema,
   ROSTER_KINDS,
@@ -90,6 +94,7 @@ import {
   blindIndexHash,
   blindIndexRows,
   deriveOrgBlindIndexKeyHex,
+  deriveOrgLegalRetentionKeyHex,
   deriveOrgWrapKeyHex,
   importMasterKeyHex,
   normalizeBlindIndexValue,
@@ -378,6 +383,7 @@ const ORG_PURGE_INVENTORY_TABLES = [
   'guest_document',
   'guest_document_access',
   'guest_property',
+  'invoice_buyer_snapshot',
   'idempotency',
   'member',
   'operational_config',
@@ -403,6 +409,7 @@ function countOrgInventoryRows(sql: DurableObjectState['storage']['sql']): numbe
       (SELECT COUNT(*) FROM guest_document) +
       (SELECT COUNT(*) FROM guest_document_access) +
       (SELECT COUNT(*) FROM guest_property) +
+      (SELECT COUNT(*) FROM invoice_buyer_snapshot) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM member) +
       (SELECT COUNT(*) FROM operational_config) +
@@ -437,6 +444,7 @@ function parseNamedListOrThrow(value: unknown) {
 export class OrgDO extends DurableObject<PmsEnv> {
   private vaultPromise: Promise<PiiVault> | null = null;
   private blindIndexKeyPromise: Promise<CryptoKey> | null = null;
+  private legalKeyPromise: Promise<CryptoKey> | null = null;
   private readonly entitlementCache = new EntitlementDoCache();
   private readonly scheduler: AlarmScheduler;
   private lanes = new LaneGuard();
@@ -484,6 +492,17 @@ export class OrgDO extends DurableObject<PmsEnv> {
       this.blindIndexKeyPromise = deriveOrgBlindIndexKeyHex(hex, orgId);
     }
     return this.blindIndexKeyPromise;
+  }
+
+  private async legalRetentionKey(): Promise<CryptoKey> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) throw new Error('org_id_unset');
+    if (!this.legalKeyPromise) {
+      const hex = this.env.HOSPAI_ORG_MASTER_KEY;
+      if (!hex) throw new Error('HOSPAI_ORG_MASTER_KEY unset');
+      this.legalKeyPromise = deriveOrgLegalRetentionKeyHex(hex, orgId);
+    }
+    return this.legalKeyPromise;
   }
 
   private readGuestSettingsSync(): GuestSettings {
@@ -2111,10 +2130,23 @@ export class OrgDO extends DurableObject<PmsEnv> {
     input: {
       preferencesUpdate?: GuestPreferences | null;
       present?: { email?: boolean; phone?: boolean; tags?: boolean; vip?: boolean; notes?: boolean };
+      /** Present only when the caller sent `gstBuyer` (null clears). */
+      gstBuyerUpdate?: GstBuyerFields | null;
     },
   ): GuestProfile {
+    const applyGst = (profile: GuestProfile): GuestProfile => {
+      if (!('gstBuyerUpdate' in input)) {
+        return existing.gstBuyer ? { ...profile, gstBuyer: existing.gstBuyer } : profile;
+      }
+      if (input.gstBuyerUpdate == null) {
+        const { gstBuyer: _dropped, ...rest } = profile;
+        return rest;
+      }
+      return { ...profile, gstBuyer: input.gstBuyerUpdate };
+    };
     if (!('preferencesUpdate' in input)) {
-      return existing.preferences ? { ...normalized, preferences: existing.preferences } : normalized;
+      const kept = existing.preferences ? { ...normalized, preferences: existing.preferences } : normalized;
+      return applyGst(kept);
     }
     const present = input.present ?? {};
     const next: GuestProfile = { displayName: normalized.displayName };
@@ -2134,7 +2166,7 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (normalized.notes) next.notes = normalized.notes;
     } else if (existing.notes) next.notes = existing.notes;
     if (normalized.preferences) next.preferences = normalized.preferences;
-    return next;
+    return applyGst(next);
   }
 
   async tryUpdateGuest(
@@ -2147,11 +2179,13 @@ export class OrgDO extends DurableObject<PmsEnv> {
       preferencesUpdate?: GuestPreferences | null;
       /** CRM keys present on a preferences patch. Omitted keys stay as stored. */
       present?: { email?: boolean; phone?: boolean; tags?: boolean; vip?: boolean; notes?: boolean };
+      /** Present only when the caller sent `gstBuyer` (null clears). */
+      gstBuyerUpdate?: GstBuyerFields | null;
     },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED | typeof VALIDATION_ERROR | typeof DECRYPT_UNRESOLVED }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED | typeof VALIDATION_ERROR | typeof DECRYPT_UNRESOLVED | 'invalid_gstin' | 'buyer_state_code_mismatch' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -2178,6 +2212,11 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (Object.keys(parsedPrefs.preferences).length > 0) {
         normalized.preferences = parsedPrefs.preferences;
       }
+    }
+    if ('gstBuyerUpdate' in input && input.gstBuyerUpdate != null) {
+      const parsedGst = parseProfileGstBuyer(input.gstBuyerUpdate);
+      if (!parsedGst.ok) return parsedGst;
+      input = { ...input, gstBuyerUpdate: parsedGst.fields };
     }
 
     try {
@@ -3571,5 +3610,159 @@ export class OrgDO extends DurableObject<PmsEnv> {
       consent: count(`SELECT COUNT(*) AS n FROM guest_consent WHERE guest_ref = ?`),
       access: count(`SELECT COUNT(*) AS n FROM guest_document_access WHERE guest_ref = ?`),
     };
+  }
+
+  private async gateFolioPost(actor: ActorContext, propertyId: string) {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false as const, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, propertyId, 'folio:post');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    return null;
+  }
+
+  private async gateFolioRead(actor: ActorContext, propertyId: string) {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false as const, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, propertyId, 'folio:read');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    return null;
+  }
+
+  /**
+   * Seal an individual buyer's details under the org legal-retention key.
+   * Same id + same fields hash is a replay. Same id + a different hash conflicts.
+   * Ciphertext is prepared before `transactionSync`.
+   */
+  async sealInvoiceBuyerSnapshot(
+    actor: ActorContext,
+    input: { id: string; propertyId: string; guestRef?: string; fields: GstBuyerFields; createdBy: string },
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof IDEM_KEY_REUSED | typeof ORG_ID_UNSET | typeof INTERNAL_ERROR }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+  > {
+    const denied = await this.gateFolioPost(actor, input.propertyId);
+    if (denied) return denied;
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const fieldsSha256 = await gstBuyerFieldsSha256(input.fields);
+    const key = await this.legalRetentionKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aad = new TextEncoder().encode(`${orgId}:${input.id}`);
+    const plain = new TextEncoder().encode(canonicalGstBuyerJson(input.fields));
+    const cipher = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, additionalData: aad as BufferSource },
+        key,
+        plain as BufferSource,
+      ),
+    );
+    const createdBy = input.createdBy;
+    const guestRef = input.guestRef ?? null;
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const existing = this.ctx.storage.sql
+          .exec(
+            `SELECT fields_sha256, property_id FROM invoice_buyer_snapshot WHERE id = ?`,
+            input.id,
+          )
+          .toArray() as Array<{ fields_sha256: string; property_id: string }>;
+        const row = existing[0];
+        if (row) {
+          if (row.fields_sha256 === fieldsSha256 && row.property_id === input.propertyId) {
+            return { ok: true as const };
+          }
+          return { ok: false as const, error: IDEM_KEY_REUSED };
+        }
+        this.ctx.storage.sql.exec(
+          `INSERT INTO invoice_buyer_snapshot (
+             id, property_id, guest_ref, cipher, iv, key_version, fields_sha256, created_at, created_by
+           ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+          input.id,
+          input.propertyId,
+          guestRef,
+          cipher,
+          iv,
+          fieldsSha256,
+          Date.now(),
+          createdBy,
+        );
+        return { ok: true as const };
+      });
+    } catch (e) {
+      const mapped = mapOrgCommandError(e);
+      if (mapped?.error === IDEM_KEY_REUSED) return { ok: false as const, error: IDEM_KEY_REUSED };
+      if (mapped?.error === ORG_ID_UNSET) return { ok: false as const, error: ORG_ID_UNSET };
+      return { ok: false as const, error: INTERNAL_ERROR };
+    }
+  }
+
+  async readInvoiceBuyerSnapshot(
+    actor: ActorContext,
+    input: {
+      id: string;
+      propertyId: string;
+    },
+  ): Promise<
+    | { ok: true; fields: GstBuyerFields }
+    | { ok: false; error: typeof NOT_FOUND | typeof ORG_ID_UNSET | typeof DECRYPT_UNRESOLVED }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+  > {
+    const denied = await this.gateFolioRead(actor, input.propertyId);
+    if (denied) return denied;
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT property_id, cipher, iv FROM invoice_buyer_snapshot WHERE id = ?`,
+        input.id,
+      )
+      .toArray() as unknown as Array<{ property_id: string; cipher: Uint8Array; iv: Uint8Array }>;
+    const row = rows[0];
+    if (!row || row.property_id !== input.propertyId) return { ok: false, error: NOT_FOUND };
+    try {
+      const key = await this.legalRetentionKey();
+      const aad = new TextEncoder().encode(`${orgId}:${input.id}`);
+      const plain = new Uint8Array(
+        await crypto.subtle.decrypt(
+          {
+            name: 'AES-GCM',
+            iv: blobToBytes(row.iv) as BufferSource,
+            additionalData: aad as BufferSource,
+          },
+          key,
+          blobToBytes(row.cipher) as BufferSource,
+        ),
+      );
+      return { ok: true, fields: JSON.parse(new TextDecoder().decode(plain)) as GstBuyerFields };
+    } catch {
+      return { ok: false, error: DECRYPT_UNRESOLVED };
+    }
+  }
+
+  async countInvoiceBuyerSnapshotsForGuest(guestRef: string): Promise<number> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS n FROM invoice_buyer_snapshot WHERE guest_ref = ?`, guestRef)
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  async countInvoiceBuyerSnapshots(): Promise<number> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS n FROM invoice_buyer_snapshot`)
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
   }
 }

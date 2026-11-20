@@ -230,6 +230,10 @@ export const AADHAAR_SCAN_NOT_ALLOWED = 'aadhaar_scan_not_allowed' as const;
 export const CONSENT_NOTICE_NOT_CONFIGURED = 'consent_notice_not_configured' as const;
 export const ID_DOCUMENT_REQUIRED = 'id_document_required' as const;
 export const SCAN_TYPE_NOT_ALLOWED = 'scan_type_not_allowed' as const;
+export const INVALID_GSTIN = 'invalid_gstin' as const;
+export const BUYER_GSTIN_REQUIRED = 'buyer_gstin_required' as const;
+export const BUYER_STATE_CODE_MISMATCH = 'buyer_state_code_mismatch' as const;
+export const INVALID_HSN_SAC = 'invalid_hsn_sac' as const;
 
 export const STAFF_NOT_FOUND = 'staff_not_found' as const;
 export const STAFF_EXITED = 'staff_exited' as const;

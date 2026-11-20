@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 45. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 46. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1428,6 +1428,34 @@ export const ID_DOCUMENT_ON_FILE_V45_STATEMENTS = [
 export const ID_DOCUMENT_ON_FILE_V45_SQL =
   ID_DOCUMENT_ON_FILE_V45_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * v46 — buyer GST columns. The invoice table is `invoice` (created by the
+ * invoice_generation migration). SQLite ALTER cannot add a CHECK that names
+ * both new columns, so a trigger rejects REGISTERED rows with a null GSTIN.
+ */
+export const BUYER_GST_V46_STATEMENTS = [
+  `ALTER TABLE city_ledger_account ADD COLUMN gstin TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_legal_name TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_trade_name TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_address TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_city TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_state TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_pin TEXT`,
+  `ALTER TABLE city_ledger_account ADD COLUMN gst_state_code TEXT`,
+  `ALTER TABLE invoice ADD COLUMN buyer_type TEXT`,
+  `ALTER TABLE invoice ADD COLUMN buyer_gstin TEXT`,
+  `ALTER TABLE invoice ADD COLUMN buyer_snapshot_id TEXT`,
+  `ALTER TABLE invoice ADD COLUMN place_of_supply_state_code TEXT`,
+  `CREATE TRIGGER invoice_registered_requires_gstin
+BEFORE INSERT ON invoice
+WHEN NEW.buyer_type = 'REGISTERED' AND (NEW.buyer_gstin IS NULL OR length(NEW.buyer_gstin) = 0)
+BEGIN
+  SELECT RAISE(ABORT, 'buyer_gstin_required');
+END`,
+] as const;
+
+export const BUYER_GST_V46_SQL = BUYER_GST_V46_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1653,5 +1681,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 45,
     name: 'id_document_on_file',
     statements: ID_DOCUMENT_ON_FILE_V45_STATEMENTS,
+  },
+  {
+    version: 46,
+    name: 'buyer_gst',
+    statements: BUYER_GST_V46_STATEMENTS,
   },
 ] as const;

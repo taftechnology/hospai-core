@@ -266,21 +266,23 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('DROP INDEX folio_line_tax_uniq')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO tax_rule_band')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO tax_rule_component')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE city_ledger_account ADD COLUMN')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE invoice ADD COLUMN')) return { toArray: () => [] };
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 45', () => {
+  it('applies property migrations through version 46', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(45);
+    expect(v1).toBe(46);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(45);
-    expect(sql.schemaVersion).toHaveLength(45);
+    expect(v2).toBe(46);
+    expect(sql.schemaVersion).toHaveLength(46);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -719,9 +721,9 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(12);
-    expect(sql.schemaVersion).toHaveLength(12);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(13);
+    expect(sql.schemaVersion).toHaveLength(13);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -734,8 +736,8 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(45);
-    expect(ORG_SCHEMA_HEAD).toBe(12);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(46);
+    expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
 
@@ -1235,5 +1237,12 @@ describe('schema head constants', () => {
       .join('\n')
       .trim();
     expect(body).toBe(RECURRING_CHARGES_V41_SQL.trim());
+  });
+
+  it('property schema head is 46 after buyer gst columns', () => {
+    const v46 = PROPERTY_MIGRATIONS.find((m) => m.version === 46);
+    expect(v46?.name).toBe('buyer_gst');
+    expect(v46?.statements.some((s) => s.includes('ALTER TABLE invoice ADD COLUMN buyer_gstin'))).toBe(true);
+    expect(v46?.statements.some((s) => s.includes('invoice_registered_requires_gstin'))).toBe(true);
   });
 });

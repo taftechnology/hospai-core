@@ -1,4 +1,5 @@
 export type {
+  GuestGstBuyer,
   GuestProfile,
   KeyScope,
   KeyStore,
@@ -11,6 +12,7 @@ export { importMasterKeyHex } from './master-key.js';
 export {
   HKDF_SALT,
   deriveOrgBlindIndexKeyHex,
+  deriveOrgLegalRetentionKeyHex,
   deriveOrgWrapKeyHex,
   importPlatformIkmHex,
 } from './org-derive.js';

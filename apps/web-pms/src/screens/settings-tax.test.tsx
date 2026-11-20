@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { gstinWithCheckDigit } from '@hospai/contracts';
 import { formatMoney, propertyFormat } from '@hospai/client-core';
 import { PropertyFormatProvider } from '../shell/PropertyFormat.js';
 import { SettingsTaxTab } from './settings-tax.js';
 
+const SAVED_GSTIN = gstinWithCheckDigit('29AAAAA0000A1Z');
 const listDomainConfig = vi.fn();
 const putDomainConfig = vi.fn();
 const getProperty = vi.fn();
@@ -384,7 +386,7 @@ describe('SettingsTaxTab', () => {
         },
         {
           key: 'pms.tax.registrations',
-          value: [{ label: 'GSTIN', number: '29AAAAA0000A1Z5' }],
+          value: [{ label: 'GSTIN', number: SAVED_GSTIN }],
         },
       ],
     });
@@ -393,7 +395,7 @@ describe('SettingsTaxTab', () => {
     expect(screen.getByDisplayValue('Karnataka')).toBeTruthy();
     expect(screen.getByDisplayValue('Bengaluru')).toBeTruthy();
     expect(screen.getByDisplayValue('GSTIN')).toBeTruthy();
-    expect(screen.getByDisplayValue('29AAAAA0000A1Z5')).toBeTruthy();
+    expect(screen.getByDisplayValue(SAVED_GSTIN)).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Confirm the registration' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save location' }));
     await waitFor(() => expect(putDomainConfig).toHaveBeenCalledTimes(2));
@@ -404,12 +406,12 @@ describe('SettingsTaxTab', () => {
     });
     expect(putDomainConfig).toHaveBeenCalledWith('prop_demo', {
       key: 'pms.tax.registrations',
-      value: [{ label: 'GSTIN', number: '29AAAAA0000A1Z5' }],
+      value: [{ label: 'GSTIN', number: SAVED_GSTIN }],
       reason: 'Confirm the registration',
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['domain-config', 'prop_demo'] });
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-    expect(screen.queryByDisplayValue('29AAAAA0000A1Z5')).toBeNull();
+    expect(screen.queryByDisplayValue(SAVED_GSTIN)).toBeNull();
   });
 
   it('shows an attention alert when the write is queued and disables Save while it is pending', async () => {

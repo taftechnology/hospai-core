@@ -531,7 +531,14 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Decided F4:** documents here belong to one guest profile. A second foreign national on the stay is an **R6.2** Form C person record, which reuses this slice's encryption, R2 storage, read audit and purge. No second profile.
   - **Scope out:** OCR, document verification services, `guests.merge`.
 
-- [ ] **R4.22 Buyer GST details and tax classification**
+- [x] **R4.22 Buyer GST details and tax classification**
+  - **Done (2026-11-19):** [spec](superpowers/specs/2026-11-19-buyer-gst-classification-design.md).
+    - One GSTIN validator (format, state code, GSTN mod-36 check digit) used for the seller, company accounts, guests and invoices. The seller GSTIN is the R3.6 registration labelled GSTIN; place of supply is its state and is not editable (IGST waits on the advisor).
+    - Company GST details on the city-ledger account; an individual's on the encrypted guest profile. *Generate invoice* opens a buyer dialog prefilled from either; checkout copies a company account's GSTIN automatically.
+    - A registered buyer is printed with the invoice (public register data). An unregistered individual's details are sealed in OrgDO under a new org legal-retention key, kept on guest erasure (`tax_invoice_retention` on the certificate) and deleted on org purge — **the advisor confirms the DPDP line.** Issued invoices never change.
+    - HSN/SAC per tax group in Settings → Tax (`pms.tax.classification`), frozen onto every line. Invoice snapshot v2 adds seller, place of supply, buyer and HSN/SAC.
+    - Adds 1 route (`get_invoice_buyer`), PropertyDO migration 46 and OrgDO migration 13; city-ledger fingerprints now hash the full payload.
+    - **Known gap (pre-existing):** the folio does not list an existing invoice after a reload, and regenerating returns `invoice_already_exists` with a generic message. Needs a list route; not in this slice.
   - **Depends:** **R3.6** (India tax model), **R4.15** (encrypted guest fields on OrgDO). City ledger already ships.
   - **Pilot checklist:** *GST / e-invoice QR on invoices*. **Page:** [Tax & Compliance](https://www.bluepms.com/modules/tax-compliance/), Buyer Tax Identity And Source Documents, Tax Master And Classification, Statutory Document Output. **Prototype:** none.
   - **Live:** R5.5 and §7.9 require the buyer's GSTIN on the invoice, but nothing says where it is captured. "GSTIN" is in no code, the `invoice` table has no buyer columns, and `city_ledger_account` holds only name, credit limit and terms. HSN/SAC is nowhere.
@@ -1022,14 +1029,14 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R4.15** (2026-11-19):
+After **R4.22** (2026-11-19):
 
 | Pin | Value |
 |---|---|
 | `COMMAND_CATALOG` | length **115** |
-| `V1_HTTP_ROUTE_AUDIT` | **187** routes, last `post_guest_consent` |
-| `PROPERTY_SCHEMA_HEAD` | **45** |
-| `ORG_SCHEMA_HEAD` | **12** |
+| `V1_HTTP_ROUTE_AUDIT` | **188** routes, last `get_invoice_buyer` |
+| `PROPERTY_SCHEMA_HEAD` | **46** |
+| `ORG_SCHEMA_HEAD` | **13** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 
 After a slice that adds a command/route/migration, **edit this table** in the same PR so the next agent does not use stale heads.

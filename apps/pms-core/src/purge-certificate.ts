@@ -18,6 +18,8 @@ export type PurgeStoreRecord = {
   store: PurgeStoreName;
   status: 'pending' | 'reached' | 'skipped' | 'retained';
   deleted?: number;
+  /** Retained-row count (guest tax-invoice buyer snapshots). */
+  count?: number;
   reason?: string;
   note?: string;
 };
@@ -57,6 +59,7 @@ export function initialStores(env: PmsEnv): PurgeStoreRecord[] {
     { store: 'key_store', status: 'pending' },
     { store: 'property_do', status: 'pending' },
     { store: 'org_do', status: 'pending' },
+    { store: 'org_do_tax_invoice_buyer', status: 'pending' },
     r2,
     { store: 'r2_guest_documents', status: 'pending' },
     { store: 'iceberg', status: 'skipped', reason: 'no_iceberg_binding' },

@@ -43,6 +43,7 @@ const cancelRecurringCharge = vi.fn();
 const openFolioWindowMock = vi.fn();
 const generateInvoice = vi.fn();
 const getInvoice = vi.fn();
+const getInvoiceBuyer = vi.fn();
 const voidInvoice = vi.fn();
 const listDomainConfig = vi.fn();
 const listOperationalConfig = vi.fn();
@@ -119,6 +120,7 @@ vi.mock('../client.js', () => ({
     cancelRecurringCharge: (...args: unknown[]) => cancelRecurringCharge(...args),
     generateInvoice: (...args: unknown[]) => generateInvoice(...args),
     getInvoice: (...args: unknown[]) => getInvoice(...args),
+    getInvoiceBuyer: (...args: unknown[]) => getInvoiceBuyer(...args),
     voidInvoice: (...args: unknown[]) => voidInvoice(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
@@ -458,6 +460,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
     await waitFor(() => expect(screen.getByTestId('invoice-void')).toBeTruthy());
     fireEvent.click(screen.getByTestId('invoice-void'));
     expect(await screen.findByRole('dialog', { name: /Void this invoice/i })).toBeTruthy();
@@ -2201,6 +2204,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
     const card = await screen.findByTestId('invoice-view');
     const text = card.textContent ?? '';
     expect(text).toContain('Tax invoice');
@@ -2238,6 +2242,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
     await waitFor(() =>
       expect(screen.getByTestId('invoice-view').textContent).toContain('₹100.00'),
     );
@@ -2268,6 +2273,7 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
     await waitFor(() => expect(screen.queryByTestId('invoice-generate')).toBeNull());
   });
 
@@ -2607,5 +2613,160 @@ describe('FolioScreen wiring', () => {
     expect(screen.queryByTestId('recurring-add')).toBeNull();
     expect(screen.queryByTestId('recurring-cancel-rc_breakfast')).toBeNull();
     businessDateMock('2026-08-12');
+  });
+
+  it('checked out success uses the settled alert', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true },
+      classified: { class: 'live' },
+    });
+    checkOut.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: {}, retryAfterMs: null },
+      body: { ok: true, autoCapture: 'disabled' },
+    });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('check-out'));
+    const alert = await screen.findByTestId('folio-message');
+    expect(alert.textContent).toContain('Checked out.');
+    expect(alert.className).toContain('ui-alert--settled');
+  });
+
+  it('invoice view lists every buyer field, place of supply, and the seller GSTIN once', async () => {
+    const sellerGstin = '29AAAAA0000A1Z5';
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_buyer' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_buyer',
+        snapshot: {
+          schemaVersion: 2,
+          seller: { gstin: sellerGstin, stateCode: '29' },
+          placeOfSupplyStateCode: '29',
+          buyer: {
+            party: 'BUSINESS',
+            legalName: 'Harbour Hotels',
+            tradeName: 'Harbour',
+            gstin: '27AAPFU0939F1ZV',
+            address: '1 Wharf',
+            city: 'Mumbai',
+            state: 'Maharashtra',
+            pin: '400001',
+            stateCode: '27',
+          },
+          taxRegistrations: [
+            { label: 'GSTIN', number: sellerGstin },
+            { label: 'PAN', number: 'AAPFU0939F' },
+          ],
+          totals: { chargesMinor: 0, balanceMinor: 0 },
+          lines: [],
+        },
+      },
+      classified: { class: 'live' },
+    });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    const card = await screen.findByTestId('invoice-view');
+    const text = card.textContent ?? '';
+    expect(text).toContain('Legal name Harbour Hotels');
+    expect(text).toContain('Trade name Harbour');
+    expect(text).toContain('GSTIN 27AAPFU0939F1ZV');
+    expect(text).toContain('1 Wharf');
+    expect(text).toContain('Mumbai');
+    expect(text).toContain('Maharashtra');
+    expect(text).toContain('PIN 400001');
+    expect(text).toContain('State code 27');
+    expect(text).toContain('Place of supply 29 — Karnataka');
+    expect(text).toContain('PAN AAPFU0939F');
+    expect(text.split(sellerGstin).length - 1).toBe(1);
+    const alert = screen.getByTestId('folio-message');
+    expect(alert.textContent).toContain('Invoice opened.');
+    expect(alert.className).toContain('ui-alert--settled');
+  });
+
+  it('invoice view shows every individual buyer field from get_invoice_buyer', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_ind' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_ind',
+        snapshot: {
+          schemaVersion: 2,
+          seller: { gstin: '29AAAAA0000A1Z5', stateCode: '29' },
+          placeOfSupplyStateCode: '29',
+          buyer: { party: 'INDIVIDUAL', buyerSnapshotId: 'snap_1' },
+          taxRegistrations: [{ label: 'GSTIN', number: '29AAAAA0000A1Z5' }],
+          totals: { balanceMinor: 0 },
+          lines: [],
+        },
+      },
+      classified: { class: 'live' },
+    });
+    getInvoiceBuyer.mockResolvedValue({
+      body: {
+        buyer: {
+          type: 'UNREGISTERED',
+          party: 'INDIVIDUAL',
+          fields: {
+            legalName: 'Private Person',
+            tradeName: 'PP',
+            address: '2 Lane',
+            city: 'Pune',
+            state: 'Maharashtra',
+            pin: '411001',
+            stateCode: '27',
+          },
+        },
+      },
+      classified: { class: 'live' },
+    });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() =>
+      expect(screen.getByTestId('invoice-buyer-individual').textContent).toContain('Legal name Private Person'),
+    );
+    const text = screen.getByTestId('invoice-buyer-individual').textContent ?? '';
+    expect(text).toContain('Trade name PP');
+    expect(text).toContain('2 Lane');
+    expect(text).toContain('Pune');
+    expect(text).toContain('Maharashtra');
+    expect(text).toContain('PIN 411001');
+    expect(text).toContain('State code 27');
+    expect(getInvoiceBuyer).toHaveBeenCalledWith('prop_demo', 'inv_ind');
   });
 });

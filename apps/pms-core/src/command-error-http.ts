@@ -209,6 +209,10 @@ import {
   CONSENT_NOTICE_NOT_CONFIGURED,
   ID_DOCUMENT_REQUIRED,
   SCAN_TYPE_NOT_ALLOWED,
+  INVALID_GSTIN,
+  BUYER_GSTIN_REQUIRED,
+  BUYER_STATE_CODE_MISMATCH,
+  INVALID_HSN_SAC,
   type CommandError,
   type FeatureKey,
   type Permission,
@@ -439,6 +443,10 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case CONSENT_NOTICE_NOT_CONFIGURED:
     case ID_DOCUMENT_REQUIRED:
     case SCAN_TYPE_NOT_ALLOWED:
+    case INVALID_GSTIN:
+    case BUYER_GSTIN_REQUIRED:
+    case BUYER_STATE_CODE_MISMATCH:
+    case INVALID_HSN_SAC:
     case PRODUCT_NOT_POSTABLE:
     case RECURRING_CHARGE_DATES_INVALID:
     case INSUFFICIENT_STOCK:

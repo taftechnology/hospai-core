@@ -11,6 +11,7 @@ const createCityLedgerAccount = vi.fn();
 const receiveCityLedgerPayment = vi.fn();
 const generateCityLedgerStatement = vi.fn();
 const archiveCityLedgerAccount = vi.fn();
+const updateCityLedgerAccount = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -26,6 +27,7 @@ vi.mock('../client.js', () => ({
     receiveCityLedgerPayment: (...args: unknown[]) => receiveCityLedgerPayment(...args),
     generateCityLedgerStatement: (...args: unknown[]) => generateCityLedgerStatement(...args),
     archiveCityLedgerAccount: (...args: unknown[]) => archiveCityLedgerAccount(...args),
+    updateCityLedgerAccount: (...args: unknown[]) => updateCityLedgerAccount(...args),
   },
 }));
 
@@ -77,6 +79,10 @@ describe('CityLedgerScreen', () => {
     });
     archiveCityLedgerAccount.mockResolvedValue({
       body: { ok: true, status: 'archived' },
+      classified: { class: 'live' },
+    });
+    updateCityLedgerAccount.mockResolvedValue({
+      body: { ok: true },
       classified: { class: 'live' },
     });
   });
@@ -211,6 +217,70 @@ describe('CityLedgerScreen', () => {
       await client.invalidateQueries({ queryKey: ['city-ledger-account', 'prop_demo', 'a1'] });
     });
   });
+
+  it('GST details dialog edits every buyer field and saves with a settled alert', async () => {
+    fetchCityLedgerAccount.mockResolvedValue({
+      body: {
+        ok: true,
+        accountId: 'a1',
+        name: 'Acme Corp',
+        status: 'active',
+        creditLimitMinor: 0,
+        termsDays: 30,
+        openBalanceMinor: 0,
+        aging: {
+          totalOpenMinor: 0,
+          days30Minor: 0,
+          currentMinor: 0,
+          days60Minor: 0,
+          days90PlusMinor: 0,
+        },
+        entries: [],
+        gst: null,
+      },
+      classified: { class: 'live' },
+    });
+    renderCityLedger('/city-ledger/a1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit GST details' }));
+    const dialog = await screen.findByRole('dialog', { name: 'GST details' });
+    expect(dialog.textContent).toContain('Trade name');
+    expect(dialog.textContent).toContain('Address');
+    expect(dialog.textContent).toContain('City');
+    expect(dialog.textContent).toContain('State');
+    expect(dialog.textContent).toContain('PIN');
+    expect(dialog.textContent).toContain('State code');
+    const stateCode = screen.getByLabelText('Account state code') as HTMLInputElement;
+    expect(stateCode.readOnly).toBe(true);
+    fireEvent.change(screen.getByLabelText('Account GSTIN'), { target: { value: '29AAAAA0000A1Z5' } });
+    expect((screen.getByLabelText('Account state code') as HTMLInputElement).value).toBe('29');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'GST details' })).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit GST details' }));
+    fireEvent.change(screen.getByLabelText('Account GSTIN'), { target: { value: '27AAPFU0939F1ZV' } });
+    fireEvent.change(screen.getByLabelText('Account legal name'), { target: { value: 'Harbour Hotels' } });
+    fireEvent.change(screen.getByLabelText('Account trade name'), { target: { value: 'Harbour' } });
+    fireEvent.change(screen.getByLabelText('Account address'), { target: { value: '1 Wharf' } });
+    fireEvent.change(screen.getByLabelText('Account city'), { target: { value: 'Mumbai' } });
+    fireEvent.change(screen.getByLabelText('Account state'), { target: { value: 'Maharashtra' } });
+    fireEvent.change(screen.getByLabelText('Account PIN'), { target: { value: '400001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save GST details' }));
+    await waitFor(() => expect(updateCityLedgerAccount).toHaveBeenCalled());
+    const payload = updateCityLedgerAccount.mock.calls[0]?.[2] as { gst: Record<string, string> };
+    expect(payload.gst).toMatchObject({
+      gstin: '27AAPFU0939F1ZV',
+      legalName: 'Harbour Hotels',
+      tradeName: 'Harbour',
+      address: '1 Wharf',
+      city: 'Mumbai',
+      state: 'Maharashtra',
+      pin: '400001',
+      stateCode: '27',
+    });
+    const alert = await screen.findByTestId('city-ledger-message');
+    expect(alert.textContent).toContain('GST details saved.');
+    expect(alert.className).toContain('ui-alert--settled');
+  });
 });
 
 it('T24: create failure uses classified copy not JSON.stringify', async () => {
@@ -244,6 +314,7 @@ it('T24: create failure uses classified copy not JSON.stringify', async () => {
   await waitFor(() => expect(screen.getByTestId('city-ledger-message')).toBeTruthy());
   expect(screen.getByTestId('city-ledger-message').textContent).not.toMatch(/\{/);
   expect(screen.getByTestId('city-ledger-message').textContent).toMatch(/Forbidden/i);
+  expect(screen.getByTestId('city-ledger-message').className).toContain('ui-alert--exception');
 });
 
 it('a list read error is classified and is not called unreachable', async () => {

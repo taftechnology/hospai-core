@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveOrgBlindIndexKeyHex,
+  deriveOrgLegalRetentionKeyHex,
   deriveOrgWrapKeyHex,
   HKDF_SALT,
   importPlatformIkmHex,
@@ -52,6 +53,32 @@ describe('org-derive', () => {
   it('HKDF_SALT is 32 zero bytes', () => {
     expect(HKDF_SALT.byteLength).toBe(32);
     expect([...HKDF_SALT].every((b) => b === 0)).toBe(true);
+  });
+
+  it('legal-retention key encrypts under orgId:id AAD and differs by org', async () => {
+    const keyA = await deriveOrgLegalRetentionKeyHex(MASTER_HEX, ORG_A);
+    const keyB = await deriveOrgLegalRetentionKeyHex(MASTER_HEX, ORG_B);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode('{"legalName":"Kept"}');
+    const aad = new TextEncoder().encode(`${ORG_A}:snap1`);
+    const cipher = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, additionalData: aad },
+        keyA,
+        plain,
+      ),
+    );
+    const opened = new Uint8Array(
+      await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv, additionalData: aad },
+        keyA,
+        cipher,
+      ),
+    );
+    expect(new TextDecoder().decode(opened)).toBe('{"legalName":"Kept"}');
+    await expect(
+      crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad }, keyB, cipher),
+    ).rejects.toThrow();
   });
 
   it('importPlatformIkmHex rejects short hex like master-key import', async () => {

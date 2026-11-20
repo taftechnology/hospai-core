@@ -64,6 +64,7 @@ async function runOrgPlan(
   step: WorkflowStep,
   stores: PurgeStoreRecord[],
 ): Promise<void> {
+  let invoiceBuyerSnapshots = 0;
   await step.do('retention-gate', async () => {
     const row = await getOrgRetentionRow(env, params.orgId);
     if (!row) throw new HaltError('org_not_found');
@@ -150,6 +151,11 @@ async function runOrgPlan(
   }
   replaceStore(stores, { store: 'property_do', status: 'reached', deleted: propertyDeletedTotal });
 
+  await step.do('count-invoice-buyer-snapshots', async () => {
+    const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
+    invoiceBuyerSnapshots = await org.countInvoiceBuyerSnapshots();
+  });
+
   await step.do('purge-org-do', async () => {
     const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
     const orgResult = await org.purgeStorageForTenant();
@@ -166,6 +172,13 @@ async function runOrgPlan(
       status: 'reached',
       deleted: orgResult.deletedApprox + entResult.deletedApprox,
       note: 'includes_entitlement_do',
+    });
+    replaceStore(stores, {
+      store: 'org_do_tax_invoice_buyer',
+      status: invoiceBuyerSnapshots === 0 ? 'skipped' : 'reached',
+      ...(invoiceBuyerSnapshots === 0
+        ? { reason: 'none' as const }
+        : { deleted: invoiceBuyerSnapshots }),
     });
   });
 
@@ -406,6 +419,16 @@ async function runGuestPlan(
       status: 'reached',
       deleted: 0,
       note: 'profile_blobs_cleared; guest_document_access kept without PII',
+    });
+  });
+
+  await step.do('retain-invoice-buyer', async () => {
+    const counted = await org().countInvoiceBuyerSnapshotsForGuest(params.guestRef);
+    replaceStore(stores, {
+      store: 'org_do_tax_invoice_buyer',
+      status: 'retained',
+      reason: 'tax_invoice_retention',
+      count: counted,
     });
   });
 

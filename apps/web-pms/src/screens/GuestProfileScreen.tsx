@@ -2,7 +2,10 @@ import {
   GUEST_NOTES_LENGTH_MAX,
   GUEST_TAG_LENGTH_MAX,
   GUEST_TAGS_MAX,
+  canonicalGstBuyerFields,
+  gstinStateCode,
   normalizeGuestCrmFields,
+  type GstBuyerFields,
 } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
@@ -232,6 +235,50 @@ export function GuestProfileScreen() {
     },
     onError: (err) => {
       setEditError(classifiedUserMessage(asClassified(err), {}));
+    },
+  });
+
+  const [gstDraft, setGstDraft] = useState<GstBuyerFields>({});
+  const [gstMessage, setGstMessage] = useState<string | null>(null);
+  const [gstIntent, setGstIntent] = useState<'exception' | 'settled'>('settled');
+  const savedGst = (guestQ.data as { profile?: { gstBuyer?: GstBuyerFields } } | undefined)?.profile?.gstBuyer;
+  useEffect(() => {
+    setGstDraft(savedGst ?? {});
+  }, [savedGst]);
+  const guestGstin = gstDraft.gstin?.trim() ?? '';
+  const derivedGuestState = guestGstin ? (gstinStateCode(guestGstin) ?? '') : '';
+  const saveGst = useMutation({
+    mutationFn: () => {
+      const derived = gstinStateCode(gstDraft.gstin ?? '');
+      const fields = canonicalGstBuyerFields({
+        ...gstDraft,
+        ...(derived ? { stateCode: derived } : {}),
+      });
+      return api.updateGuest(
+        propertyId,
+        guestRef,
+        {
+          ...buildUpdatePayload(
+            guest?.profile?.displayName ?? '',
+            guest?.profile?.email ?? '',
+            guest?.profile?.phone ?? '',
+            guest?.profile?.tags ?? [],
+            Boolean(guest?.profile?.vip),
+            guest?.profile?.notes ?? '',
+          ),
+          gstBuyer: Object.keys(fields).length === 0 ? null : fields,
+        },
+        `guest-gst:${guestRef}:${crypto.randomUUID()}`,
+      );
+    },
+    onSuccess: async () => {
+      setGstIntent('settled');
+      setGstMessage('GST details saved.');
+      await queryClient.invalidateQueries({ queryKey: ['guest', propertyId, guestRef] });
+    },
+    onError: (err) => {
+      setGstIntent('exception');
+      setGstMessage(classifiedUserMessage(asClassified(err), { fallback: 'Could not save GST details.' }));
     },
   });
 
@@ -498,6 +545,117 @@ export function GuestProfileScreen() {
               </div>
             </CardContent>
           </Card>
+          {guest.erased ? null : (
+            <Card data-testid="guest-gst">
+              <CardHeader>
+                <CardTitle>GST details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {gstMessage ? (
+                  <Alert intent={gstIntent} data-testid="guest-gst-message">
+                    {gstMessage}
+                  </Alert>
+                ) : null}
+                <Field
+                  label="GSTIN"
+                  control={
+                    <Input
+                      aria-label="Guest GSTIN"
+                      value={gstDraft.gstin ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, gstin: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="Legal name"
+                  control={
+                    <Input
+                      aria-label="Guest legal name"
+                      value={gstDraft.legalName ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, legalName: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="Trade name"
+                  control={
+                    <Input
+                      aria-label="Guest trade name"
+                      value={gstDraft.tradeName ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, tradeName: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="Address"
+                  control={
+                    <Input
+                      aria-label="Guest address"
+                      value={gstDraft.address ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, address: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="City"
+                  control={
+                    <Input
+                      aria-label="Guest city"
+                      value={gstDraft.city ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, city: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="State"
+                  control={
+                    <Input
+                      aria-label="Guest state"
+                      value={gstDraft.state ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, state: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="PIN"
+                  control={
+                    <Input
+                      aria-label="Guest PIN"
+                      value={gstDraft.pin ?? ''}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, pin: e.target.value }))}
+                    />
+                  }
+                />
+                <Field
+                  label="State code"
+                  control={
+                    <Input
+                      aria-label="Guest state code"
+                      readOnly={guestGstin.length > 0}
+                      value={guestGstin ? derivedGuestState : (gstDraft.stateCode ?? '')}
+                      onChange={(e) => setGstDraft((prev) => ({ ...prev, stateCode: e.target.value }))}
+                    />
+                  }
+                />
+                {canWrite ? (
+                  <div className="guest-actions">
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setGstDraft(savedGst ?? {});
+                        setGstMessage(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="button" disabled={saveGst.isPending} onClick={() => saveGst.mutate()}>
+                      Save GST details
+                    </Button>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          )}
           {guest.erased ? null : (
             <GuestIdentityPanels
               propertyId={propertyId}

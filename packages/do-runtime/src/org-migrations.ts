@@ -335,6 +335,24 @@ export const ORG_GUEST_DOCUMENTS_V12_STATEMENTS = [
 
 export const ORG_GUEST_DOCUMENTS_V12_SQL = ORG_GUEST_DOCUMENTS_V12_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v13 — individual invoice buyer snapshots under the org legal-retention key. */
+export const ORG_INVOICE_BUYER_SNAPSHOT_V13_STATEMENTS = [
+  `CREATE TABLE invoice_buyer_snapshot (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL,
+  guest_ref TEXT,
+  cipher BLOB NOT NULL,
+  iv BLOB NOT NULL,
+  key_version INTEGER NOT NULL,
+  fields_sha256 TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL
+)`,
+] as const;
+
+export const ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL =
+  ORG_INVOICE_BUYER_SNAPSHOT_V13_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -395,5 +413,10 @@ export const ORG_MIGRATIONS = [
     version: 12,
     name: '0012_guest_documents',
     statements: ORG_GUEST_DOCUMENTS_V12_STATEMENTS,
+  },
+  {
+    version: 13,
+    name: '0013_invoice_buyer_snapshot',
+    statements: ORG_INVOICE_BUYER_SNAPSHOT_V13_STATEMENTS,
   },
 ] as const;

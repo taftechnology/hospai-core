@@ -6,6 +6,7 @@ import {
   TAX_RULE_NOT_FOUND,
   VALIDATION_ERROR,
   fingerprintPayload,
+  gstinWithCheckDigit,
 } from '@hospai/contracts';
 import { allocate, computeTax, resolveTaxes } from '@hospai/money';
 import worker from '../src/index.js';
@@ -635,7 +636,7 @@ describe('configurable tax engine', () => {
       await stub.tryCheckIn(TEST_OWNER_ACTOR, { reservationId, roomId: 'rm_1' }, await idemFor('ci', { reservationId, roomId: 'rm_1' })),
     ).toMatchObject({ ok: true });
     const location = { country: 'IN', region: 'KA', locality: 'Bengaluru' };
-    const registrations = [{ label: 'GSTIN', number: '29ABCDE1234F1Z5' }];
+    const registrations = [{ label: 'GSTIN', number: gstinWithCheckDigit('29ABCDE1234F1Z') }];
     const locMeta = { reason: 'tax location' };
     const regMeta = { reason: 'tax registrations' };
     expect(

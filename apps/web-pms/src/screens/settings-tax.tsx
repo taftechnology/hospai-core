@@ -1,7 +1,9 @@
+import { gstinProblem, HSN_SAC_PATTERN } from '@hospai/contracts';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
+  AlertTitle,
   Button,
   Card,
   CardContent,
@@ -428,6 +430,7 @@ export function SettingsTaxTab({ propertyId }: { propertyId: string }) {
   const [errors, setErrors] = useState<DraftErrors>(EMPTY_ERRORS);
   const [locationDraft, setLocationDraft] = useState<LocationValue | null>(null);
   const [regDraft, setRegDraft] = useState<Registration[] | null>(null);
+  const [hsnDraft, setHsnDraft] = useState<Record<string, string> | null>(null);
   const [locationReason, setLocationReason] = useState('');
   const [locationErrors, setLocationErrors] = useState<{ country?: string; reason?: string }>({});
   const [declKey, setDeclKey] = useState('');
@@ -709,8 +712,40 @@ export function SettingsTaxTab({ propertyId }: { propertyId: string }) {
   }
 
   const locationUntouched = locationDraft == null && regDraft == null;
+  const gstinRegistrationInvalid = registrations.some(
+    (row) => row.label.trim().toUpperCase() === 'GSTIN' && gstinProblem(row.number.trim()) !== null,
+  );
   const locationBlocked =
-    saveLocation.isPending || configQ.isPending || (configQ.isError && locationUntouched);
+    saveLocation.isPending ||
+    configQ.isPending ||
+    (configQ.isError && locationUntouched) ||
+    gstinRegistrationInvalid;
+  const savedClassification = (configValue(configQ.data, 'pms.tax.classification') ?? {}) as Record<
+    string,
+    string
+  >;
+  const classification = hsnDraft ?? savedClassification;
+  const taxGroups = [
+    ...new Set(
+      readChargeCodes(codesQ.data)
+        .map((row) => row.taxGroup)
+        .filter((group): group is string => Boolean(group)),
+    ),
+  ];
+  const saveClassification = useMutation({
+    mutationFn: () =>
+      api.putDomainConfig(propertyId, {
+        key: 'pms.tax.classification',
+        value: classification,
+        reason: 'HSN/SAC',
+      }),
+    onSuccess: async () => {
+      setHsnDraft(null);
+      setNotice({ intent: 'settled', text: 'Saved HSN/SAC.' });
+      await queryClient.invalidateQueries({ queryKey: ['domain-config', propertyId] });
+    },
+    onError: fail,
+  });
   const editorTitle =
     mode.kind === 'change' ? `Change ${draft.name.trim() || mode.name} from a date` : 'Add a tax';
   const limitCount = Math.max(0, draft.bands.length - 1);
@@ -764,7 +799,8 @@ export function SettingsTaxTab({ propertyId }: { propertyId: string }) {
             <p className="muted">Country is a two-letter code, such as IN.</p>
             </div>
             {registrations.map((row, index) => (
-              <FieldGroup inline key={index}>
+              <div key={index}>
+              <FieldGroup inline>
                 <Field
                   label="Registration name"
                   control={
@@ -801,6 +837,13 @@ export function SettingsTaxTab({ propertyId }: { propertyId: string }) {
                   Remove
                 </Button>
               </FieldGroup>
+              {row.label.trim().toUpperCase() === 'GSTIN' && gstinProblem(row.number.trim()) ? (
+                <Alert data-testid="gstin-registration-error">
+                  <AlertTitle>GSTIN</AlertTitle>
+                  That registration number is not a valid GSTIN.
+                </Alert>
+              ) : null}
+              </div>
             ))}
             {registrations.length < 4 ? (
               <Button
@@ -827,6 +870,36 @@ export function SettingsTaxTab({ propertyId }: { propertyId: string }) {
             <Button type="submit" intent="primary" disabled={locationBlocked}>
               Save location
             </Button>
+            {taxGroups.map((group) => (
+              <Field
+                key={group}
+                label={`HSN/SAC for ${group}`}
+                error={
+                  classification[group] && !HSN_SAC_PATTERN.test(classification[group])
+                    ? 'Use 4, 6, or 8 digits.'
+                    : undefined
+                }
+                control={
+                  <Input
+                    aria-label={`HSN/SAC for ${group}`}
+                    value={classification[group] ?? ''}
+                    onChange={(event) =>
+                      setHsnDraft({ ...classification, [group]: event.target.value })
+                    }
+                    autoComplete="off"
+                  />
+                }
+              />
+            ))}
+            {taxGroups.length > 0 ? (
+              <Button
+                type="button"
+                disabled={saveClassification.isPending}
+                onClick={() => saveClassification.mutate()}
+              >
+                Save HSN/SAC
+              </Button>
+            ) : null}
           </form>
           {configQ.isError ? (
             <Alert intent="exception">{classifiedUserMessage(asClassified(configQ.error), {})}</Alert>

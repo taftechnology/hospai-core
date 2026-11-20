@@ -28,6 +28,18 @@ export type GuestPreferences = {
   other?: string;
 };
 
+/** Buyer GST block inside the encrypted profile. Never placed on the event bus. */
+export type GuestGstBuyer = {
+  gstin?: string;
+  legalName?: string;
+  tradeName?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pin?: string;
+  stateCode?: string;
+};
+
 export type GuestProfile = {
   displayName: string;
   email?: string;
@@ -36,6 +48,7 @@ export type GuestProfile = {
   vip?: boolean;
   notes?: string;
   preferences?: GuestPreferences;
+  gstBuyer?: GuestGstBuyer;
 };
 
 export type StaffProfile = {

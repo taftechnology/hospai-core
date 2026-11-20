@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HSN_SAC_PATTERN, TAX_GROUP_KEY_PATTERN } from '../gst-buyer.js';
 import {
   DEFAULT_GUEST_SETTINGS,
   GUEST_SETTINGS_KEY,
@@ -564,6 +565,16 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
       )
       .max(4),
     default: [],
+    consumersExempt: true,
+  }),
+  entry({
+    key: 'pms.tax.classification',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: z
+      .record(z.string().regex(TAX_GROUP_KEY_PATTERN), z.string().regex(HSN_SAC_PATTERN))
+      .refine((value) => Object.keys(value).length <= 50),
+    default: {},
     consumersExempt: true,
   }),
 ];

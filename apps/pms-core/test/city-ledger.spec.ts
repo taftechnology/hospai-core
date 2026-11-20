@@ -30,7 +30,10 @@ async function createCityLedgerAccount(
   return stub.tryCreateCityLedgerAccount(
     TEST_OWNER_ACTOR,
     input,
-    await idemFor(`cla-create-${idemSuffix}`, { name: input.name.trim() }),
+    await idemFor(`cla-create-${idemSuffix}`, {
+      commandId: 'city_ledger.create_account',
+      payload: input,
+    }),
   );
 }
 

@@ -152,6 +152,14 @@ import {
   LAST_OWNER,
   LIMIT_EXCEEDED,
   parseGuestPreferences,
+  parseInvoiceBuyer,
+  parseProfileGstBuyer,
+  parseCompanyGst,
+  invoiceBuyerSnapshotId,
+  gstBuyerFieldsSha256,
+  canonicalGstBuyerFields,
+  type GstBuyerFields,
+  type InvoiceBuyerWire,
   parseGuestDocumentFields,
   GUEST_DOCUMENT_KINDS,
   ConsentWriteSchema,
@@ -1441,6 +1449,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     vip?: boolean;
     notes?: string;
     preferences?: unknown;
+    gstBuyer?: unknown;
     idempotencyKey: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
@@ -1481,10 +1490,24 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
       preferencesUpdate = parsedPrefs.preferences;
     }
   }
+  let gstBuyerUpdate: GstBuyerFields | null = null;
+  const gstTouched = 'gstBuyer' in body;
+  if (gstTouched) {
+    if (body.gstBuyer === null) {
+      gstBuyerUpdate = null;
+    } else {
+      const parsedGst = parseProfileGstBuyer(body.gstBuyer);
+      if (!parsedGst.ok) {
+        return json({ ok: false, error: parsedGst.error }, commandErrorHttpStatus(parsedGst.error));
+      }
+      gstBuyerUpdate = parsedGst.fields;
+    }
+  }
   const fingerprint = await commandFingerprint('guests.update', {
     guestId,
     ...profile,
     ...(preferencesTouched ? { preferences: preferencesUpdate! } : {}),
+    ...(gstTouched ? { gstBuyer: gstBuyerUpdate } : {}),
   });
 
   try {
@@ -1507,6 +1530,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
               },
             }
           : {}),
+        ...(gstTouched ? { gstBuyerUpdate } : {}),
       },
       { key: body.idempotencyKey, fingerprint },
     );
@@ -6499,28 +6523,88 @@ async function handleDeleteRatePromo(ctx: V1DispatchContext): Promise<Response> 
 async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
-    const bodyParsed = await parseJsonBody<{
+  const bodyParsed = await parseJsonBody<{
     idempotencyKey: string;
     reservationId: string;
     folioWindowId?: string;
+    generatedBy?: string;
+    buyer?: unknown;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey || !body.reservationId) {
     return json({ error: 'invalid_body' }, 400);
   }
+  if (
+    body.generatedBy !== undefined &&
+    body.generatedBy !== 'checkout' &&
+    body.generatedBy !== 'desk'
+  ) {
+    return json({ ok: false, error: 'validation_error' }, 422);
+  }
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
   const resolvedWindow = body.folioWindowId ?? `${body.reservationId}:GUEST`;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+
+  let buyerWire: InvoiceBuyerWire | undefined;
+  if (body.buyer !== undefined && body.buyer !== null) {
+    const parsed = parseInvoiceBuyer(body.buyer);
+    if (!parsed.ok) {
+      return json({ ok: false, error: parsed.error }, commandErrorHttpStatus(parsed.error));
+    }
+    if (parsed.buyer?.type === 'REGISTERED') {
+      buyerWire = { type: 'REGISTERED', party: 'BUSINESS', fields: canonicalGstBuyerFields(parsed.buyer.fields) };
+    } else if (parsed.buyer?.type === 'UNREGISTERED') {
+      const fields = canonicalGstBuyerFields(parsed.buyer.fields);
+      const buyerSnapshotId = await invoiceBuyerSnapshotId(ctx.actor.userId, body.idempotencyKey);
+      const fieldsSha256 = await gstBuyerFieldsSha256(fields);
+      let guestRef: string | undefined;
+      try {
+        const reservation = await resolvedCtx.resolved.stub.readReservation(body.reservationId);
+        if (reservation.ok) guestRef = reservation.reservation.guestRef;
+      } catch (e) {
+        if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+        throw e;
+      }
+      const org = resolveOrgStub(ctx.env.ORG_DO, {
+        orgId: resolvedCtx.property.orgId,
+      }) as DurableObjectStub<OrgDO>;
+      try {
+        await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+        const sealed = await org.sealInvoiceBuyerSnapshot(actor, {
+          id: buyerSnapshotId,
+          propertyId,
+          ...(guestRef ? { guestRef } : {}),
+          fields,
+          createdBy: ctx.actor.userId,
+        });
+        if (!sealed.ok) {
+          return commandFailureResponse(sealed.error, 'folio:post');
+        }
+      } catch (e) {
+        if (isOrgDoTransportFailure(e, ctx.env)) {
+          return json(
+            { error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'invoice.generate' },
+            503,
+            { 'Retry-After': '30' },
+          );
+        }
+        throw e;
+      }
+      buyerWire = { type: 'UNREGISTERED', party: 'INDIVIDUAL', buyerSnapshotId, fieldsSha256 };
+    }
+  }
+
+  const generatedBy: 'checkout' | 'desk' | undefined =
+    body.generatedBy === 'checkout' ? 'checkout' : body.generatedBy === 'desk' ? 'desk' : undefined;
   const commandPayload = {
     reservationId: body.reservationId,
-    ...(body.folioWindowId ? { folioWindowId: body.folioWindowId } : {}),
-  };
-  const fingerprint = await commandFingerprint('invoice.generate', {
-    reservationId: body.reservationId,
     folioWindowId: resolvedWindow,
-  });
-  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+    ...(generatedBy ? { generatedBy } : {}),
+    ...(buyerWire ? { buyer: buyerWire } : {}),
+  };
+  const fingerprint = await commandFingerprint('invoice.generate', commandPayload);
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryGenerateInvoice']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -6536,10 +6620,55 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
     invoked,
     permission: 'reservations:write',
     successStatus: 201,
-    onFailure: (result) => {    if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
-    return null;
+    onFailure: (result) => {
+      if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return null;
     },
   });
+}
+
+async function handleGetInvoiceBuyer(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const invoiceId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const index = await resolvedCtx.resolved.stub.readInvoiceIndex(invoiceId);
+    if (!index) return json({ error: 'not_found' }, 404);
+    if (index.buyerType === 'REGISTERED') {
+      const obj = await ctx.env.EVENT_LOG_R2?.get(index.r2Key);
+      if (!obj) return json({ error: 'not_found' }, 404);
+      const snapshot = JSON.parse(await obj.text()) as { buyer?: unknown };
+      return json({ buyer: snapshot.buyer ?? null }, 200);
+    }
+    if (index.buyerType === 'UNREGISTERED' && index.buyerSnapshotId) {
+      const org = resolveOrgStub(ctx.env.ORG_DO, {
+        orgId: resolvedCtx.property.orgId,
+      }) as DurableObjectStub<OrgDO>;
+      await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+      const opened = await org.readInvoiceBuyerSnapshot(actor, { id: index.buyerSnapshotId, propertyId });
+      if (!opened.ok) {
+        if (opened.error === NOT_FOUND || opened.error === DECRYPT_UNRESOLVED) {
+          return json({ error: 'not_found' }, 404);
+        }
+        return commandFailureResponse(opened.error, 'folio:read');
+      }
+      return json(
+        {
+          buyer: { type: 'UNREGISTERED', party: 'INDIVIDUAL', fields: opened.fields },
+        },
+        200,
+      );
+    }
+    return json({ buyer: null }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env) || isOrgDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
 }
 
 async function handleGetInvoice(ctx: V1DispatchContext): Promise<Response> {
@@ -6613,6 +6742,7 @@ async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Res
     name: string;
     creditLimitMinor?: number;
     termsDays?: number;
+    gst?: unknown;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -6622,12 +6752,21 @@ async function handlePostCityLedgerAccounts(ctx: V1DispatchContext): Promise<Res
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
+  let gst: GstBuyerFields | null | undefined;
+  if ('gst' in body) {
+    const parsedGst = parseCompanyGst(body.gst ?? null);
+    if (!parsedGst.ok) {
+      return json({ ok: false, error: parsedGst.error }, commandErrorHttpStatus(parsedGst.error));
+    }
+    gst = parsedGst.gst;
+  }
   const commandPayload = {
-    name: body.name,
+    name: body.name.trim(),
     ...(body.creditLimitMinor !== undefined ? { creditLimitMinor: body.creditLimitMinor } : {}),
     ...(body.termsDays !== undefined ? { termsDays: body.termsDays } : {}),
+    ...(gst !== undefined ? { gst } : {}),
   };
-  const fingerprint = await commandFingerprint('city_ledger.create_account', { name: body.name.trim() });
+  const fingerprint = await commandFingerprint('city_ledger.create_account', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateCityLedgerAccount']>>>({
@@ -6689,6 +6828,7 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
     creditLimitMinor?: number;
     termsDays?: number;
     status?: string;
+    gst?: unknown;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
@@ -6722,22 +6862,28 @@ async function handlePatchCityLedgerAccount(ctx: V1DispatchContext): Promise<Res
   if (
     body.name === undefined &&
     body.creditLimitMinor === undefined &&
-    body.termsDays === undefined
+    body.termsDays === undefined &&
+    !('gst' in body)
   ) {
     return json({ error: 'invalid_body' }, 400);
+  }
+  let gst: GstBuyerFields | null | undefined;
+  if ('gst' in body) {
+    const parsedGst = parseCompanyGst(body.gst ?? null);
+    if (!parsedGst.ok) {
+      return json({ ok: false, error: parsedGst.error }, commandErrorHttpStatus(parsedGst.error));
+    }
+    gst = parsedGst.gst;
   }
 
   const commandPayload = {
     accountId,
-    ...(body.name !== undefined ? { name: body.name } : {}),
+    ...(body.name !== undefined ? { name: body.name.trim() } : {}),
     ...(body.creditLimitMinor !== undefined ? { creditLimitMinor: body.creditLimitMinor } : {}),
     ...(body.termsDays !== undefined ? { termsDays: body.termsDays } : {}),
+    ...(gst !== undefined ? { gst } : {}),
   };
-  const fingerprint = await commandFingerprint('city_ledger.archive_account', 
-    Object.fromEntries(
-      Object.entries(commandPayload).sort(([a], [b]) => a.localeCompare(b)),
-    ),
-  );
+  const fingerprint = await commandFingerprint('city_ledger.update_account', commandPayload);
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateCityLedgerAccount']>>>({
     ...commandEnvelope(ctx, resolvedCtx, {
@@ -10484,6 +10630,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'guests:write',
     commandId: 'guests.update_consent',
     handler: handlePostGuestConsent,
+  },
+  {
+    id: 'get_invoice_buyer',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/invoices\/([^/]+)\/buyer$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetInvoiceBuyer,
   },
 ];
 

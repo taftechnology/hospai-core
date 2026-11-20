@@ -368,4 +368,34 @@ describe('GuestProfileScreen', () => {
       expect(screen.getByTestId('guest-preference-badges').textContent).toContain('Quiet room'),
     );
   });
+
+  it('GST details shows every field, a derived state code, cancel, and a settled save', async () => {
+    updateGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    renderProfile();
+    expect(await screen.findByLabelText('Guest trade name')).toBeTruthy();
+    expect(screen.getByLabelText('Guest address')).toBeTruthy();
+    expect(screen.getByLabelText('Guest city')).toBeTruthy();
+    expect(screen.getByLabelText('Guest state')).toBeTruthy();
+    expect(screen.getByLabelText('Guest PIN')).toBeTruthy();
+    expect((screen.getByLabelText('Guest state code') as HTMLInputElement).readOnly).toBe(false);
+    fireEvent.change(screen.getByLabelText('Guest GSTIN'), { target: { value: '29AAAAA0000A1Z5' } });
+    const derived = screen.getByLabelText('Guest state code') as HTMLInputElement;
+    expect(derived.readOnly).toBe(true);
+    expect(derived.value).toBe('29');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect((screen.getByLabelText('Guest GSTIN') as HTMLInputElement).value).toBe('');
+
+    fireEvent.change(screen.getByLabelText('Guest GSTIN'), { target: { value: '29AAAAA0000A1Z5' } });
+    fireEvent.change(screen.getByLabelText('Guest legal name'), { target: { value: 'Ada Hotels' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save GST details' }));
+    const alert = await screen.findByTestId('guest-gst-message');
+    expect(alert.textContent).toContain('GST details saved.');
+    expect(alert.className).toContain('ui-alert--settled');
+    const payload = updateGuest.mock.calls.at(-1)?.[2] as { gstBuyer: Record<string, string> };
+    expect(payload.gstBuyer).toMatchObject({
+      gstin: '29AAAAA0000A1Z5',
+      legalName: 'Ada Hotels',
+      stateCode: '29',
+    });
+  });
 });

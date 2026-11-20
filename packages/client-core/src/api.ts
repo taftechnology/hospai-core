@@ -1422,6 +1422,7 @@ export function createClient(opts: {
         vip?: boolean;
         notes?: string;
         preferences?: import('@hospai/contracts').GuestPreferences | null;
+        gstBuyer?: import('@hospai/contracts').GstBuyerFields | null;
       },
       opId: string,
     ) {
@@ -1436,6 +1437,7 @@ export function createClient(opts: {
       if (input.vip !== undefined) payload.vip = input.vip;
       if (input.notes !== undefined) payload.notes = input.notes;
       if ('preferences' in input) payload.preferences = input.preferences;
+      if ('gstBuyer' in input) payload.gstBuyer = input.gstBuyer;
       return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -2464,7 +2466,13 @@ export function createClient(opts: {
     },
     async generateInvoice(
       propertyId: string,
-      input: { reservationId: string; folioWindowId?: string; idempotencyKey?: string },
+      input: {
+        reservationId: string;
+        folioWindowId?: string;
+        idempotencyKey?: string;
+        generatedBy?: 'checkout' | 'desk';
+        buyer?: { type: 'REGISTERED' | 'UNREGISTERED'; fields: Record<string, string> } | null;
+      },
     ) {
       const idempotencyKey =
         input.idempotencyKey ??
@@ -2476,6 +2484,8 @@ export function createClient(opts: {
           body: JSON.stringify({
             reservationId: input.reservationId,
             ...(input.folioWindowId ? { folioWindowId: input.folioWindowId } : {}),
+            ...(input.generatedBy ? { generatedBy: input.generatedBy } : {}),
+            ...(input.buyer !== undefined ? { buyer: input.buyer } : {}),
             idempotencyKey,
           }),
         });
@@ -2500,6 +2510,9 @@ export function createClient(opts: {
     async getInvoice(propertyId: string, invoiceId: string) {
       return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}`);
     },
+    async getInvoiceBuyer(propertyId: string, invoiceId: string) {
+      return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}/buyer`);
+    },
     async voidInvoice(
       propertyId: string,
       invoiceId: string,
@@ -2519,6 +2532,7 @@ export function createClient(opts: {
         name: string;
         creditLimitMinor?: number;
         termsDays?: number;
+        gst?: import('@hospai/contracts').GstBuyerFields | null;
         idempotencyKey?: string;
       },
     ) {
@@ -2532,6 +2546,7 @@ export function createClient(opts: {
           name: input.name,
           ...(input.creditLimitMinor !== undefined ? { creditLimitMinor: input.creditLimitMinor } : {}),
           ...(input.termsDays !== undefined ? { termsDays: input.termsDays } : {}),
+          ...(input.gst !== undefined ? { gst: input.gst } : {}),
           idempotencyKey,
         }),
       });
@@ -2552,6 +2567,7 @@ export function createClient(opts: {
         name?: string;
         creditLimitMinor?: number;
         termsDays?: number;
+        gst?: import('@hospai/contracts').GstBuyerFields | null;
         idempotencyKey?: string;
       },
     ) {
@@ -2565,6 +2581,7 @@ export function createClient(opts: {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...('gst' in patch ? { gst: patch.gst } : {}),
             ...(patch.creditLimitMinor !== undefined
               ? { creditLimitMinor: patch.creditLimitMinor }
               : {}),

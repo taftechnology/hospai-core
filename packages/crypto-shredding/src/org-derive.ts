@@ -22,6 +22,11 @@ function orgBlindInfo(orgId: string): Uint8Array {
   return new TextEncoder().encode(`hospai/v1/org-blind/${orgId}`);
 }
 
+/** D7 — invoices kept under a law-required retention key. Version 1. */
+function orgLegalInfo(orgId: string): Uint8Array {
+  return new TextEncoder().encode(`hospai/v1/org-legal/${orgId}`);
+}
+
 /** Import platform IKM for HKDF extract (non-extractable, deriveKey only). */
 export async function importPlatformIkmHex(hex: string): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', hexToBytes(hex) as BufferSource, 'HKDF', false, ['deriveKey']);
@@ -58,5 +63,22 @@ export async function deriveOrgBlindIndexKeyHex(hex: string, orgId: string): Pro
     { name: 'HMAC', hash: 'SHA-256', length: 256 },
     false,
     ['sign'],
+  );
+}
+
+/** HKDF-derived AES-GCM-256 legal-retention key (`key_version === 1`). */
+export async function deriveOrgLegalRetentionKeyHex(hex: string, orgId: string): Promise<CryptoKey> {
+  const ikm = await importPlatformIkmHex(hex);
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: HKDF_SALT as BufferSource,
+      info: orgLegalInfo(orgId) as BufferSource,
+    },
+    ikm,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
   );
 }

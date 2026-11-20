@@ -1,3 +1,4 @@
+import { gstinStateCode } from '@hospai/contracts';
 import { ClassifiedError } from '@hospai/client-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -41,6 +42,17 @@ type AgingBuckets = {
   totalOpenMinor: number;
 };
 
+type AccountGst = {
+  gstin?: string;
+  legalName?: string;
+  tradeName?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pin?: string;
+  stateCode?: string;
+};
+
 type AccountSummary = {
   accountId: string;
   name: string;
@@ -49,6 +61,7 @@ type AccountSummary = {
   termsDays: number;
   openBalanceMinor: number;
   aging: AgingBuckets;
+  gst?: AccountGst | null;
 };
 
 type AccountEntry = {
@@ -99,7 +112,16 @@ export function CityLedgerScreen() {
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageText] = useState<string | null>(null);
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'settled'>('exception');
+  const setMessage = (text: string | null) => {
+    setMessageIntent('exception');
+    setMessageText(text);
+  };
+  const setSettledNotice = (text: string) => {
+    setMessageIntent('settled');
+    setMessageText(text);
+  };
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createCreditLimit, setCreateCreditLimit] = useState('0.00');
@@ -109,6 +131,8 @@ export function CityLedgerScreen() {
   const [paymentReference, setPaymentReference] = useState('');
   const [statementSnapshot, setStatementSnapshot] = useState<Record<string, unknown> | null>(null);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [gstOpen, setGstOpen] = useState(false);
+  const [gstDraft, setGstDraft] = useState<AccountGst>({});
   const paymentFormRef = useRef<HTMLFormElement>(null);
   const createFormRef = useRef<HTMLFormElement>(null);
 
@@ -167,7 +191,7 @@ export function CityLedgerScreen() {
       setCreateName('');
       setCreateCreditLimit('0.00');
       setCreateTermsDays('30');
-      setMessage(`Account "${body.name ?? createName}" created.`);
+      setSettledNotice(`Account "${body.name ?? createName}" created.`);
       void queryClient.invalidateQueries({ queryKey: ['city-ledger-accounts', propertyId] });
       if (typeof body.accountId === 'string') {
         void navigate(`/city-ledger/${encodeURIComponent(body.accountId)}`);
@@ -193,7 +217,7 @@ export function CityLedgerScreen() {
       setShowPayment(false);
       setPaymentAmount('');
       setPaymentReference('');
-      setMessage('Payment recorded.');
+      setSettledNotice('Payment recorded.');
       void queryClient.invalidateQueries({
         queryKey: ['city-ledger-account', propertyId, accountId],
       });
@@ -219,7 +243,7 @@ export function CityLedgerScreen() {
       setShowCreate(false);
       setArchiveConfirmOpen(false);
       setStatementSnapshot(body.snapshot ?? (body as Record<string, unknown>));
-      setMessage(
+      setSettledNotice(
         typeof body.statementId === 'string'
           ? `Statement ${body.statementId} generated.`
           : 'Statement generated.',
@@ -243,7 +267,7 @@ export function CityLedgerScreen() {
       }),
     onSuccess: () => {
       setArchiveConfirmOpen(false);
-      setMessage('Account archived.');
+      setSettledNotice('Account archived.');
       void queryClient.invalidateQueries({
         queryKey: ['city-ledger-account', propertyId, accountId],
       });
@@ -254,6 +278,40 @@ export function CityLedgerScreen() {
         err instanceof ClassifiedError
           ? classifiedUserMessage(err.classified, { fallback: 'Archive account failed.' })
           : 'Archive account failed.',
+      );
+    },
+  });
+
+  const saveGst = useMutation({
+    mutationFn: () => {
+      const gstin = gstDraft.gstin?.trim().toUpperCase() ?? '';
+      const derived = gstin ? gstinStateCode(gstin) : null;
+      const gst: AccountGst = {
+        ...(gstin ? { gstin } : {}),
+        ...(gstDraft.legalName?.trim() ? { legalName: gstDraft.legalName.trim() } : {}),
+        ...(gstDraft.tradeName?.trim() ? { tradeName: gstDraft.tradeName.trim() } : {}),
+        ...(gstDraft.address?.trim() ? { address: gstDraft.address.trim() } : {}),
+        ...(gstDraft.city?.trim() ? { city: gstDraft.city.trim() } : {}),
+        ...(gstDraft.state?.trim() ? { state: gstDraft.state.trim() } : {}),
+        ...(gstDraft.pin?.trim() ? { pin: gstDraft.pin.trim() } : {}),
+        ...(derived ? { stateCode: derived } : {}),
+      };
+      return api.updateCityLedgerAccount(propertyId, accountId!, {
+        gst: Object.keys(gst).length > 0 ? gst : null,
+        idempotencyKey: `city-ledger:gst:${accountId}:${crypto.randomUUID()}`,
+      });
+    },
+    onSuccess: () => {
+      setGstOpen(false);
+      setSettledNotice('GST details saved.');
+      void queryClient.invalidateQueries({ queryKey: ['city-ledger-account', propertyId, accountId] });
+      void queryClient.invalidateQueries({ queryKey: ['city-ledger-accounts', propertyId] });
+    },
+    onError: (err) => {
+      setMessage(
+        err instanceof ClassifiedError
+          ? classifiedUserMessage(err.classified, { fallback: 'Could not save GST details.' })
+          : 'Could not save GST details.',
       );
     },
   });
@@ -282,7 +340,7 @@ export function CityLedgerScreen() {
         <Card data-testid="city-ledger-detail">
 
         {message ? (
-          <Alert data-testid="city-ledger-message">
+          <Alert intent={messageIntent} data-testid="city-ledger-message">
             {message}
           </Alert>
         ) : null}
@@ -313,7 +371,146 @@ export function CityLedgerScreen() {
                   {money(detail.openBalanceMinor)}
                 </dd>
               </div>
+              <div>
+                <dt className="muted">GSTIN</dt>
+                <dd data-testid="city-ledger-gstin">{detail.gst?.gstin ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">Legal name</dt>
+                <dd>{detail.gst?.legalName ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">Trade name</dt>
+                <dd>{detail.gst?.tradeName ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">Address</dt>
+                <dd>{detail.gst?.address ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">City</dt>
+                <dd>{detail.gst?.city ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">State</dt>
+                <dd>{detail.gst?.state ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">PIN</dt>
+                <dd>{detail.gst?.pin ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="muted">State code</dt>
+                <dd>{detail.gst?.stateCode ?? '—'}</dd>
+              </div>
             </dl>
+            {canAdjust ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  setGstDraft(detail.gst ?? {});
+                  setGstOpen(true);
+                }}
+              >
+                Edit GST details
+              </Button>
+            ) : null}
+            <Dialog
+              open={gstOpen}
+              title="GST details"
+              onClose={() => setGstOpen(false)}
+              footer={
+                <>
+                  <Button type="button" onClick={() => setGstOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" intent="primary" disabled={saveGst.isPending} onClick={() => saveGst.mutate()}>
+                    Save GST details
+                  </Button>
+                </>
+              }
+            >
+              <Field
+                label="GSTIN"
+                control={
+                  <Input
+                    aria-label="Account GSTIN"
+                    value={gstDraft.gstin ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, gstin: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="Legal name"
+                control={
+                  <Input
+                    aria-label="Account legal name"
+                    value={gstDraft.legalName ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, legalName: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="Trade name"
+                control={
+                  <Input
+                    aria-label="Account trade name"
+                    value={gstDraft.tradeName ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, tradeName: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="Address"
+                control={
+                  <Input
+                    aria-label="Account address"
+                    value={gstDraft.address ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, address: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="City"
+                control={
+                  <Input
+                    aria-label="Account city"
+                    value={gstDraft.city ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, city: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="State"
+                control={
+                  <Input
+                    aria-label="Account state"
+                    value={gstDraft.state ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, state: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="PIN"
+                control={
+                  <Input
+                    aria-label="Account PIN"
+                    value={gstDraft.pin ?? ''}
+                    onChange={(e) => setGstDraft((prev) => ({ ...prev, pin: e.target.value }))}
+                  />
+                }
+              />
+              <Field
+                label="State code"
+                control={
+                  <Input
+                    aria-label="Account state code"
+                    readOnly
+                    value={gstinStateCode(gstDraft.gstin ?? '') ?? ''}
+                  />
+                }
+              />
+            </Dialog>
 
             <h2>Aging</h2>
             <DataTable>
@@ -587,7 +784,7 @@ export function CityLedgerScreen() {
         {message || listQ.isLoading || meQ.isLoading || listQ.isError || accounts.length === 0 ? (
           <CardContent>
             {message ? (
-              <Alert data-testid="city-ledger-message">
+              <Alert intent={messageIntent} data-testid="city-ledger-message">
                 {message}
               </Alert>
             ) : null}

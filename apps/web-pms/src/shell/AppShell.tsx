@@ -57,6 +57,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   folios: ReceiptIcon,
   'city-ledger': BookIcon,
   'night-audit': NightAuditIcon,
+  reports: BookIcon,
   settings: SettingsIcon,
   inventory: PropertyIcon,
   staff: UserIcon,

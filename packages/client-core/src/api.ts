@@ -36,6 +36,9 @@ import type {
   GuestAuditCountInput,
   HousekeepingTaskAction,
   HousekeepingDashboard,
+  ReportDefinition,
+  ReportParams,
+  ReportResponse,
   HousekeepingTaskList,
   HousekeepingTaskStageList,
   InspectionAnswerInput,
@@ -72,6 +75,7 @@ import type {
   PackageListItem,
   PackageComponentTaxMode,
 } from '@hospai/contracts';
+import { reportPath } from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
 import type { FolioLine } from './folio-fold.js';
@@ -130,6 +134,8 @@ export type PropertyRead = {
   propertyDo?: 'unreachable';
   /** Stored ledger currency, or null before one is set / when the property DO is unreachable. */
   ledgerCurrency?: string | null;
+  /** The property's open business date (night audit rolls it), or null when unset / unreachable. */
+  businessDate?: string | null;
 };
 
 /** `get_products` (R1.5). `taxGroup` is the charge code's — read-only on a product. */
@@ -2314,6 +2320,21 @@ export function createClient(opts: {
         `/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/ooo-history`,
       );
       return body as { ok: true; roomId: string; events: RoomOooEventRow[] };
+    },
+    /**
+     * One operational report run (R4.14). The registry definition names the route group, so Parts
+     * B and C reuse this call unchanged. Guests come back as `guestRef`s only.
+     */
+    async getReport(
+      propertyId: string,
+      def: ReportDefinition,
+      params: ReportParams,
+    ): Promise<ReportResponse> {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+      const q = qs.toString();
+      const { body } = await getJson(`${reportPath(propertyId, def)}${q ? `?${q}` : ''}`);
+      return body as ReportResponse;
     },
     async getHousekeepingDashboard(
       propertyId: string,

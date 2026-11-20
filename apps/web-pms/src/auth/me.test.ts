@@ -32,6 +32,15 @@ describe('me authority helpers', () => {
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'live', me: baseMe })).toEqual([]);
   });
 
+  it('filterNavEntries: Reports shows only with a report group permission (R4.14)', () => {
+    const ids = (permissions: PropertyMe['permissions']) =>
+      filterNavEntries(NAV_ENTRIES, { kind: 'live', me: { ...baseMe, permissions } }).map((e) => e.id);
+    expect(ids(['reservations:read'])).toContain('reports');
+    expect(ids(['rates:write', 'settings:configure'])).not.toContain('reports');
+    expect(ids([])).not.toContain('reports');
+    expect(NAV_ENTRIES.find((e) => e.id === 'reports')).toMatchObject({ path: '/reports', label: 'Reports' });
+  });
+
   it('filterNavEntries: live with reservations:read (no write) → board only (hide staff + book)', () => {
     const me: PropertyMe = {
       ...baseMe,

@@ -333,9 +333,8 @@ describe('TapeChartScreen', () => {
     expect(await screen.findByRole('status', { name: 'Loading the room plan' })).toBeTruthy();
   });
 
-  it('App index navigates to /dashboard (R1.1) and /board keeps the tape', () => {
+  it('App has the Dashboard route (R1.1; the index is the permission-aware home) and /board keeps the tape', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../App.tsx'), 'utf8');
-    expect(src).toContain('<Navigate to="/dashboard" replace />');
     expect(src).toContain('path="dashboard"');
     expect(src).toContain('path="board"');
     expect(src).toContain('<TapeChartScreen');

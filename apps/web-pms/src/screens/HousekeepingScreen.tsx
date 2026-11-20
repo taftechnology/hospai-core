@@ -11,17 +11,17 @@ import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { fetchGuestStatesChunked } from '../guest-batch-chunked.js';
-import { propertyLocalToday } from '../status/property-local-today.js';
 import { guestLabel } from './guest-row.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
-import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
+import { useFormat } from '../shell/PropertyFormat.js';
+import { usePropertyBusinessDate } from '../shell/use-business-date.js';
 import { usePropertyActorLabel } from '../status/use-property-actor-label.js';
 
 export function HousekeepingScreen() {
-  const timeZone = usePropertyTimeZone();
   const { date, dateHeading, dateTime, money } = useFormat();
-  // Empty until the property time zone is known: the views wait for it rather than guess from the browser.
-  const defaultBusinessDate = timeZone ? propertyLocalToday(timeZone) : '';
+  // Empty until the property's open business date is known: the views wait for it rather than guess
+  // from the browser or the calendar. The module keeps a date the user picks.
+  const defaultBusinessDate = usePropertyBusinessDate() ?? '';
   const propertyId = tenant.propertyId;
 
   const meQuery = useQuery({

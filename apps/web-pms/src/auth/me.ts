@@ -62,9 +62,10 @@ export function filterNavEntries(entries: NavEntry[], authority: Authority): Nav
     case 'unknown':
       return entries; // fail open
     case 'live':
-      return entries.filter(
-        (e) => !e.permission || hasPropertyPermission(authority.me, e.permission),
-      );
+      return entries.filter((e) => {
+        if (e.anyPermission) return e.anyPermission.some((p) => hasPropertyPermission(authority.me, p));
+        return !e.permission || hasPropertyPermission(authority.me, e.permission);
+      });
   }
 }
 

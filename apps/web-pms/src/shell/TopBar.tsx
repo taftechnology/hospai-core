@@ -1,15 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { hasPropertyPermission, type Authority } from '../auth/me.js';
 import { api, tenant } from '../client.js';
-import { propertyLocalToday } from '../status/property-local-today.js';
 import { CalendarIcon } from './icons.js';
 import { GlobalSearch } from './GlobalSearch.js';
-import { useFormat, usePropertyTimeZone } from './PropertyFormat.js';
+import { useFormat } from './PropertyFormat.js';
+import { usePropertyBusinessDate } from './use-business-date.js';
 import { ShiftStrip } from './ShiftStrip.js';
 
 export function TopBar({ authority }: { authority: Authority }) {
   const propertyId = tenant.propertyId;
-  const timeZone = usePropertyTimeZone();
   const { date } = useFormat();
   const propertyQ = useQuery({
     queryKey: ['property', propertyId],
@@ -17,7 +16,8 @@ export function TopBar({ authority }: { authority: Authority }) {
     retry: false,
   });
   const propertyName = propertyQ.data?.property?.name;
-  const businessDate = timeZone ? propertyLocalToday(timeZone) : null;
+  // The open business date from the property read; nothing while loading or unreachable.
+  const businessDate = usePropertyBusinessDate();
   const canSearch =
     authority.kind === 'live' && hasPropertyPermission(authority.me, 'reservations:read');
 

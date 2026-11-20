@@ -1439,6 +1439,17 @@ details.side-panel summary {
   gap: var(--space-3);
 }
 
+/* R4.14: the report card is the thing printed; the controls around it are not. */
+.report-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.report-card__property {
+  margin: 0;
+  font-weight: 600;
+}
+
 @media screen {
   .reg-card {
     position: absolute;
@@ -1466,12 +1477,15 @@ details.side-panel summary {
   .print-doc,
   .print-doc *,
   .reg-card,
-  .reg-card * {
+  .reg-card *,
+  .report-card,
+  .report-card * {
     visibility: visible;
   }
 
   .print-doc,
-  .reg-card {
+  .reg-card,
+  .report-card {
     position: absolute;
     inset: 0;
     width: auto;

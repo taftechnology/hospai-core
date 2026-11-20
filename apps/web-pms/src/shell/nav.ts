@@ -1,4 +1,13 @@
-import type { PropertyScopedPermission } from '@hospai/contracts';
+import {
+  REPORT_GROUP_PERMISSION,
+  reportGroupsWithReports,
+  type PropertyScopedPermission,
+} from '@hospai/contracts';
+
+/** The data permission of every report group that has a registered report. */
+const REPORT_PERMISSIONS: readonly PropertyScopedPermission[] = [
+  ...new Set(reportGroupsWithReports().map((g) => REPORT_GROUP_PERMISSION[g])),
+];
 
 export type NavEntry = {
   id: string;
@@ -6,6 +15,8 @@ export type NavEntry = {
   path: string;
   order: number;
   permission?: PropertyScopedPermission;
+  /** Visible when the user holds any one of these (the Reports entry spans the report groups). */
+  anyPermission?: readonly PropertyScopedPermission[];
   tone?: 'primary' | 'quiet';
 };
 
@@ -27,6 +38,7 @@ export const NAV_ENTRIES: NavEntry[] = [
   { id: 'guests', label: 'Guests', path: '/guests', order: 60, permission: 'guests:read' },
   { id: 'rates', label: 'Rates', path: '/rates', order: 70, permission: 'rates:write' },
   { id: 'folios', label: 'Folios', path: '/folios', order: 72, permission: 'folio:read' },
+  { id: 'reports', label: 'Reports', path: '/reports', order: 85, anyPermission: REPORT_PERMISSIONS },
   { id: 'night-audit', label: 'Night Audit', path: '/night-audit', order: 80, permission: 'night_audit:run' },
   { id: 'settings', label: 'Settings', path: '/settings', order: 90, permission: 'settings:configure' },
   { id: 'inventory', label: 'Inventory', path: '/inventory', order: 100, permission: 'inventory:write', tone: 'quiet' },

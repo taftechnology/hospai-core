@@ -225,6 +225,8 @@ import {
   isOooBlockType,
   HK_TASK_SEARCH_MAX,
   HK_DASHBOARD_ROOM_SEARCH_LEN_MAX,
+  parseReportParams,
+  reportDefinition,
   HK_REQUEST_SEARCH_MAX,
   LOST_ITEM_SEARCH_MAX,
   HK_AMENITY_DISPATCH_ROOMS_MAX,
@@ -850,12 +852,14 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
     const recorded = await resolved.stub.getRecordedJurisdiction();
     const schemaVersion = await resolved.stub.getSchemaVersion();
     const ledgerCurrency = await resolved.stub.readStoredLedgerCurrency();
+    const businessDate = await resolved.stub.readBusinessDate();
     return json({
       property: resolved.property,
       locationHint: resolved.locationHint,
       recordedJurisdiction: recorded ?? null,
       schemaVersion,
       ledgerCurrency,
+      businessDate: businessDate ?? null,
     });
   } catch (e) {
     if (!isPropertyDoTransportFailure(e, ctx.env)) throw e;
@@ -866,6 +870,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
       schemaVersion: null,
       propertyDo: 'unreachable',
       ledgerCurrency: null,
+      businessDate: null,
     });
   }
 }
@@ -9715,6 +9720,43 @@ async function handleGetHousekeepingDashboard(ctx: V1DispatchContext): Promise<R
   }
 }
 
+/**
+ * Front-office operational reports (R4.14 Part A). The id picks a definition from the contracts
+ * registry; an id that is not a front-office report is 404. Parameters are validated against the
+ * definition before the DO is touched; the row cap is enforced inside the read.
+ */
+async function handleGetFrontOfficeReport(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const reportId = decodeURIComponent(ctx.match[2]!);
+
+  const def = reportDefinition(reportId);
+  if (!def || def.routeId !== 'get_front_office_report') {
+    return json({ error: 'not_found' }, 404);
+  }
+  const parsed = parseReportParams(def, (n) => ctx.url.searchParams.get(n));
+  if (!parsed.ok) {
+    if (parsed.error === 'limit_exceeded') {
+      return json({ ok: false, error: LIMIT_EXCEEDED, limit: parsed.limit, max: parsed.max }, 422);
+    }
+    return json({ error: parsed.error, detail: parsed.detail }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readFrontOfficeReportView(def.id, parsed.params);
+    if (!result.ok) {
+      return json(result, commandErrorHttpStatus(result.error));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -13902,6 +13944,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetHousekeepingDashboard,
+  },
+  {
+    id: 'get_front_office_report',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reports\/front-office\/([^/]+)$/,
+    permission: 'reservations:read',
+    entitlement: 'pms.core',
+    handler: handleGetFrontOfficeReport,
   },
 ];
 

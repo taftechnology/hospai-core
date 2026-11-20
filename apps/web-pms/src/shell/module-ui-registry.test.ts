@@ -17,6 +17,7 @@ describe('module UI nav merge', () => {
       'rates',
       'folios',
       'night-audit',
+      'reports',
       'settings',
       'inventory',
       'staff',

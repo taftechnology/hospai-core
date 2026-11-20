@@ -90,6 +90,7 @@ describe('HousekeepingScreen', () => {
     });
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+      businessDate: '2026-11-20',
     });
     listRooms.mockResolvedValue({ ok: true, rooms: [] });
     listHousekeepingAssignments.mockResolvedValue({ ok: true, assignments: [] });
@@ -244,6 +245,20 @@ describe('HousekeepingScreen', () => {
       }),
     );
     expect(screen.getByRole('link', { name: 'Tasks' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('defaults every view to the property business date, not the calendar date, and waits for it', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+      businessDate: '2001-02-03', // never the real calendar date
+    });
+    renderScreen('/housekeeping/tasks');
+    await waitFor(() =>
+      expect(getHousekeepingTasks).toHaveBeenCalledWith('prop_demo', { date: '2001-02-03' }),
+    );
+    expect(getHousekeepingTasks).not.toHaveBeenCalledWith('prop_demo', {
+      date: expect.not.stringMatching(/^2001-02-03$/),
+    });
   });
 
   it('status history names the staff member when the viewer may read staff', async () => {

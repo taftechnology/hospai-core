@@ -6,6 +6,7 @@ import {
   invoiceNumberProblem,
   type InvoiceSeries,
   type HousekeepingDashboard,
+  type ReportParams,
   type RoomBoardResponse,
   zonedWallClockMs,
 } from '@hospai/contracts';
@@ -520,6 +521,12 @@ import {
   invoiceObjectKey,
   reportObjectKey,
 } from './event-log.js';
+import { netAdvancePaidMinor } from './folio-advance.js';
+import {
+  readFrontOfficeReport,
+  reservationConfirmation,
+  type FrontOfficeReportResult,
+} from './front-office-report.js';
 
 type PaymentStatus =
   | 'pending'
@@ -14816,6 +14823,59 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     });
   }
 
+  /**
+   * Front-office operational report (R4.14 Part A). A pure read: the folio helpers stay private to
+   * this class and are lent to the report module as closures. Guests are `guestRef`s only.
+   */
+  async readFrontOfficeReportView(
+    reportId: string,
+    params: ReportParams,
+  ): Promise<
+    | FrontOfficeReportResult
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof CURRENCY_UNSET | typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    const sources = this.readConfigValueSync('pms.property.sources');
+    const sourceNames = new Map<string, string>();
+    if (Array.isArray(sources)) {
+      for (const e of sources as Array<{ code?: unknown; name?: unknown }>) {
+        if (typeof e.code === 'string' && typeof e.name === 'string') sourceNames.set(e.code, e.name);
+      }
+    }
+    const sql = this.ctx.storage.sql;
+    return readFrontOfficeReport(
+      {
+        sql,
+        businessDate,
+        currency,
+        guestWindowId: (id) => this.guestFolioWindowId(id),
+        windowBalanceMinor: (id) => this.windowBalanceMinorSync(id),
+        advancePaidMinor: (id) => this.advancePaidMinorSync(id),
+        hasActiveHold: (id) => this.readActiveHoldSync(id) !== null,
+        availabilityRows: (from, to) => this.loadAvailabilityDayRowsSync(from, to),
+        sourceNames,
+      },
+      reportId,
+      params,
+    );
+  }
+
+  /** Net GUEST payments on one window, floored at 0 (see `netAdvancePaidMinor`). */
+  private advancePaidMinorSync(folioWindowId: string): number {
+    const lines = this.ctx.storage.sql
+      .exec(
+        `SELECT charge_code, tax_of, ledger_amount_minor FROM folio_line
+          WHERE folio_window_id = ? AND charge_code = 'PAYMENT'`,
+        folioWindowId,
+      )
+      .toArray() as Array<{ charge_code: string; tax_of: string | null; ledger_amount_minor: number }>;
+    return netAdvancePaidMinor(lines);
+  }
+
   private async assertFrontOfficeStreamAuthorized(
     userId: string,
   ): Promise<{ ok: true } | { ok: false }> {
@@ -23405,13 +23465,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
 
     // Net money received on the GUEST window (payments minus refunds). PAYMENT ledger is negative.
-    let advancePaidMinor = 0;
-    for (const row of guestLines) {
-      if (row.charge_code === 'PAYMENT' && row.tax_of == null) {
-        advancePaidMinor += -row.ledger_amount_minor;
-      }
-    }
-    if (advancePaidMinor < 0) advancePaidMinor = 0;
+    const advancePaidMinor = netAdvancePaidMinor(guestLines);
 
     const estimatedTotalMinor = baseMinor + taxMinor;
     const balanceMinor = estimatedTotalMinor - advancePaidMinor;
@@ -23424,10 +23478,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }))
       .sort((a, b) => a.outputChargeCode.localeCompare(b.outputChargeCode));
 
-    const confirmationToken =
-      reservation.reservation_id.length <= 8
-        ? reservation.reservation_id
-        : reservation.reservation_id.slice(-8);
+    const confirmationToken = reservationConfirmation(reservation.reservation_id);
 
     return {
       ok: true,
@@ -23947,13 +23998,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       tariffCheck.push({ stayDate, state, expectedRoomMinor, postedRoomNetMinor, mismatch });
     }
 
-    let advancePaidMinor = 0;
-    for (const row of guestLines) {
-      if (row.charge_code === 'PAYMENT' && row.tax_of == null) {
-        advancePaidMinor += -row.ledger_amount_minor;
-      }
-    }
-    if (advancePaidMinor < 0) advancePaidMinor = 0;
+    const advancePaidMinor = netAdvancePaidMinor(guestLines);
 
     const balanceNowMinor = this.windowBalanceMinorSync(guestWindowId);
     const projectedBalanceMinor = balanceNowMinor + futureEstimateMinor;
@@ -23971,10 +24016,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       ? { invoiceNumber: invoiceRows[0].invoice_number, generatedAt: invoiceRows[0].generated_at }
       : null;
 
-    const confirmationToken =
-      reservation.reservation_id.length <= 8
-        ? reservation.reservation_id
-        : reservation.reservation_id.slice(-8);
+    const confirmationToken = reservationConfirmation(reservation.reservation_id);
 
     return {
       ok: true,

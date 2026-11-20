@@ -79,6 +79,8 @@ describe('AppShell /me states', () => {
     tzForTest.current = 'UTC';
     getProperty.mockResolvedValue({
       property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+      // Night audit has not rolled the day: the open business date is not the calendar date.
+      businessDate: '2026-03-05',
     });
   });
 
@@ -134,9 +136,19 @@ describe('AppShell /me states', () => {
     expect(screen.getByTestId('property-name').textContent).toBe('Demo');
     const chip = screen.getByTestId('business-date-chip');
     expect(chip.textContent).toMatch(/Business date/);
-    const iso = propertyLocalToday('UTC');
-    const [year, month, day] = iso.split('-');
-    expect(chip.textContent).toContain(`${day}/${month}/${year}`);
+    expect(propertyLocalToday('UTC')).not.toBe('2026-03-05');
+    expect(chip.textContent).toContain('05/03/2026');
+  });
+
+  it('the chip shows nothing while the business date is unknown, never the local date', async () => {
+    getMe.mockResolvedValue(liveOwner);
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+      businessDate: null,
+    });
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId('property-name').textContent).toBe('Demo'));
+    expect(screen.queryByTestId('business-date-chip')).toBeNull();
   });
 
   it('theme switch sits in the sidebar footer and Dark stores data-theme', async () => {

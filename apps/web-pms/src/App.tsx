@@ -38,6 +38,9 @@ import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
 import { UiGallery } from './dev/UiGallery.js';
+import { ReportRunnerGate } from './reports/ReportRunnerGate.js';
+import { ReportRunnerScreen } from './screens/ReportRunnerScreen.js';
+import { ReportsCatalogScreen } from './screens/ReportsCatalogScreen.js';
 
 const SettingsScreen = lazy(() =>
   import('./screens/SettingsScreen.js').then((m) => ({ default: m.SettingsScreen })),
@@ -73,8 +76,11 @@ export const router = createBrowserRouter(
             {/* R2.6: home follows live permissions (housekeeping-only → Housekeeping). */}
             <Route index element={<HomeRedirect />} />
             <Route path="dashboard" element={<DashboardScreen />} />
-            {/* R1.14: the Dashboard is the report until R4.14 ships the named operational set. */}
-            <Route path="reports" element={<Navigate to="/dashboard" replace />} />
+            {/* R4.14: the catalogue of named operational reports; each runs from its definition. */}
+            <Route path="reports" element={<ReportsCatalogScreen />} />
+            <Route path="reports/:reportId" element={<ReportRunnerGate />}>
+              <Route index element={<ReportRunnerScreen />} />
+            </Route>
             <Route path="board" element={<TapeChartScreen />} />
             <Route path="rooms/live" element={<PermissionRoute permission="reservations:read" />}>
               <Route index element={<RoomBoardScreen />} />

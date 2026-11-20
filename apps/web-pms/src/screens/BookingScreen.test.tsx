@@ -22,6 +22,9 @@ const readGuestDocument = vi.fn();
 const getGuestDocumentScan = vi.fn();
 const getMe = vi.fn();
 const overrideReservationNightRates = vi.fn();
+const getAvailableRooms = vi.fn();
+const assignRoom = vi.fn();
+const getProperty = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -52,6 +55,9 @@ vi.mock('../client.js', () => ({
     getGuestDocumentScan: (...a: unknown[]) => getGuestDocumentScan(...a),
     getMe: (...a: unknown[]) => getMe(...a),
     overrideReservationNightRates: (...a: unknown[]) => overrideReservationNightRates(...a),
+    getAvailableRooms: (...a: unknown[]) => getAvailableRooms(...a),
+    assignRoom: (...a: unknown[]) => assignRoom(...a),
+    getProperty: (...a: unknown[]) => getProperty(...a),
   },
 }));
 
@@ -278,6 +284,21 @@ describe('BookingScreen', () => {
     overrideReservationNightRates.mockResolvedValue({
       classified: { class: 'live' },
       body: { currency: 'INR', nights: [] },
+    });
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-11',
+      toDate: '2026-08-12',
+      asOf: 1,
+      rooms: [
+        { roomId: 'rm_101', roomTypeId: 'rt_king', code: '101', status: 'clean', floor: null },
+        { roomId: 'rm_102', roomTypeId: 'rt_king', code: '102', status: 'dirty', floor: null },
+      ],
+    });
+    assignRoom.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    getProperty.mockResolvedValue({
+      ok: true,
+      property: { propertyId: 'prop_demo', name: 'Demo Hotel', timeZone: 'UTC', currency: 'USD' },
     });
   });
 
@@ -1505,5 +1526,151 @@ describe('BookingScreen', () => {
     expect(block.textContent).toContain('Passport');
     expect(block.textContent).toContain(maskedDocumentNumber({ number: 'AB123456' }));
     expect(block.textContent).toContain('expires 15/01/2030');
+  });
+
+  it('R4.26: room picker lists only available-rooms for the chosen type and dates', async () => {
+    renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('book-room')).toBeTruthy());
+    expect(getAvailableRooms).toHaveBeenCalledWith('prop_demo', {
+      fromDate: '2026-08-11',
+      toDate: '2026-08-12',
+      roomTypeId: 'rt_king',
+    });
+    const select = screen.getByTestId('book-room') as HTMLSelectElement;
+    const values = Array.from(select.options).map((o) => o.value);
+    expect(values).toEqual(['', 'rm_101', 'rm_102']);
+    expect(select.options[0]!.textContent).toMatch(/Assign later/i);
+  });
+
+  it('R4.26: Confirm with a room posts create then assign with the new reservation id', async () => {
+    const { invalidateSpy } = renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('book-room')).toBeTruthy());
+    fireEvent.change(screen.getByTestId('book-room'), { target: { value: 'rm_101' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    await waitFor(() => expect(assignRoom).toHaveBeenCalled());
+    expect(assignRoom.mock.invocationCallOrder[0]).toBeGreaterThan(
+      createReservation.mock.invocationCallOrder[0]!,
+    );
+    const reservationId = (createReservation.mock.calls[0]![1] as { reservationId: string })
+      .reservationId;
+    expect(assignRoom.mock.calls[0]!.slice(0, 3)).toEqual(['prop_demo', reservationId, 'rm_101']);
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"board"'))).toBe(true);
+      expect(keys).toContainEqual(JSON.stringify({ queryKey: ['front-desk-tape', 'prop_demo'] }));
+      expect(keys).toContainEqual(
+        JSON.stringify({ queryKey: ['front-desk-available', 'prop_demo'] }),
+      );
+      expect(keys).toContainEqual(JSON.stringify({ queryKey: ['front-desk-summary', 'prop_demo'] }));
+    });
+  });
+
+  it('R4.26: Hold with a room also assigns', async () => {
+    renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('book-room'), { target: { value: 'rm_102' } });
+    fireEvent.click(screen.getByTestId('hold-book'));
+    await waitFor(() => expect(assignRoom).toHaveBeenCalled());
+    expect(assignRoom.mock.calls[0]![2]).toBe('rm_102');
+  });
+
+  it('R4.26: assign failure keeps the booking, Alert Retry reuses the same opId', async () => {
+    assignRoom.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { ok: false, error: 'room_not_ready' },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('book-room'), { target: { value: 'rm_101' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    await waitFor(() => expect(screen.getByTestId('room-assign-failure-alert')).toBeTruthy());
+    expect(createReservation).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('room-assign-failure-alert').textContent).toMatch(
+      /Booking saved; room 101 could not be assigned/,
+    );
+    expect(screen.getByRole('link', { name: /Open stay card/i }).getAttribute('href')).toMatch(
+      /^\/reservations\//,
+    );
+    const failedOp = assignRoom.mock.calls[0]![3] as string;
+    assignRoom.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    fireEvent.click(screen.getByTestId('retry-room-assign'));
+    await waitFor(() => expect(assignRoom).toHaveBeenCalledTimes(2));
+    expect(assignRoom.mock.calls[1]![3]).toBe(failedOp);
+    expect(assignRoom.mock.calls[1]!.slice(0, 3)).toEqual(assignRoom.mock.calls[0]!.slice(0, 3));
+  });
+
+  it('R4.26: ROOM_ALREADY_ASSIGNED shows the taken-room copy', async () => {
+    assignRoom.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { ok: false, error: 'room_already_assigned' },
+        retryAfterMs: null,
+      }),
+    );
+    renderBook();
+    await fillBookForConfirm();
+    fireEvent.change(screen.getByTestId('book-room'), { target: { value: 'rm_101' } });
+    fireEvent.click(screen.getByTestId('confirm-book'));
+    const alert = await screen.findByTestId('room-assign-failure-alert');
+    expect(alert.textContent).toMatch(
+      /Room 101 was taken in the meantime\. Pick another room on the stay card\./,
+    );
+    expect(alert.textContent).not.toMatch(/Booking saved; room/);
+  });
+
+  it('R4.26: Quote and Inquiry disable room assignment; reason shown', async () => {
+    renderBook();
+    await fillBookForConfirm();
+    await waitFor(() => expect(screen.getByTestId('book-room')).toBeTruthy());
+    expect(screen.queryByTestId('book-room-quote-reason')).toBeNull();
+    expect(screen.queryByTestId('book-room-blocks-quote')).toBeNull();
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(screen.getByTestId('book-room'), { target: { value: 'rm_101' } });
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('book-room-quote-reason').textContent).toMatch(
+      /Hold and Confirm assign this room\. Quote and Inquiry do not\./,
+    );
+    expect(screen.getByTestId('book-room-blocks-quote').textContent).toMatch(
+      /Quote is off while a room is picked\. Choose Assign later to save a quote\./,
+    );
+    fireEvent.change(screen.getByTestId('book-room'), { target: { value: '' } });
+    expect((screen.getByTestId('quote-book') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId('book-room-quote-reason')).toBeNull();
+    expect(screen.queryByTestId('book-room-blocks-quote')).toBeNull();
+    fireEvent.click(screen.getByTestId('quote-book'));
+    await waitFor(() => expect(createReservation).toHaveBeenCalled());
+    expect(assignRoom).not.toHaveBeenCalled();
+  });
+
+  it('R4.26: ?roomId= preselects when still free', async () => {
+    renderBook('/book?arrival=2026-08-11&departure=2026-08-12&roomTypeId=rt_king&roomId=rm_102');
+    await waitFor(() => expect(screen.getByTestId('book-room')).toBeTruthy());
+    await waitFor(() =>
+      expect((screen.getByTestId('book-room') as HTMLSelectElement).value).toBe('rm_102'),
+    );
+  });
+
+  it('R4.26: ?roomId= shows a note when no longer free', async () => {
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-08-11',
+      toDate: '2026-08-12',
+      asOf: 1,
+      rooms: [
+        { roomId: 'rm_101', roomTypeId: 'rt_king', code: '101', status: 'clean', floor: null },
+      ],
+    });
+    renderBook('/book?arrival=2026-08-11&departure=2026-08-12&roomTypeId=rt_king&roomId=rm_gone');
+    await waitFor(() => expect(screen.getByTestId('book-room-prefill-note')).toBeTruthy());
+    expect(screen.getByTestId('book-room-prefill-note').textContent).toMatch(/no longer free/i);
+    expect((screen.getByTestId('book-room') as HTMLSelectElement).value).toBe('');
   });
 });

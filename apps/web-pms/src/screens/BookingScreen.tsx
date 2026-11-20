@@ -12,7 +12,7 @@ import { addedInclusionsMinor as sumAddedInclusionsMinor } from '@hospai/contrac
 import { SelectedGuestDocument } from './guest-identity.js';
 import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import {
   Alert,
@@ -42,8 +42,19 @@ import { minorToMajorInput, parseMajorToMinor } from '../money.js';
 import { validAmount } from './board-dialogs.js';
 import { usePostableProducts } from './product-picker.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
+import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
 import { stayNights } from './stay-workspace.js';
+
+const ASSIGN_LATER = '';
+
+type BookRoomAssignFailure = {
+  roomId: string;
+  roomCode: string;
+  opId: string;
+  taken: boolean;
+  errorMessage: string;
+};
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -134,6 +145,7 @@ export function BookingScreen() {
   const propertyId = tenant.propertyId;
   const timeZone = usePropertyTimeZone();
   const { money } = useFormat();
+  const { subtitle: bookSubtitle } = usePropertySubtitle('New reservation');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -143,7 +155,12 @@ export function BookingScreen() {
     const departure = searchParams.get('departure') ?? '';
     const iso = /^\d{4}-\d{2}-\d{2}$/;
     if (!iso.test(arrival) || !iso.test(departure) || departure <= arrival) return null;
-    return { arrival, departure, roomTypeId: searchParams.get('roomTypeId') };
+    return {
+      arrival,
+      departure,
+      roomTypeId: searchParams.get('roomTypeId'),
+      roomId: searchParams.get('roomId'),
+    };
   });
 
   const [reservationId] = useState(() => crypto.randomUUID());
@@ -152,6 +169,9 @@ export function BookingScreen() {
   const [arrivalDate, setArrivalDate] = useState(urlStay?.arrival ?? '');
   const [departureDate, setDepartureDate] = useState(urlStay?.departure ?? '');
   const [roomTypeId, setRoomTypeId] = useState<string | null>(urlStay?.roomTypeId ?? null);
+  const [selectedRoomId, setSelectedRoomId] = useState(ASSIGN_LATER);
+  const urlRoomPrefill = urlStay?.roomId ?? null;
+  const [urlRoomNote, setUrlRoomNote] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -184,6 +204,9 @@ export function BookingScreen() {
   const [failedAddons, setFailedAddons] = useState<FailedBookAddon[]>([]);
   const [nightDraft, setNightDraft] = useState<NightlyRateDraft | null>(null);
   const [rateOverrideFailed, setRateOverrideFailed] = useState<NightlyRateDraft | null>(null);
+  const [roomAssignFailure, setRoomAssignFailure] = useState<BookRoomAssignFailure | null>(null);
+  /** Created once per booking attempt (reservation + room); Retry reuses it. */
+  const roomAssignOpIdRef = useRef<{ roomId: string; opId: string } | null>(null);
 
   const postableProducts = usePostableProducts();
 
@@ -226,6 +249,51 @@ export function BookingScreen() {
     retry: (n, err) => n < 2 && asClassified(err).class === 'read_stale',
     retryDelay: (_n, err) => asClassified(err).retryAfterMs ?? 0,
   });
+
+  const roomsQ = useQuery({
+    queryKey: [
+      'front-desk-available',
+      propertyId,
+      arrivalDate,
+      departureDate,
+      roomTypeId ?? null,
+    ],
+    queryFn: () =>
+      api.getAvailableRooms(propertyId, {
+        fromDate: arrivalDate,
+        toDate: departureDate,
+        roomTypeId: roomTypeId!,
+      }),
+    enabled:
+      Boolean(roomTypeId) &&
+      arrivalDate.length > 0 &&
+      departureDate.length > 0 &&
+      arrivalDate < departureDate &&
+      !dateCapBlocked,
+    retry: false,
+  });
+  const availableRooms = roomsQ.data?.rooms ?? [];
+
+  useEffect(() => {
+    if (!roomsQ.isSuccess || !roomsQ.data) return;
+    if (!urlRoomPrefill) return;
+    const rooms = roomsQ.data.rooms;
+    const stillFree = rooms.some((r) => r.roomId === urlRoomPrefill);
+    if (stillFree) {
+      setSelectedRoomId((prev) => (prev === ASSIGN_LATER ? urlRoomPrefill : prev));
+      setUrlRoomNote(null);
+    } else {
+      setUrlRoomNote('That room is no longer free for these dates.');
+    }
+  }, [roomsQ.isSuccess, roomsQ.data, urlRoomPrefill]);
+
+  useEffect(() => {
+    if (selectedRoomId === ASSIGN_LATER) return;
+    if (!roomsQ.isSuccess || !roomsQ.data) return;
+    if (!roomsQ.data.rooms.some((r) => r.roomId === selectedRoomId)) {
+      setSelectedRoomId(ASSIGN_LATER);
+    }
+  }, [roomsQ.isSuccess, roomsQ.data, selectedRoomId]);
 
   const lastNight =
     arrivalDate && departureDate ? addCalendarDays(departureDate, -1) : null;
@@ -546,6 +614,45 @@ export function BookingScreen() {
     }
   }
 
+  function invalidateAfterRoomAssign() {
+    void queryClient.invalidateQueries({ queryKey: ['board'] });
+    void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+    void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
+    void queryClient.invalidateQueries({ queryKey: ['front-desk-available', propertyId] });
+    void queryClient.invalidateQueries({ queryKey: ['front-desk-summary', propertyId] });
+  }
+
+  async function postBookRoomAssign(
+    roomId: string,
+    opId: string,
+  ): Promise<
+    | { ok: true; queued: boolean }
+    | { ok: false; taken: boolean; errorMessage: string; roomCode: string }
+  > {
+    const roomCode = availableRooms.find((r) => r.roomId === roomId)?.code ?? roomId;
+    try {
+      const result = await api.assignRoom(propertyId, reservationId, roomId, opId);
+      return { ok: true, queued: isQueuedResult(result) };
+    } catch (err) {
+      const c = asClassified(err);
+      const code = bodyErrorCode(c.body);
+      if (code === 'room_already_assigned') {
+        return {
+          ok: false,
+          taken: true,
+          roomCode,
+          errorMessage: `Room ${roomCode} was taken in the meantime. Pick another room on the stay card.`,
+        };
+      }
+      return {
+        ok: false,
+        taken: false,
+        roomCode,
+        errorMessage: classifiedUserMessage(c, { fallback: 'Could not assign the room' }),
+      };
+    }
+  }
+
   const retryAddonsMutation = useMutation({
     mutationFn: () => postBookAddons(failedAddons),
     onSuccess: (result) => {
@@ -585,7 +692,36 @@ export function BookingScreen() {
     },
   });
 
+  const retryRoomAssignMutation = useMutation({
+    mutationFn: async () => {
+      if (!roomAssignFailure) throw new Error('no room assign');
+      return postBookRoomAssign(roomAssignFailure.roomId, roomAssignFailure.opId);
+    },
+    onSuccess: (result) => {
+      if (!roomAssignFailure) return;
+      if (!result.ok) {
+        setRoomAssignFailure({
+          ...roomAssignFailure,
+          taken: result.taken,
+          errorMessage: result.errorMessage,
+          roomCode: result.roomCode,
+        });
+        return;
+      }
+      setRoomAssignFailure(null);
+      invalidateAfterRoomAssign();
+      if (result.queued) {
+        setQueuedNotice('Room assignment is queued and will apply when the property is reachable.');
+        return;
+      }
+      void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
+        state: { createdReservationId: reservationId },
+      });
+    },
+  });
+
   const trimmedFrontOfficeComment = frontOfficeComment.trim();
+  const roomPicked = selectedRoomId !== ASSIGN_LATER;
 
   const bookMutation = useMutation({
     mutationFn: async (status: 'inquiry' | 'pending' | 'confirmed') => {
@@ -649,24 +785,46 @@ export function BookingScreen() {
         (status === 'pending' || status === 'confirmed') && nightDraft?.dirty
           ? await postRateOverride(nightDraft)
           : { failed: false, queued: false };
-      if ((status === 'pending' || status === 'confirmed') && addonLines.length > 0) {
-        const posted = await postBookAddons(addonLines);
-        return {
-          status,
-          addonFailures: posted.failures,
-          addonQueued: posted.queued,
-          rateFailed: override.failed,
-          rateQueued: override.queued,
-          rateDraft: nightDraft?.dirty ? nightDraft : null,
-        };
+      const addonPosted =
+        (status === 'pending' || status === 'confirmed') && addonLines.length > 0
+          ? await postBookAddons(addonLines)
+          : { failures: [] as FailedBookAddon[], queued: false };
+
+      let roomAssign: BookRoomAssignFailure | null = null;
+      let roomAssignQueued = false;
+      if (
+        (status === 'pending' || status === 'confirmed') &&
+        selectedRoomId !== ASSIGN_LATER
+      ) {
+        const prior = roomAssignOpIdRef.current;
+        const assignOpId =
+          prior && prior.roomId === selectedRoomId
+            ? prior.opId
+            : `book-assign:${reservationId}:${selectedRoomId}:${crypto.randomUUID()}`;
+        roomAssignOpIdRef.current = { roomId: selectedRoomId, opId: assignOpId };
+        const assigned = await postBookRoomAssign(selectedRoomId, assignOpId);
+        if (assigned.ok) {
+          roomAssignQueued = assigned.queued;
+        } else {
+          roomAssign = {
+            roomId: selectedRoomId,
+            roomCode: assigned.roomCode,
+            opId: assignOpId,
+            taken: assigned.taken,
+            errorMessage: assigned.errorMessage,
+          };
+        }
       }
+
       return {
         status,
-        addonFailures: [] as FailedBookAddon[],
-        addonQueued: false,
+        addonFailures: addonPosted.failures,
+        addonQueued: addonPosted.queued,
         rateFailed: override.failed,
         rateQueued: override.queued,
         rateDraft: nightDraft?.dirty ? nightDraft : null,
+        roomAssign,
+        roomAssignQueued,
       };
     },
     onSuccess: (result) => {
@@ -674,6 +832,11 @@ export function BookingScreen() {
         setRateOverrideFailed(result.rateDraft);
       } else {
         setRateOverrideFailed(null);
+      }
+      if (result.roomAssign) {
+        setRoomAssignFailure(result.roomAssign);
+      } else {
+        setRoomAssignFailure(null);
       }
       if (result.addonQueued) {
         setFailedAddons(result.addonFailures);
@@ -694,8 +857,21 @@ export function BookingScreen() {
         void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
         return;
       }
-      void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
-      void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
+      if (result.roomAssign) {
+        invalidateAfterRoomAssign();
+        return;
+      }
+      if (result.roomAssignQueued) {
+        invalidateAfterRoomAssign();
+        setQueuedNotice('Room assignment is queued and will apply when the property is reachable.');
+        return;
+      }
+      if (selectedRoomId !== ASSIGN_LATER && (result.status === 'pending' || result.status === 'confirmed')) {
+        invalidateAfterRoomAssign();
+      } else {
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-free', propertyId] });
+      }
       void navigate(`/arrivals?date=${encodeURIComponent(arrivalDate)}`, {
         state: { createdReservationId: reservationId },
       });
@@ -796,7 +972,7 @@ export function BookingScreen() {
       <PageHeader
         title="Book"
         back={<Link to="/arrivals">Arrivals</Link>}
-        subtitle="New reservation"
+        subtitle={bookSubtitle}
       />
 
       <Card data-testid="booking-screen">
@@ -1128,6 +1304,48 @@ export function BookingScreen() {
                 No published rate for every night of this stay on this plan.
               </p>
             ) : null}
+            {roomTypeId != null && arrivalDate && departureDate && arrivalDate < departureDate ? (
+              <div data-testid="booking-room-picker">
+                <Field
+                  label="Room"
+                  control={
+                    <NativeSelect
+                      data-testid="book-room"
+                      value={selectedRoomId}
+                      disabled={bookMutation.isPending || roomsQ.isLoading}
+                      onChange={(e) => {
+                        setSelectedRoomId(e.target.value);
+                        setUrlRoomNote(null);
+                      }}
+                    >
+                      <option value={ASSIGN_LATER}>Assign later</option>
+                      {availableRooms.map((r) => (
+                        <option key={r.roomId} value={r.roomId}>
+                          {r.code}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  }
+                />
+                {roomPicked ? (
+                  <p className="muted" data-testid="book-room-quote-reason">
+                    Hold and Confirm assign this room. Quote and Inquiry do not.
+                  </p>
+                ) : null}
+                {urlRoomNote ? (
+                  <p className="muted" role="status" data-testid="book-room-prefill-note">
+                    {urlRoomNote}
+                  </p>
+                ) : null}
+                {roomsQ.isError ? (
+                  <Alert>
+                    {classifiedUserMessage(asClassified(roomsQ.error), {
+                      fallback: 'Could not load free rooms.',
+                    })}
+                  </Alert>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -1296,7 +1514,10 @@ export function BookingScreen() {
               type="button"
               data-testid="quote-book"
               disabled={
-                !quoteEnabled || bookMutation.isPending || addonLines.length > 0
+                !quoteEnabled ||
+                bookMutation.isPending ||
+                addonLines.length > 0 ||
+                roomPicked
               }
               onClick={() => bookMutation.mutate('inquiry')}
             >
@@ -1314,6 +1535,11 @@ export function BookingScreen() {
             {addonLines.length > 0 ? (
               <p className="muted">
                 Quote saves no add-ons — remove them to save a quote.
+              </p>
+            ) : null}
+            {roomPicked ? (
+              <p className="muted" data-testid="book-room-blocks-quote">
+                Quote is off while a room is picked. Choose Assign later to save a quote.
               </p>
             ) : null}
           </div>
@@ -1355,6 +1581,26 @@ export function BookingScreen() {
               Retry add-ons
             </Button>
             <Link to={`/folio/${reservationId}`}>Open folio</Link>
+          </div>
+        </Alert>
+      ) : null}
+      {roomAssignFailure ? (
+        <Alert data-testid="room-assign-failure-alert">
+          <p>
+            {roomAssignFailure.taken
+              ? roomAssignFailure.errorMessage
+              : `Booking saved; room ${roomAssignFailure.roomCode} could not be assigned: ${roomAssignFailure.errorMessage}`}
+          </p>
+          <div className="ui-row">
+            <Button
+              type="button"
+              data-testid="retry-room-assign"
+                  disabled={retryRoomAssignMutation.isPending}
+              onClick={() => retryRoomAssignMutation.mutate()}
+            >
+              Retry
+            </Button>
+            <Link to={`/reservations/${reservationId}`}>Open stay card</Link>
           </div>
         </Alert>
       ) : null}

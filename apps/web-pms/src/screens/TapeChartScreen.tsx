@@ -253,6 +253,7 @@ export function TapeChartScreen() {
                           arrival: from,
                           departure: to > from ? to : addCalendarDays(from, 1),
                           roomTypeId: r.roomTypeId,
+                          roomId: r.roomId,
                         })}
                       >
                         Book

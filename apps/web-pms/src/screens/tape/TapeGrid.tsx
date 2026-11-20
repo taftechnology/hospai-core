@@ -333,6 +333,7 @@ export function TapeGrid({
                             arrival: d,
                             departure: addCalendarDays(d, 1),
                             roomTypeId: room.roomTypeId,
+                            roomId: room.roomId,
                           })}
                           aria-label={`Book ${typeName} on ${date(d)}`}
                           className={`tape-cell tape-cell--bookable${d === today ? ' tape-cell--today' : ''}`}

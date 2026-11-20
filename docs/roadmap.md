@@ -594,7 +594,8 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Page note (2026-10-31):** BluePMS's day rows also cover plan and package amounts and a show/hide rate toggle. Room nights are this slice; plan and package rows join once **R4.13** has them. An override can also be made at check-in, while the night is unposted.
   - **Tests:** an override that crosses a slab boundary posts that night's tax at the new slab; the other nights do not move; a clerk without the permission gets 403.
 
-- [ ] **R4.26 Room number at booking**
+- [x] **R4.26 Room number at booking**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-19-room-number-at-booking-design.md). SPA-only. Book has an optional Room picker (default *Assign later*) listing the free rooms of the chosen type and dates; after Hold or Confirm it posts the existing `reservations.assign_room` with its own operation id, as R1.4 posts add-ons: the booking stands if assignment fails, an Alert offers Retry with the same key and a stay-card link, and a room taken in between reads "Room {number} was taken in the meantime". Quote is off while a room is picked. The tape's empty cells pass `roomId` to Book, which preselects the room or says it is no longer free. Characterization in `room-at-booking.spec.ts`: assignment works on a Hold (`pending`), `sold` moves once, and a race leaves the second booking unassigned. No pins changed.
   - **Depends:** **R1.4**, **R1.15**.
   - **Pilot checklist:** *New reservation (… room number …)*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Reservations, Rates And Packages. **Prototype:** `BookingWizard.tsx`.
   - **Live:** `tryCreateReservation` takes no `roomId`; assignment happens later from arrivals (R1.3). `tryAssignRoom` already accepts `pending`, `confirmed` and `checked_in`.

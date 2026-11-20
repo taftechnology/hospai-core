@@ -13,4 +13,15 @@ describe('bookHref', () => {
       '/book?arrival=2026-10-28&departure=2026-10-29',
     );
   });
+
+  it('R4.26: includes roomId when given', () => {
+    expect(
+      bookHref({
+        arrival: '2026-10-28',
+        departure: '2026-10-29',
+        roomTypeId: 'rt_king',
+        roomId: 'rm_101',
+      }),
+    ).toBe('/book?arrival=2026-10-28&departure=2026-10-29&roomTypeId=rt_king&roomId=rm_101');
+  });
 });

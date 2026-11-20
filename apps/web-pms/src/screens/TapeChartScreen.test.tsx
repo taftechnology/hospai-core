@@ -383,7 +383,7 @@ describe('TapeChartScreen', () => {
     });
     const book = await screen.findByRole('link', { name: 'Book 101' });
     expect(book.getAttribute('href')).toBe(
-      '/book?arrival=2026-08-13&departure=2026-08-19&roomTypeId=rt_king',
+      '/book?arrival=2026-08-13&departure=2026-08-19&roomTypeId=rt_king&roomId=rm_101',
     );
   });
 
@@ -393,7 +393,7 @@ describe('TapeChartScreen', () => {
     await screen.findByText('101');
     const cell = await screen.findByRole('gridcell', { name: /Book .+ on 15\/08\/2026/ });
     expect(cell.getAttribute('href')).toBe(
-      '/book?arrival=2026-08-15&departure=2026-08-16&roomTypeId=rt_king',
+      '/book?arrival=2026-08-15&departure=2026-08-16&roomTypeId=rt_king&roomId=rm_101',
     );
     expect(screen.getByRole('gridcell', { name: /Book .+ on 14\/08\/2026/ })).toBeTruthy();
     expect(screen.queryByRole('gridcell', { name: /Book .+ on 13\/08\/2026/ })).toBeNull();

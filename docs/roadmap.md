@@ -505,7 +505,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - The ARI projection and the guest-erasure purge start moved onto the registry with no change in behaviour. Guest erasure is exempt from the gate as a legal duty.
     - Adds 2 commands, 3 routes and PropertyDO migration 44.
     - **R4.3 adds a manifest entry and a handler, nothing else.**
-    - **Ops:** the staging queues `hospai-event-retries-staging` and `hospai-event-retries-dlq-staging` were created on 2026-11-19. Create the production pair (`hospai-event-retries`, `hospai-event-retries-dlq`) with `wrangler queues create` before the first production deploy.
+    - **Ops:** the staging queues `hospai-event-retries-staging` and `hospai-event-retries-dlq-staging` were created on 2026-11-19; the production pair was created the same day with the rest of production (see the go-live checklist).
 
 - [x] **R4.15 Guest ID documents, preferences + consent**
   - **Done (2026-11-19):** [spec](superpowers/specs/2026-11-19-guest-documents-consent-design.md).
@@ -515,7 +515,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - Settings → Guests gains *Require ID at check-in* (check-in fails closed, also when OrgDO is unreachable) and *Consent notice version*. Check-in has a Record ID button. A queue consumer keeps a non-PII `id_document_on_file` bit per stay for the new `id_proof_missing` night-audit check (warn by default).
     - Purge deletes the scans and the document and consent rows, keeps the access log, and records `r2_guest_documents` on the certificate.
     - Adds 4 commands, 8 routes, OrgDO migration 12 and PropertyDO migration 45. Stay flags (Q20) and OCR stay out.
-    - **Ops:** create the R2 buckets `hospai-guest-docs-staging` (`wrangler r2 bucket create hospai-guest-docs-staging --env staging`) and `hospai-guest-docs` before the next staging and the first production deploy.
+    - **Ops:** the R2 buckets `hospai-guest-docs-staging` and `hospai-guest-docs` (Asia-Pacific) were created on 2026-11-19.
   - **Depends:** **R1.8** (guest CRM remainder), **R0.5** (per-org HKDF keys — shipped).
   - **Pilot checklist:** *Guest lookup (ID documents)*, *Guest documents*, *Edit reservation and guest preferences*, *Guest 360 (identity, stays, preferences, consent)*.
   - **Preferences:** structured guest preferences (room, bedding, dietary, accessibility) on the OrgDO profile, shown on the stay card and at check-in. R1.8's free-text notes stay notes; do not fold one into the other. `GuestProfile` holds none of these today.
@@ -566,13 +566,15 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** two foreign nationals on one stay give two records with separate deadlines; hotel A cannot read hotel B's records (AGENTS §5); purge removes them and the certificate says so; a person record adds no row to the guest directory.
   - **Scope out:** C-form departure updates beyond what the portal requires; other countries' guest registration.
 
-- [ ] **R4.18 Desk tenders for India — fork, Blocked until the client answers**
+- [ ] **R4.18 Desk tenders for India — UPI**
+  - **Answered (client, 2026-11-19):** the desk takes **UPI**; no bank transfer. Amend the cashiering spec to add `UPI` (tender list, shift-close expected amounts, R4.12 mapping), then implement. Bank transfer and other tenders stay out.
   - **Pilot checklist Q4:** which tenders the desk records today. Indian desks commonly take **UPI** and **bank transfer** alongside cash and card.
   - **Locked:** `tender_type` stays `CARD` \| `CASH` (cashiering spec, AGENTS §2) **until that spec is amended**. If the client needs more, amend [cashiering](superpowers/specs/2026-08-07-cashiering-design.md) first — tender list, shift-close expected amounts and the R4.12 ledger mapping — then implement. Recording a payment taken on an external terminal or UPI app is a tender, **not** a gateway integration (that is R4.7 / R5.4).
   - **Partial evidence (2026-10-31):** BluePMS's guest-charge payment lists cash, card, UPI, room posting, split and debtor account, with transaction id and notes. That says what the product offers, not what this desk records: still ask.
   - **Scope out:** UPI collect / gateway integration; cheques, vouchers, gift cards unless the amended spec names them.
 
 - [ ] **R4.25 Advance collection and numbered receipts**
+  - **Unblocked in part (2026-11-19):** R4.18 is answered (UPI). The advance flow can be built after R4.18; the **receipt waits on the advisor** (fork below), per Track P rule 3.
   - **Depends:** **R1.20** (the prepayment rule), **R4.18** (tenders), **R1.12** (numbering), **R1.15** (stay card).
   - **Pilot checklist:** *Advance / deposit payments in the booking*; part of *Guest documents*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Advance Collection, Receipts And Deposits. **Prototype:** none.
   - **Live:** `BookingScreen` has no payment step, and R1.20 only gates on `require_prepayment`. `folio.record_cash_payment`, `folio.authorize` and `folio.capture` exist, and the cash path checks only that the reservation exists, so a pre-arrival payment looks possible (read, not run: prove it with a test first).
@@ -681,6 +683,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Scope out:** charts and trends (§7.8); checkout-time alerts unless client Q22 asks, because they need an expected checkout time the stay does not hold today.
 
 - [ ] **R4.3 Channel manager connector — third-party channel manager**
+  - **Deferred by the user (2026-11-19):** built later, after the pilot goes live without it. Not in the current Track P pass.
   - **Decided 2026-10-28:** HospAI **does not build a channel manager** and does not connect to OTAs directly. It connects to **one third-party channel manager**, which holds the OTA connections, OTA certification and listing content (§16.6 *Integrate*). All seven ticked distribution features are met by that channel manager plus this connector. Industry practice and the forks below: [channel manager integration research](research/2026-10-28-channel-manager-integration-practice.md).
   - **Depends:** **R4.5** (outbox), **R3.10** (`channel_manager.enabled`), **R1.6** (sources and market segments), **R3.6** (tax on OTA bookings). ARI_KV already ships.
   - **Prototype:** `ChannelManager.tsx`, `DistributionSettings.tsx`, Rates `channels` tab — read for the operator flows only; the sync-log and OTA screens are the channel manager's.
@@ -711,12 +714,14 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Scope out:** purchasing, stores inventory, payroll calculation, a general ledger inside HospAI.
 
 - [ ] **R4.9 On-property interface framework**
+  - **Deferred with R4.21 (2026-11-19):** its first consumer is the POS connector.
   - **Pulled into Track P (2026-10-27):** the pilot runs a third-party restaurant POS (§16.6), so the framework is needed for its connector before anything else in Track 5.
   - **Why it matters beyond the pilot:** a full-service upscale property runs fifteen to thirty on-property interfaces. Each missing one is a manual process the buyer prices into the deal, and this segment is the entry ticket to groups. **Reverses a Phase-1 scope call:** keyless / door-lock was *dropped* in the holes sweep as prototype-parity work — it returns here as a real interface, which is a different thing.
   - **Locked:** build the **framework, not N integrations** — a typed adapter contract, outbox-driven, each adapter a gated module with its own entitlement, none of them special-cased inside PropertyDO. Ship the framework plus **one** adapter end-to-end to prove it — the **R4.21 POS connector**. Door lock and spa follow in Track 5, each as its own slice on this framework.
   - **Scope out:** the POS adapter itself (**R4.21**), building N adapters in this slice, any adapter that needs a core change to work — if it does, fix the framework.
 
 - [ ] **R4.21 POS connector — PMS interface for a third-party restaurant POS**
+  - **Deferred by the user (2026-11-19):** built later, after the pilot goes live without it. Not in the current Track P pass.
   - **Depends:** **R4.9** (adapter framework), **R4.5** (outbox), **R3.6** (restaurant GST components), **R3.10** (`pos.enabled`).
   - **§16.6:** restaurant POS is *Integrate* through this connector. All twelve ticked POS features (table board, outlet reservations and waitlist, order entry, KOT, KDS, split checks, settlement with tips, split tender and email, cash movements, staff clock-in / out, menu waste, promotions, outlet demand forecasting, POS reports) are the **vendor's** — the must-have is met by the vendor's product plus this slice.
   - **Fork — vendor (pilot checklist Q2):** the client picks the POS. It qualifies only if it covers all twelve features above **and** meets the vendor requirements below. Indian candidates to evaluate include Petpooja, Restroworks (formerly Posist) and Rista — none has been checked against this list.
@@ -737,6 +742,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Scope out:** tables, orders, kitchen, settlement, promotions and POS reports (vendor); a second POS vendor; stock and recipe costing (§16.6).
 
 - [ ] **R4.14 Operational report set (named, not a catalogue)**
+  - **Q10 answered (client, 2026-11-19):** **all the standard reports plus what BluePMS has.** This is F3's one rewrite: the list becomes the standard set plus BluePMS's report catalogue groups (research note), minus POS and distribution reports while R4.21 and R4.3 are deferred. The catalogue builder stays out.
   - **Depends:** **R1.1**, **R1.16**, **R4.11**; the POS and distribution reports land with **R4.21** and **R4.3**.
   - **Pilot checklist:** front-office reports, housekeeping reports, POS reports, distribution reports.
   - **Locked list — nothing outside it without a new slice (§16.6 "Reports are not a backlog"), rewritten once from the client's Q10 answer (F3):**
@@ -749,6 +755,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Scope out:** occupancy and demand **trends** (warehouse, §7.8); a report builder; the BluePMS catalogue; the Manager Report (**R4.32**).
 
 - [ ] **R4.32 Manager Report and MIS settings**
+  - **Answered (client, 2026-11-19):** a **standard Manager Report**; it need not match the client's current one, so no sample is needed and this slice is no longer blocked.
   - **Depends:** **R4.14**, **R1.10** (`SNAPSHOT_REPORTS`), **R1.6** (sources), **R3.1**, **R3.6**. **A sample of the client's real report (Q8, Q9) comes first.**
   - **Pilot checklist:** *Manager settings*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Manager Reporting And MIS Settings. **Prototype:** none.
   - **Live:** nothing. R1.11, R1.12, R1.17 and R3.1 are general settings, a different meaning. This is probably the GM's daily sheet, and the parallel run compares against it.
@@ -769,6 +776,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** a `roster:read`-only user's question about a folio gets a refusal, not data; a user at hotel A gets nothing from hotel B; every answer carries at least one source link or says it has none.
 
 - [ ] **R4.8 Migration importers — the switch path**
+  - **Deferred by the user (2026-11-19):** data import is built later. Not in the current Track P pass.
   - **Why now:** switching PMS is the largest objection in every deal, and for a multi-property operator the **consolidation demo is the sales conversation** — three legacy exports in, one estate view out. There is currently no slice, no contract and no tooling for it anywhere in this repo.
   - **Stage A (single property):** importers for reservations, guest profiles, rate plans and folio history. **First source: BluePMS** — the pilot is switching from it; get a sample export from the client before designing the mapping. Canadian incumbents follow in **R4.19**. Map onto existing commands — **no bulk write path that bypasses `COMMAND_CATALOG`** — and run in the `BULK` lane (§4.2) under the chunk cap so an import cannot stall a front desk.
   - **Cut-over data (2026-10-31):** stays in house on cut-over night carry their advances and open-folio holds; the importer maps them to **R4.25** payments and **R4.23** holds, through the folio contract.
@@ -780,6 +788,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
 
 Track P being `[x]` means the software is ready. **The pilot is live** when the hotel runs its front desk, housekeeping and night audit on HospAI with BluePMS switched off. These steps are client, advisor and ops work: an agent working the queue **does not pick them** and does not tick them. Steps 1–3 start **now**, in parallel with Tracks 1–3, because their answers shape slices before Track P begins.
 
+- [ ] **Production environment** — *started 2026-11-19.* `env.production` in `apps/pms-core/wrangler.jsonc` points at resources created in the HospAI Cloudflare account (`9c3a73ac…`): R2 `hospai-event-log` and `hospai-guest-docs` (Asia-Pacific hints), queues `hospai-events`, `hospai-pending-commands`, `hospai-event-retries` and their three DLQs, KV `hospai-entitlement-kv`, `hospai-event-dedupe-kv`, `hospai-ari-kv`, and D1 `hospai-platform` (Asia-Pacific, all six platform migrations applied). The top-level config stays the local-dev placeholder. **Still to do:** a Clerk production instance (its publishable key and JWT key go in `env.production.vars`; until then auth fails closed), the secrets `CLERK_SECRET_KEY` and `HOSPAI_ORG_MASTER_KEY` (`wrangler secret put … --env production`; a new master key, never the staging one), the production URL in `CLERK_AUTHORIZED_PARTIES` if not `hospai-pms-core.hospai.workers.dev`, and a production deploy workflow gated on green CI like `staging-deploy.yml`.
 - [ ] **Live BluePMS walkthrough and samples** — one session on the client's live system (Q8): Manager Report, night audit configuration, report list, a bill on hold if they use one. Collect one sample each of the Manager Report, final bill, advance receipt, proforma, registration card and B2B invoice with IRN, handled as guest PII. This is the first real check of everything read from BluePMS's marketing pages.
 - [ ] **Client answers** — the open questions in the [checklist research](research/2026-10-27-pilot-client-checklist.md#open-questions-for-the-client): POS vendor (R4.21), night audit settings (R1.10), tenders (R4.18), Form C filing (R6.2), channel manager and OTAs (R4.3), GST registration and e-invoicing threshold (R5.5), Manager Report rows (R4.32), reports they run (R4.14), guest documents (R4.13, R4.15), open folio (R4.23), accounting export (R4.12), Tax & Compliance and Guest Experience, and the rest listed there. Record each answer in that file and in the slice it unblocks.
 - [ ] **Apply the fork decisions** — the user decided [F1–F4](#fork-decisions) on 2026-10-31. Q17, Q18, Q10 and the advisor's Form C answer set how each lands. Record each outcome in its slice, and amend any lock it changes in the same change-set.

@@ -277,6 +277,149 @@
         "CLERK_JWT_KEY": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz0WNHC+JnWi1vOlQ7gKY\nWVlUX42VEEOW8qoE4moMrNfs/F1VZOPtb3lelmGVIe56IeGteCjsG8kpws12NdDg\n39xJu3YEwKsMZFea4dtfJNslR0Km5I/6Kb/mFfioaL+3/ZLWipWTZmJZP8mdpeZ/\nTwKCzfzERYFdt2YaPyrQXY6R5qIYjeDy/n4w9sW1yIwWLk3Fl7pYW6VPtxUrL7Oi\nKGFJTpmmDr0Gh9M527UanIGBF/EV+QTJZVFJpbeirAWGYaAEkB0TGBMbpA48bwle\nYYgeRo3DGuOzJAX9fe7H8HE0AmhAkJQz6d/xmIFRsy7AjHUkAJ9t+e2U7FtrWHt2\nWQIDAQAB\n-----END PUBLIC KEY-----",
         "CLERK_AUTHORIZED_PARTIES": "https://hospai-pms-core-staging.hospai.workers.dev"
       }
+    },
+    // Production env — resources created 2026-11-19 in the HospAI account (Asia-Pacific hints for R2 and D1).
+    "production": {
+      "account_id": "9c3a73acfa30fd1c244bf519f7c7bce9",
+      "name": "hospai-pms-core",
+      "main": "src/index.ts",
+      "compatibility_date": "2025-07-01",
+      "compatibility_flags": ["nodejs_compat"],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "PROPERTY_DO",
+            "class_name": "PropertyDO"
+          },
+          {
+            "name": "ORG_DO",
+            "class_name": "OrgDO"
+          },
+          {
+            "name": "ORG_ENTITLEMENT_DO",
+            "class_name": "OrgEntitlementDO"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["PropertyDO"]
+        },
+        {
+          "tag": "v2",
+          "new_sqlite_classes": ["OrgDO"]
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["OrgEntitlementDO"]
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "ENTITLEMENT_KV",
+          "id": "4e12f1d1a3c2482fa0e0ba9f52a32cc9"
+        },
+        {
+          "binding": "EVENT_DEDUPE_KV",
+          "id": "4f156b5aa3f94bdabe65f6dc2c512520"
+        },
+        {
+          "binding": "ARI_KV",
+          "id": "3636c55b6816488aa3758a1821d966ec"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "EVENT_LOG_R2",
+          "bucket_name": "hospai-event-log"
+        },
+        {
+          "binding": "GUEST_DOCS_R2",
+          "bucket_name": "hospai-guest-docs"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "EVENTS_QUEUE",
+            "queue": "hospai-events"
+          },
+          {
+            "binding": "PENDING_COMMANDS_QUEUE",
+            "queue": "hospai-pending-commands"
+          },
+          {
+            "binding": "EVENT_RETRY_QUEUE",
+            "queue": "hospai-event-retries"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "hospai-events",
+            "max_batch_size": 100,
+            "max_batch_timeout": 5,
+            "max_retries": 3,
+            "dead_letter_queue": "hospai-events-dlq"
+          },
+          {
+            "queue": "hospai-pending-commands",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "hospai-pending-commands-dlq"
+          },
+          {
+            "queue": "hospai-event-retries",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "dead_letter_queue": "hospai-event-retries-dlq"
+          },
+          {
+            "queue": "hospai-event-retries-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 10
+          }
+        ]
+      },
+      "workflows": [
+        {
+          "binding": "NIGHT_AUDIT_WORKFLOW",
+          "name": "hospai-night-audit",
+          "class_name": "NightAuditWorkflow"
+        },
+        {
+          "binding": "MIGRATION_SWEEP_WORKFLOW",
+          "name": "hospai-migration-sweep",
+          "class_name": "MigrationSweepWorkflow"
+        },
+        {
+          "binding": "PURGE_WORKFLOW",
+          "name": "hospai-purge",
+          "class_name": "PurgeWorkflow"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "PLATFORM_DB",
+          "database_name": "hospai-platform",
+          "database_id": "7f4388e6-6822-4e08-8cfe-65d291c64612",
+          "migrations_dir": "../../migrations/d1-platform"
+        }
+      ],
+      "assets": {
+        "binding": "ASSETS",
+        "directory": "../web-pms/dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      },
+      // Clerk production instance: add CLERK_PUBLISHABLE_KEY and CLERK_JWT_KEY here once it exists.
+      // Until then auth fails closed (AGENTS §1). CLERK_SECRET_KEY + HOSPAI_ORG_MASTER_KEY via wrangler secrets only.
+      "vars": {
+        "CLERK_AUTHORIZED_PARTIES": "https://hospai-pms-core.hospai.workers.dev"
+      }
     }
   }
 }

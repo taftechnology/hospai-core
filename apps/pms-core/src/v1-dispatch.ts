@@ -219,6 +219,11 @@ import {
   isCommandError,
   isHousekeepingInventoryCategory,
   isHousekeepingInventoryMovementKind,
+  isHousekeepingTaskAction,
+  isHousekeepingTaskPriority,
+  isHousekeepingTaskStatus,
+  isOooBlockType,
+  HK_TASK_SEARCH_MAX,
   isHousekeepingPriorityLevelInput,
   isMaintenanceCategory,
   isMaintenancePriority,
@@ -4682,17 +4687,33 @@ async function handlePostRoomStatus(ctx: V1DispatchContext): Promise<Response> {
   const roomId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
 
-    const bodyParsed = await parseJsonBody<{ status: string; idempotencyKey: string }>(ctx.request);
+    const bodyParsed = await parseJsonBody<{
+    status: string;
+    idempotencyKey: string;
+    reason?: unknown;
+    comment?: unknown;
+  }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.status || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (
+    (body.reason !== undefined && typeof body.reason !== 'string') ||
+    (body.comment !== undefined && typeof body.comment !== 'string')
+  ) {
     return json({ error: 'invalid_body' }, 400);
   }
 
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
-  const commandPayload = { roomId, status: body.status };
+  const commandPayload: { roomId: string; status: string; reason?: string; comment?: string } = {
+    roomId,
+    status: body.status,
+  };
+  if (body.reason !== undefined) commandPayload.reason = body.reason as string;
+  if (body.comment !== undefined) commandPayload.comment = body.comment as string;
   const fingerprint = await commandFingerprint('rooms.update_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -4729,6 +4750,11 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     endDate: string;
     oooId?: string;
     reason?: string;
+    blockType?: unknown;
+    startTime?: unknown;
+    endTime?: unknown;
+    inspectionNotes?: unknown;
+    releaseReason?: unknown;
     idempotencyKey: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
@@ -4737,6 +4763,16 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     return json({ error: 'invalid_body' }, 400);
   }
   if (body.roomId !== undefined && body.roomId !== roomId) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const nullableString = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+  if (
+    (body.blockType !== undefined && !isOooBlockType(body.blockType)) ||
+    !nullableString(body.startTime) ||
+    !nullableString(body.endTime) ||
+    !nullableString(body.inspectionNotes) ||
+    (body.releaseReason !== undefined && typeof body.releaseReason !== 'string')
+  ) {
     return json({ error: 'invalid_body' }, 400);
   }
 
@@ -4749,15 +4785,23 @@ async function handlePostRoomOooRange(ctx: V1DispatchContext): Promise<Response>
     endDate: string;
     oooId?: string;
     reason?: string;
+    blockType?: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    inspectionNotes?: string | null;
+    releaseReason?: string;
   } = { roomId, startDate: body.startDate, endDate: body.endDate };
   if (body.oooId !== undefined) commandPayload.oooId = body.oooId;
   if (body.reason !== undefined) commandPayload.reason = body.reason;
-  const fingerprint = await commandFingerprint('rooms.set_ooo_range', {
-    roomId,
-    startDate: body.startDate,
-    endDate: body.endDate,
-    ...(body.oooId ? { oooId: body.oooId } : {}),
-  });
+  if (body.blockType !== undefined) commandPayload.blockType = body.blockType as string;
+  if (body.startTime !== undefined) commandPayload.startTime = body.startTime as string | null;
+  if (body.endTime !== undefined) commandPayload.endTime = body.endTime as string | null;
+  if (body.inspectionNotes !== undefined) {
+    commandPayload.inspectionNotes = body.inspectionNotes as string | null;
+  }
+  if (body.releaseReason !== undefined) commandPayload.releaseReason = body.releaseReason as string;
+  // The object hashed is the object sent to the DO (reason and the R4.30 block fields included).
+  const fingerprint = await commandFingerprint('rooms.set_ooo_range', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
 
@@ -4795,10 +4839,18 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
     const bodyParsed = await parseJsonBody<{
     updates: Array<{ roomId: string; status: string }>;
     idempotencyKey: string;
+    reason?: unknown;
+    comment?: unknown;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.updates?.length || !body.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (
+    (body.reason !== undefined && typeof body.reason !== 'string') ||
+    (body.comment !== undefined && typeof body.comment !== 'string')
+  ) {
     return json({ error: 'invalid_body' }, 400);
   }
   if (body.updates.length > ROOMS_BULK_STATUS_MAX) {
@@ -4809,7 +4861,13 @@ async function handlePostRoomsBulkStatus(ctx: V1DispatchContext): Promise<Respon
   if (resolvedCtx instanceof Response) return resolvedCtx;
 
   const updates = [...body.updates].sort((a, b) => a.roomId.localeCompare(b.roomId));
-  const commandPayload = { updates };
+  const commandPayload: {
+    updates: Array<{ roomId: string; status: string }>;
+    reason?: string;
+    comment?: string;
+  } = { updates };
+  if (body.reason !== undefined) commandPayload.reason = body.reason as string;
+  if (body.comment !== undefined) commandPayload.comment = body.comment as string;
   const fingerprint = await commandFingerprint('rooms.bulk_update_status', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
@@ -5280,6 +5338,277 @@ async function handleGetHousekeepingInventoryMovements(ctx: V1DispatchContext): 
     if (!result.ok) {
       return json({ ok: false, error: result.error }, 404);
     }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+function housekeepingTaskFailure(result: { error: string }): Response | null {
+  if (result.error === 'org_unreachable') {
+    return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED' }, 503, { 'Retry-After': '30' });
+  }
+  if (
+    result.error === STAFF_NOT_FOUND ||
+    result.error === STAFF_EXITED ||
+    result.error === STAFF_NOT_ASSIGNABLE
+  ) {
+    return json({ ok: false, error: result.error }, 422);
+  }
+  if (result.error === 'invalid_assignee_ref') {
+    return json({ ok: false, error: result.error }, 400);
+  }
+  return null;
+}
+
+function isOptionalNullableString(v: unknown): boolean {
+  return v === undefined || v === null || typeof v === 'string';
+}
+
+async function handlePostHousekeepingTasks(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    typeof body?.businessDate !== 'string' ||
+    !ISO_DATE_RE.test(body.businessDate) ||
+    typeof body.taskType !== 'string' ||
+    !body.taskType ||
+    typeof body.roomId !== 'string' ||
+    !body.roomId ||
+    !isOptionalNullableString(body.assigneeRef) ||
+    !isOptionalNullableString(body.notes) ||
+    (body.priority !== undefined && !isHousekeepingTaskPriority(body.priority))
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    businessDate: body.businessDate,
+    taskType: body.taskType,
+    roomId: body.roomId,
+    ...(body.assigneeRef !== undefined ? { assigneeRef: body.assigneeRef as string | null } : {}),
+    ...(body.priority !== undefined ? { priority: body.priority as string } : {}),
+    ...(body.notes !== undefined ? { notes: body.notes as string | null } : {}),
+  };
+  const fingerprint = await commandFingerprint('housekeeping.create_task', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryCreateHousekeepingTask']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.create_task',
+      routeId: 'post_housekeeping_tasks',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryCreateHousekeepingTask(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 201,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePatchHousekeepingTask(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const taskId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    !body ||
+    (body.taskType !== undefined && (typeof body.taskType !== 'string' || !body.taskType)) ||
+    !isOptionalNullableString(body.assigneeRef) ||
+    !isOptionalNullableString(body.notes) ||
+    (body.priority !== undefined && !isHousekeepingTaskPriority(body.priority)) ||
+    (body.businessDate !== undefined &&
+      (typeof body.businessDate !== 'string' || !ISO_DATE_RE.test(body.businessDate)))
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const hasChange = ['taskType', 'assigneeRef', 'priority', 'notes', 'businessDate'].some(
+    (k) => body[k] !== undefined,
+  );
+  if (!hasChange) return json({ error: 'invalid_body' }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    taskId,
+    ...(body.taskType !== undefined ? { taskType: body.taskType as string } : {}),
+    ...(body.assigneeRef !== undefined ? { assigneeRef: body.assigneeRef as string | null } : {}),
+    ...(body.priority !== undefined ? { priority: body.priority as string } : {}),
+    ...(body.notes !== undefined ? { notes: body.notes as string | null } : {}),
+    ...(body.businessDate !== undefined ? { businessDate: body.businessDate as string } : {}),
+  };
+  const fingerprint = await commandFingerprint('housekeeping.update_task', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUpdateHousekeepingTask']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.update_task',
+      routeId: 'patch_housekeeping_task',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUpdateHousekeepingTask(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handlePostHousekeepingTaskTransition(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const taskId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<Record<string, unknown>>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    !isHousekeepingTaskAction(body?.action) ||
+    !isOptionalNullableString(body.notes) ||
+    (body.reason !== undefined && typeof body.reason !== 'string')
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = {
+    taskId,
+    action: body.action,
+    ...(body.notes !== undefined ? { notes: body.notes as string | null } : {}),
+    ...(body.reason !== undefined ? { reason: body.reason as string } : {}),
+  };
+  const fingerprint = await commandFingerprint('housekeeping.transition_task', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<
+    Awaited<ReturnType<PropertyDO['tryTransitionHousekeepingTask']>>
+  >({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'housekeeping.transition_task',
+      routeId: 'post_housekeeping_task_transition',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryTransitionHousekeepingTask(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'housekeeping:write',
+    successStatus: 200,
+    onFailure: housekeepingTaskFailure,
+  });
+}
+
+async function handleGetHousekeepingTasks(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const params = new URL(ctx.request.url).searchParams;
+  const date = params.get('date');
+  if (!date || !ISO_DATE_RE.test(date)) {
+    return json({ error: 'invalid_body', detail: 'date_required' }, 400);
+  }
+  const status = params.get('status') ?? undefined;
+  const search = params.get('search')?.trim() || undefined;
+  if (
+    (status !== undefined && !isHousekeepingTaskStatus(status)) ||
+    (search !== undefined && search.length > HK_TASK_SEARCH_MAX)
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingTaskList({
+      businessDate: date,
+      ...(status ? { status } : {}),
+      ...(params.get('assigneeRef') ? { assigneeRef: params.get('assigneeRef')! } : {}),
+      ...(params.get('roomId') ? { roomId: params.get('roomId')! } : {}),
+      ...(search ? { search } : {}),
+    });
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetRoomStatusHistory(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readRoomStatusHistoryForRoom(roomId);
+    if (!result.ok) return json({ error: 'not_found' }, 404);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetRoomOooHistory(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const roomId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readRoomOooHistoryForRoom(roomId);
+    if (!result.ok) return json({ error: 'not_found' }, 404);
     return json(result, 200);
   } catch (e) {
     if (isPropertyDoTransportFailure(e, ctx.env)) {
@@ -11953,6 +12282,63 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'reservations:read',
     entitlement: 'pms.core',
     handler: handleGetRoomBoard,
+  },
+  {
+    id: 'post_housekeeping_tasks',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/tasks$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.create_task',
+    entitlement: 'pms.core',
+    handler: handlePostHousekeepingTasks,
+  },
+  {
+    id: 'patch_housekeeping_task',
+    scope: 'property',
+    method: 'PATCH',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/tasks\/([^/]+)$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.update_task',
+    entitlement: 'pms.core',
+    handler: handlePatchHousekeepingTask,
+  },
+  {
+    id: 'post_housekeeping_task_transition',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/tasks\/([^/]+)\/transition$/,
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.transition_task',
+    entitlement: 'pms.core',
+    handler: handlePostHousekeepingTaskTransition,
+  },
+  {
+    id: 'get_housekeeping_tasks',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/tasks$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingTasks,
+  },
+  {
+    id: 'get_room_status_history',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)\/status-history$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetRoomStatusHistory,
+  },
+  {
+    id: 'get_room_ooo_history',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/rooms\/([^/]+)\/ooo-history$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetRoomOooHistory,
   },
 ];
 

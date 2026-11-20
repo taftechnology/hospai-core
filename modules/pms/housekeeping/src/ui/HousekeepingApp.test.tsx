@@ -19,6 +19,11 @@ const ADA: HousekeepingRosterPerson = {
   kinds: ['housekeeper'],
 };
 
+const TASK_TYPES = [
+  { code: 'departure_clean', label: 'Departure clean' },
+  { code: 'turndown', label: 'Turndown' },
+];
+
 const testFormat = {
   dateHeading: (iso: string) => iso,
   dateTime: (ms: number) => String(ms),
@@ -77,6 +82,20 @@ function stubApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
     createHousekeepingInventoryItem: async () => ({ ok: true }),
     updateHousekeepingInventoryItem: async () => ({ ok: true }),
     adjustHousekeepingInventoryItem: async () => ({ ok: true }),
+    bulkUpdateRoomStatus: async () => ({ ok: true }),
+    getRoomStatusHistory: async (_p, roomId) => ({ ok: true, roomId, history: [] }),
+    getRoomOooHistory: async (_p, roomId) => ({ ok: true, roomId, events: [] }),
+    getHousekeepingTasks: async (_p, q) => ({
+      ok: true,
+      businessDate: q.date,
+      tasks: [],
+      truncated: false,
+      counters: { open: 0, pending: 0, inProgress: 0, completed: 0, overdue: 0 },
+      taskTypes: TASK_TYPES,
+    }),
+    createHousekeepingTask: async () => ({ ok: true }),
+    updateHousekeepingTask: async () => ({ ok: true }),
+    transitionHousekeepingTask: async () => ({ ok: true }),
     ...overrides,
   };
 }
@@ -136,7 +155,7 @@ describe('HousekeepingApp assign picker', () => {
 
     await waitFor(() => {
       const row = screen.getByText('101').closest('tr');
-      expect(row?.querySelectorAll('td')[2]?.textContent).toBe('Ada Housekeeper');
+      expect(row?.querySelectorAll('td')[3]?.textContent).toBe('Ada Housekeeper');
     });
   });
 
@@ -324,6 +343,7 @@ describe('HousekeepingApp assign picker', () => {
     renderApp(stubApi({ updateRoomStatus }));
     const status = (await screen.findByRole('combobox', { name: 'Status for 101' })) as HTMLSelectElement;
     fireEvent.change(status, { target: { value: 'clean' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark clean' }));
     const alert = await screen.findByTestId('hk-action-notice');
     expect(alert.textContent).toMatch(/Request queued — will apply when the property is reachable/);
     expect(alert.className).toContain('ui-alert--attention');
@@ -336,9 +356,9 @@ describe('HousekeepingApp assign picker', () => {
     renderApp(stubApi({ updateRoomStatus }), { formatError: () => 'Property unreachable.' });
     const status = (await screen.findByRole('combobox', { name: 'Status for 101' })) as HTMLSelectElement;
     fireEvent.change(status, { target: { value: 'clean' } });
-    const alert = await screen.findByTestId('hk-action-notice');
-    expect(alert.textContent).toMatch(/Property unreachable/);
-    expect(alert.className).toContain('ui-alert--exception');
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark clean' }));
+    const dialog = await screen.findByTestId('hk-status-dialog');
+    await waitFor(() => expect(within(dialog).getByText(/Property unreachable/)).toBeTruthy());
     expect(status.value).toBe('dirty');
   });
 });

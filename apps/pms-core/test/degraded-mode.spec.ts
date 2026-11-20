@@ -802,7 +802,7 @@ describe('degraded mode §4.6 fault injection', () => {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
-          body: JSON.stringify({ status: 'dirty', idempotencyKey: 'idem-st-22' }),
+          body: JSON.stringify({ status: 'dirty', reason: 'Test', idempotencyKey: 'idem-st-22' }),
         },
       ),
       env,
@@ -871,6 +871,7 @@ describe('degraded mode §4.6 fault injection', () => {
               { roomId: 'room_deg_22b_a', status: 'dirty' },
               { roomId: 'room_deg_22b_b', status: 'dirty' },
             ],
+            reason: 'Test',
             idempotencyKey: 'idem-bulk-22b',
           }),
         },

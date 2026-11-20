@@ -696,7 +696,17 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** the occupancy row matches `availability_day`; the query key carries `propertyId` and the range; a filter keeps tape invalidation working.
   - **Scope out:** calendar colour settings; a virtualizer on the default 7 days.
 
-- [ ] **R4.30 Housekeeping tasks and room status history**
+- [x] **R4.30 Housekeeping tasks and room status history**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-20-housekeeping-tasks-status-history-design.md).
+    - **Tasks:** `housekeeping_task` is owned by `pms.housekeeping` and written through `moduleTxnCtx`. Commands are `housekeeping.create_task` / `update_task` / `transition_task`, `pms.core`-entitled and audit writers. The lifecycle is pending → in progress → completed → reviewed; cancel needs a reason; any other move → `invalid_task_transition`. Types come from the DOMAIN key `pms.housekeeping.task_types`, which has five defaults and is edited in Settings → Housekeeping. A task defaults to the day's assigned attendant, and assign is otherwise untouched. `get_housekeeping_tasks` has filters and counters (overdue across earlier dates). The SPA has a Tasks tab.
+    - **Status history:** `room_status_history` is written by the module use case `recordRoomStatusChange`, which is now the only path that changes a room's status. That covers desk, bulk, and the system actors for checkout, room move and stay-change dirty plus the OOO flip. Marking dirty needs a reason, comments are optional, and a same-status change writes no row.
+    - **Blocks:** migration 52 adds block type, start and end time, and inspection notes to `room_ooo`; `availability_day` stays per night. The new core table `room_ooo_event` keeps created, changed and released events through a full release. A release, or a release-now shortening, needs `releaseReason`. The per-room History dialog shows status changes and block events.
+    - Built by a Claude Sonnet subagent. Browser review fixed a business-date default race, raw ISO dates on the Board, block history being unreachable after a release, and missing success Alerts.
+    - **Open:**
+      - a status change queued offline before this ships replays without a reason and is refused if it is "dirty" (no queue is live yet);
+      - archiving a room leaves its open tasks counting as overdue;
+      - history shows "Staff member" to users without `staff:read`.
+    - Pins: catalog 130, routes 214 (last `get_room_ooo_history`), audit writers 96, `PROPERTY_SCHEMA_HEAD` 52, config +1.
   - **Depends:** **R1.9**.
   - **Pilot checklist:** *Task assignment to attendants*; *Room status (… with comments)*; *Maintenance / out-of-order blocks*. **Page:** [Housekeeping](https://www.bluepms.com/modules/housekeeping/), Tasks, Attendants And Maintenance, Room Status, Turnaround And Checkout. **Prototype:** `Housekeeping.tsx` (`hkTasks`).
   - **Live:** `housekeeping_assignment` is one assignee per room per business date, with no type, status or lifecycle. `updateRoomStatus` takes only `roomId` and `status`; `room.status_changed` carries from and to, and nothing reads them back. A full OOO release deletes the `room_ooo` row (the ticket keeps a timestamp). The maintenance module's tickets are work orders and stay separate.

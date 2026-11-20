@@ -101,7 +101,7 @@ async function postStatus(propertyId: string, actor: string, roomId: string, sta
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
-        body: JSON.stringify({ status, idempotencyKey: `idem-st-${roomId}-${status}` }),
+        body: JSON.stringify({ status, reason: 'Test', idempotencyKey: `idem-st-${roomId}-${status}` }),
       },
     ),
     env,

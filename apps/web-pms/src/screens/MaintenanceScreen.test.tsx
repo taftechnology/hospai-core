@@ -14,6 +14,9 @@ const listRoster = vi.fn();
 const createMaintenanceTicket = vi.fn();
 const updateMaintenanceTicket = vi.fn();
 const setOooRange = vi.fn();
+const getMe = vi.fn();
+const getRoomOooHistory = vi.fn();
+const listPropertyMembers = vi.fn();
 vi.mock('../shell/PropertyFormat.js', async () => {
   const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
   return propertyFormatTestModule(() => 'UTC');
@@ -33,6 +36,9 @@ vi.mock('../client.js', () => ({
     createMaintenanceTicket: (...a: unknown[]) => createMaintenanceTicket(...a),
     updateMaintenanceTicket: (...a: unknown[]) => updateMaintenanceTicket(...a),
     setOooRange: (...a: unknown[]) => setOooRange(...a),
+    getMe: (...a: unknown[]) => getMe(...a),
+    getRoomOooHistory: (...a: unknown[]) => getRoomOooHistory(...a),
+    listPropertyMembers: (...a: unknown[]) => listPropertyMembers(...a),
   },
   asClassified: () => ({
     class: 'server_error' as const,
@@ -217,12 +223,16 @@ describe('MaintenanceScreen', () => {
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     fireEvent.click(await screen.findByRole('button', { name: 'Open ticket #1' }));
     expect(screen.getByRole('checkbox', { name: 'Release room now' })).toBeTruthy();
+    // Releasing the room needs a reason, kept in the block history.
+    expect((screen.getByRole('button', { name: 'Resolve' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Release reason'), { target: { value: 'Lock replaced' } });
     fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
     await waitFor(() => expect(setOooRange).toHaveBeenCalledTimes(1));
     expect(setOooRange).toHaveBeenCalledWith('prop_demo', 'rm_1', {
       oooId: 'ooo_1',
       startDate: rangeStart,
       endDate: businessDate,
+      releaseReason: 'Lock replaced',
       idempotencyKey: expect.any(String),
     });
     await waitFor(() => {
@@ -231,6 +241,8 @@ describe('MaintenanceScreen', () => {
       expect(invalidate).toHaveBeenCalledWith({
         queryKey: ['housekeeping-priorities', 'prop_demo'],
       });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['room-ooo-history', 'prop_demo'] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['room-board', 'prop_demo'] });
     });
   });
 
@@ -241,12 +253,14 @@ describe('MaintenanceScreen', () => {
     });
     renderScreen();
     fireEvent.click(await screen.findByRole('button', { name: 'Open ticket #1' }));
+    fireEvent.change(screen.getByLabelText('Release reason'), { target: { value: 'Not needed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
     await waitFor(() => expect(setOooRange).toHaveBeenCalledTimes(1));
     expect(setOooRange).toHaveBeenCalledWith('prop_demo', 'rm_1', {
       oooId: 'ooo_1',
       startDate: businessDate,
       endDate: businessDate,
+      releaseReason: 'Not needed',
       idempotencyKey: expect.any(String),
     });
   });
@@ -260,6 +274,7 @@ describe('MaintenanceScreen', () => {
     const { client } = renderScreen();
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     fireEvent.click(await screen.findByRole('button', { name: 'Open ticket #1' }));
+    fireEvent.change(screen.getByLabelText('Release reason'), { target: { value: 'Fixed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
     expect(await screen.findByText('Could not release the room.')).toBeTruthy();
     expect(screen.getByRole('dialog', { name: /^Ticket #1 · Room / })).toBeTruthy();
@@ -314,5 +329,208 @@ describe('MaintenanceScreen', () => {
       true,
     );
     expect(within(dialog).getByRole('button', { name: 'Close' })).toBeTruthy();
+  });
+});
+
+describe('MaintenanceScreen out-of-order blocks [R4.30]', () => {
+  const BLOCK_ROOM = {
+    roomId: 'rm_1',
+    code: '101',
+    roomTypeId: 'rt',
+    status: 'out_of_order',
+    oooRanges: [
+      {
+        oooId: 'ooo_1',
+        startDate: '2026-11-18',
+        endDate: '2026-11-25',
+        reason: 'Leak',
+        blockType: 'renovation',
+        startTime: '09:00',
+        endTime: '17:30',
+        inspectionNotes: 'Ceiling tiles',
+      },
+    ],
+  };
+
+  function allowed(permissions: string[]) {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_1',
+      role: 'admin',
+      permissions,
+      orgPermissions: [],
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getMaintenanceTickets.mockReset();
+    getMaintenanceTickets.mockResolvedValue({ tickets: [] });
+    getMaintenanceTaskTypes.mockResolvedValue({ taskTypes: [] });
+    listRoster.mockResolvedValue({ ok: true, staff: [] });
+    listRooms.mockResolvedValue({ ok: true, rooms: [BLOCK_ROOM] });
+    setOooRange.mockResolvedValue({ ok: true, roomId: 'rm_1', oooId: 'ooo_1' });
+    getRoomOooHistory.mockResolvedValue({ ok: true, roomId: 'rm_1', events: [] });
+    listPropertyMembers.mockResolvedValue({
+      ok: true,
+      members: [{ userId: 'user_ana', displayName: 'Ana Front Desk', email: null }],
+    });
+    allowed(['maintenance:read', 'inventory:write', 'staff:read']);
+  });
+
+  afterEach(() => cleanup());
+
+  it('lists each block with type, dates, times, reason and inspection notes in words', async () => {
+    renderScreen();
+    const table = await screen.findByTestId('ooo-blocks');
+    const text = table.textContent ?? '';
+    expect(text).toContain('101');
+    expect(text).toContain('Renovation');
+    expect(text).toContain('09:00–17:30');
+    expect(text).toContain('Leak · Inspection: Ceiling tiles');
+    expect(text).not.toMatch(/renovation\b|ooo_1/);
+  });
+
+  it('empty and error are different states', async () => {
+    listRooms.mockResolvedValue({ ok: true, rooms: [{ ...BLOCK_ROOM, oooRanges: [] }] });
+    renderScreen();
+    expect(await screen.findByText('No rooms are out of order.')).toBeTruthy();
+    cleanup();
+    listRooms.mockRejectedValue(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText('Could not load rooms.')).toBeTruthy();
+    expect(screen.queryByText('No rooms are out of order.')).toBeNull();
+  });
+
+  it('release is destructive, needs a reason, and sends the release dates with it', async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'Release 101 from out of order' }));
+    const dialog = await screen.findByTestId('hk-ooo-release');
+    expect(setOooRange).not.toHaveBeenCalled();
+    const confirm = screen.getByRole('button', { name: 'Release room' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText('Release reason'), { target: { value: 'Repaired' } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(setOooRange).toHaveBeenCalledTimes(1));
+    expect(setOooRange).toHaveBeenCalledWith(
+      'prop_demo',
+      'rm_1',
+      expect.objectContaining({
+        oooId: 'ooo_1',
+        startDate: '2026-11-18',
+        releaseReason: 'Repaired',
+        idempotencyKey: expect.any(String),
+      }),
+    );
+  });
+
+  it('a successful release refreshes rooms, history, the room board and the tape', async () => {
+    const { client } = renderScreen();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    fireEvent.click(await screen.findByRole('button', { name: 'Release 101 from out of order' }));
+    fireEvent.change(await screen.findByLabelText('Release reason'), { target: { value: 'Repaired' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Release room' }));
+    const done = await screen.findByTestId('ooo-block-done');
+    expect(done.textContent).toBe('Room 101 is back in service.');
+    expect(done.className).toContain('ui-alert--settled');
+    await waitFor(() => {
+      for (const key of [
+        ['rooms', 'prop_demo'],
+        ['room-ooo-history', 'prop_demo'],
+        ['room-status-history', 'prop_demo'],
+        ['room-board', 'prop_demo'],
+        ['front-desk-tape', 'prop_demo'],
+        ['maintenance-tickets', 'prop_demo'],
+      ]) {
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: key });
+      }
+    });
+  });
+
+  it('a failed release keeps the dialog open with the error', async () => {
+    setOooRange.mockRejectedValueOnce(new Error('release failed'));
+    renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'Release 101 from out of order' }));
+    fireEvent.change(await screen.findByLabelText('Release reason'), { target: { value: 'Repaired' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Release room' }));
+    expect(await screen.findByText('Could not update the out-of-order block.')).toBeTruthy();
+    expect(screen.getByTestId('hk-ooo-release')).toBeTruthy();
+  });
+
+  it('edit sends the changed block fields and clears a time with null', async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit block for 101' }));
+    const dialog = await screen.findByRole('dialog', { name: /Edit out-of-order block/ });
+    fireEvent.change(within(dialog).getByLabelText('Block type'), { target: { value: 'deep_clean' } });
+    fireEvent.change(within(dialog).getByLabelText('Until time'), { target: { value: '' } });
+    fireEvent.change(within(dialog).getByLabelText('Return'), { target: { value: '2026-11-28' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save block' }));
+    await waitFor(() => expect(setOooRange).toHaveBeenCalledTimes(1));
+    expect(setOooRange).toHaveBeenCalledWith(
+      'prop_demo',
+      'rm_1',
+      expect.objectContaining({
+        oooId: 'ooo_1',
+        startDate: '2026-11-18',
+        endDate: '2026-11-28',
+        blockType: 'deep_clean',
+        startTime: '09:00',
+        endTime: null,
+        inspectionNotes: 'Ceiling tiles',
+      }),
+    );
+    expect(setOooRange.mock.calls[0]![2]).not.toHaveProperty('releaseReason');
+  });
+
+  it('an edit may not end the block today or earlier; that is a release', async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit block for 101' }));
+    const dialog = await screen.findByRole('dialog', { name: /Edit out-of-order block/ });
+    fireEvent.change(within(dialog).getByLabelText('Return'), { target: { value: '2026-11-19' } });
+    expect(within(dialog).getByText('To end this block today or earlier, release it instead.')).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Save block' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('history shows the events in words with the staff name', async () => {
+    getRoomOooHistory.mockResolvedValue({
+      ok: true,
+      roomId: 'rm_1',
+      events: [
+        {
+          eventId: 'e1',
+          oooId: 'ooo_1',
+          roomId: 'rm_1',
+          kind: 'released',
+          before: { startDate: '2026-11-18', endDate: '2026-11-25', blockType: 'renovation' },
+          after: null,
+          reason: 'Repaired',
+          actor: 'user_ana',
+          at: 1,
+        },
+      ],
+    });
+    const { client } = renderScreen();
+    fireEvent.click(await screen.findByRole('button', { name: 'Block history for 101' }));
+    const dialog = await screen.findByTestId('hk-ooo-history');
+    await within(dialog).findByText('Released');
+    expect(dialog.textContent).toContain('Repaired');
+    await waitFor(() => expect(dialog.textContent).toContain('Ana Front Desk'));
+    expect(dialog.textContent).not.toMatch(/user_ana/);
+    expect(getRoomOooHistory).toHaveBeenCalledWith('prop_demo', 'rm_1');
+    expect(client.getQueryCache().find({ queryKey: ['room-ooo-history', 'prop_demo', 'rm_1'] })).toBeTruthy();
+  });
+
+  it('without inventory:write the blocks are visible but cannot be set, edited or released', async () => {
+    allowed(['maintenance:read']);
+    renderScreen();
+    await screen.findByTestId('ooo-blocks');
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Edit block for 101' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Release 101 from out of order' })).toBeNull();
+    expect(screen.queryByTestId('hk-ooo-form')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Block history for 101' })).toBeTruthy();
+    expect(listPropertyMembers).not.toHaveBeenCalled();
   });
 });

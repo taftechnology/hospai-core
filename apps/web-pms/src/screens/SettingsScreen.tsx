@@ -48,6 +48,7 @@ import { SettingsLogsTab } from './settings-logs.js';
 import { SettingsTaxTab } from './settings-tax.js';
 import { SYSTEM_CHARGE_CODES } from './system-charge-codes.js';
 import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
+import { HousekeepingTaskTypesSettings, TASK_TYPES_KEY } from './settings-housekeeping.js';
 import { hasOrgPermission, hasPropertyPermission, meShellStateFromQuery } from '../auth/me.js';
 
 type DomainKey = { key: string; value: unknown };
@@ -877,6 +878,10 @@ export function SettingsScreen({
                 label="Require inspection"
                 configKey="pms.housekeeping.require_inspection"
                 initial={lookup(keys, 'pms.housekeeping.require_inspection')}
+                {...common}
+              />
+              <HousekeepingTaskTypesSettings
+                initial={lookup(keys, TASK_TYPES_KEY)}
                 {...common}
               />
             </CardContent>

@@ -3,7 +3,6 @@ import {
   Alert,
   Badge,
   Button,
-  Dialog,
   Card,
   CardContent,
   DataTable,
@@ -12,19 +11,34 @@ import {
   DataTableHead,
   DataTableHeaderCell,
   DataTableRow,
+  Checkbox,
   Field,
   Input,
   NativeSelect,
   PageHeader,
   RoomStatus,
   Toolbar,
+  VisuallyHidden,
   roomStatusWord,
 } from '@hospai/ui-kit';
 import { Link, useLocation } from 'react-router';
 import { useMemo, useState } from 'react';
+import { useBusinessDate } from './use-business-date.js';
+import { ROOMS_BULK_STATUS_MAX } from '@hospai/contracts';
 import { HousekeepingInventory } from './HousekeepingInventory.js';
 import { HousekeepingPriority } from './HousekeepingPriority.js';
+import { HousekeepingTasks } from './HousekeepingTasks.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
+import { blockTimes, blockTypeLabel } from './housekeeping-labels.js';
+import { OooBlockForm, OooReleaseDialog } from './OooBlockForms.js';
+import { RoomOooHistoryDialog, RoomStatusHistoryDialog } from './RoomHistoryDialogs.js';
+import { RoomStatusDialog, type RoomStatusTarget } from './RoomStatusDialog.js';
+import {
+  invalidateOooViews,
+  invalidateStatusViews,
+  oooReleaseDates,
+  type OooBlockInput,
+} from './ooo-block.js';
 import { PRIORITY_LEVEL_LABEL } from './priority-labels.js';
 import {
   assignPickerLabel,
@@ -61,6 +75,8 @@ export type HousekeepingAppProps = {
   canAssign: boolean;
   canReadRoster?: boolean;
   canSetOoo?: boolean;
+  /** Name for a staff user id (history dialogs). Unknown ids show as "Staff member". */
+  actorLabel?: (actor: string) => string | null | undefined;
   classifyError?: (err: unknown) => { class?: string } | undefined;
   /** Live property name, already composed by the host. */
   subtitle?: string;
@@ -82,12 +98,6 @@ function isAssignableHousekeeper(person: HousekeepingRosterPerson): boolean {
   );
 }
 
-function addOneDay(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 function HousekeepingBoard({
   propertyId,
   defaultBusinessDate,
@@ -95,6 +105,7 @@ function HousekeepingBoard({
   canAssign,
   canReadRoster,
   canSetOoo = false,
+  actorLabel,
   subtitle,
   format,
   formatError,
@@ -102,22 +113,35 @@ function HousekeepingBoard({
   queuedCopy = QUEUED_COPY,
 }: HousekeepingAppProps) {
   const readRoster = canReadRoster ?? canAssign;
-  const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
+  const [businessDate, setBusinessDate] = useBusinessDate(defaultBusinessDate);
   const [statusFilter, setStatusFilter] = useState('');
   const [floorFilter, setFloorFilter] = useState('');
   const [assignedFilter, setAssignedFilter] = useState('');
-  const [oooRoomId, setOooRoomId] = useState('');
-  const [oooStart, setOooStart] = useState('');
-  const [oooReturn, setOooReturn] = useState('');
-  const [oooReason, setOooReason] = useState('');
   const [oooTicketAlert, setOooTicketAlert] = useState(false);
   const [actionNotice, setActionNotice] = useState<{
-    intent: 'attention' | 'exception';
+    intent: 'attention' | 'exception' | 'settled';
     text: string;
   } | null>(null);
   const [pendingOooRelease, setPendingOooRelease] = useState<{
     roomId: string;
+    roomCode: string;
     range: HousekeepingOooRange;
+  } | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+  // One status change (or one batch) waiting for its reason and comment. `attemptId` keeps a
+  // retry of this dialog on the same idempotency key and gives the next dialog a new one.
+  const [pendingStatus, setPendingStatus] = useState<{
+    rooms: RoomStatusTarget[];
+    status: string;
+    attemptId: string;
+  } | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('dirty');
+  const [history, setHistory] = useState<{
+    kind: 'status' | 'ooo';
+    roomId: string;
+    code: string;
   } | null>(null);
   const queryClient = useQueryClient();
 
@@ -129,11 +153,13 @@ function HousekeepingBoard({
   const assignmentsQuery = useQuery({
     queryKey: ['housekeeping-assignments', propertyId, businessDate],
     queryFn: () => api.listHousekeepingAssignments(propertyId, businessDate),
+    enabled: Boolean(businessDate),
   });
 
   const prioritiesQuery = useQuery({
     queryKey: ['housekeeping-priorities', propertyId, businessDate],
     queryFn: () => api.getHousekeepingPriorities(propertyId, businessDate),
+    enabled: Boolean(businessDate),
   });
 
   const rosterQuery = useQuery({
@@ -211,26 +237,55 @@ function HousekeepingBoard({
   }, [assignmentsQuery.data, counts, displayNameByStaffId, rosterQuery.data, rooms.length]);
 
   const statusMutation = useMutation({
-    mutationFn: (input: { roomId: string; status: string }) =>
-      api.updateRoomStatus(
+    mutationFn: (input: {
+      rooms: RoomStatusTarget[];
+      status: string;
+      attemptId: string;
+      reason?: string;
+      comment?: string;
+    }) => {
+      const notes = {
+        ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.comment ? { comment: input.comment } : {}),
+      };
+      if (input.rooms.length === 1) {
+        return api.updateRoomStatus(
+          propertyId,
+          input.rooms[0]!.roomId,
+          input.status,
+          `room-status:${input.attemptId}`,
+          notes,
+        );
+      }
+      return api.bulkUpdateRoomStatus(
         propertyId,
-        input.roomId,
-        input.status,
-        `room-status:${input.roomId}:${input.status}`,
-      ),
-    onSuccess: async (result) => {
+        {
+          updates: input.rooms.map((r) => ({ roomId: r.roomId, status: input.status })),
+          ...notes,
+        },
+        `room-status-bulk:${input.attemptId}`,
+      );
+    },
+    onSuccess: async (result, variables) => {
       if (isQueuedResult(result)) {
         setActionNotice({ intent: 'attention', text: queuedCopy });
       } else {
-        setActionNotice(null);
+        const word = roomStatusWord(variables.status).toLowerCase();
+        setActionNotice({
+          intent: 'settled',
+          text:
+            variables.rooms.length === 1
+              ? `Room ${variables.rooms[0]!.code} marked ${word}.`
+              : `${variables.rooms.length} rooms marked ${word}.`,
+        });
       }
-      await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
+      setPendingStatus(null);
+      setStatusError(null);
+      setSelected(new Set());
+      await invalidateStatusViews(queryClient, propertyId);
     },
     onError: (err) => {
-      setActionNotice({
-        intent: 'exception',
-        text: formatError?.(err) ?? 'Could not update room status.',
-      });
+      setStatusError(formatError?.(err) ?? 'Could not update room status.');
     },
   });
 
@@ -264,19 +319,18 @@ function HousekeepingBoard({
   });
 
   const oooMutation = useMutation({
-    mutationFn: (input: {
-      roomId: string;
-      startDate: string;
-      endDate: string;
-      oooId?: string;
-      reason?: string;
-    }) => {
+    mutationFn: (input: OooBlockInput) => {
       if (!api.setOooRange) throw new Error('setOooRange unavailable');
       return api.setOooRange(propertyId, input.roomId, {
         startDate: input.startDate,
         endDate: input.endDate,
         ...(input.oooId ? { oooId: input.oooId } : {}),
         ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.blockType ? { blockType: input.blockType } : {}),
+        ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
+        ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
+        ...(input.inspectionNotes !== undefined ? { inspectionNotes: input.inspectionNotes } : {}),
+        ...(input.releaseReason ? { releaseReason: input.releaseReason } : {}),
         idempotencyKey: crypto.randomUUID(),
       });
     },
@@ -285,23 +339,35 @@ function HousekeepingBoard({
         setOooTicketAlert(false);
         setActionNotice({ intent: 'attention', text: queuedCopy });
       } else {
-        setActionNotice(null);
+        const code = rooms.find((r) => r.roomId === variables.roomId)?.code ?? '';
+        setActionNotice({
+          intent: 'settled',
+          text: variables.releaseReason
+            ? `Room ${code} is back in service.`
+            : variables.oooId
+              ? `Block for room ${code} saved.`
+              : `Room ${code} is now out of order.`,
+        });
         if (!variables.oooId) setOooTicketAlert(true);
       }
-      await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
-      await queryClient.invalidateQueries({ queryKey: ['maintenance-tickets', propertyId] });
+      setPendingOooRelease(null);
+      setReleaseError(null);
+      await invalidateOooViews(queryClient, propertyId);
     },
-    onError: (err) => {
-      setActionNotice({
-        intent: 'exception',
-        text: formatError?.(err) ?? 'Could not update the out-of-order range.',
-      });
+    onError: (err, variables) => {
+      const text = formatError?.(err) ?? 'Could not update the out-of-order range.';
+      if (variables.releaseReason) setReleaseError(text);
+      else setActionNotice({ intent: 'exception', text });
     },
   });
 
   const emptyRoster = canAssign && readRoster && rosterQuery.isSuccess && assignable.length === 0;
   const showPicker = canAssign && readRoster && assignable.length > 0;
-  const formRoomId = oooRoomId || rooms[0]?.roomId || '';
+  const selectableRooms = filteredRooms.filter((r) => r.status !== 'out_of_order');
+  const selectedRooms: RoomStatusTarget[] = rooms
+    .filter((r) => selected.has(r.roomId) && r.status !== 'out_of_order')
+    .map((r) => ({ roomId: r.roomId, code: r.code }));
+  const bulkTooMany = selectedRooms.length > ROOMS_BULK_STATUS_MAX;
 
   return (
     <div className="ui-page-stack">
@@ -425,14 +491,78 @@ function HousekeepingBoard({
           </div>
         </CardContent>
 
+        {selectedRooms.length > 0 ? (
+          <CardContent>
+            <div className="ui-row" data-testid="hk-bulk-bar">
+              <span>
+                {selectedRooms.length} {selectedRooms.length === 1 ? 'room' : 'rooms'} selected
+              </span>
+              <NativeSelect
+                aria-label="Set selected rooms to"
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value)}
+              >
+                {STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {roomStatusWord(st)}
+                  </option>
+                ))}
+              </NativeSelect>
+              <Button
+                type="button"
+                intent="primary"
+                disabled={bulkTooMany}
+                onClick={() => {
+                  setStatusError(null);
+                  setPendingStatus({
+                    rooms: selectedRooms,
+                    status: bulkStatus,
+                    attemptId: crypto.randomUUID(),
+                  });
+                }}
+              >
+                Change status
+              </Button>
+              <Button type="button" intent="ghost" onClick={() => setSelected(new Set())}>
+                Clear selection
+              </Button>
+              {bulkTooMany ? (
+                <span>Select at most {ROOMS_BULK_STATUS_MAX} rooms at a time.</span>
+              ) : null}
+            </div>
+          </CardContent>
+        ) : null}
+
         <CardContent flush>
           <DataTable data-testid="hk-board">
             <DataTableHead>
               <DataTableRow>
+                <DataTableHeaderCell>
+                  <Checkbox
+                    aria-label="Select all shown rooms"
+                    checked={
+                      selectableRooms.length > 0 &&
+                      selectableRooms.every((r) => selected.has(r.roomId))
+                    }
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        for (const r of selectableRooms) {
+                          if (on) next.add(r.roomId);
+                          else next.delete(r.roomId);
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                </DataTableHeaderCell>
                 <DataTableHeaderCell>Room</DataTableHeaderCell>
                 <DataTableHeaderCell>Status</DataTableHeaderCell>
                 <DataTableHeaderCell>Assignee</DataTableHeaderCell>
-                <DataTableHeaderCell />
+                <DataTableHeaderCell>
+                  <VisuallyHidden>Actions</VisuallyHidden>
+                </DataTableHeaderCell>
               </DataTableRow>
             </DataTableHead>
             <DataTableBody>
@@ -443,6 +573,23 @@ function HousekeepingBoard({
                   : '—';
                 return (
                   <DataTableRow key={room.roomId}>
+                    <DataTableCell>
+                      {room.status === 'out_of_order' ? null : (
+                        <Checkbox
+                          aria-label={`Select ${room.code}`}
+                          checked={selected.has(room.roomId)}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (on) next.add(room.roomId);
+                              else next.delete(room.roomId);
+                              return next;
+                            });
+                          }}
+                        />
+                      )}
+                    </DataTableCell>
                     <DataTableCell>
                       <span className="ui-row">
                         {room.code}
@@ -457,17 +604,17 @@ function HousekeepingBoard({
                       ) : (
                         <NativeSelect
                           aria-label={`Status for ${room.code}`}
-                          // Server value, except while this room's own change is in flight.
-                          value={
-                            statusMutation.isPending &&
-                            statusMutation.variables?.roomId === room.roomId
-                              ? statusMutation.variables.status
-                              : room.status
-                          }
+                          // Always the server value: a change waits in its dialog for the reason.
+                          value={room.status}
                           onChange={(e) => {
                             const status = e.target.value;
                             if (status !== room.status) {
-                              statusMutation.mutate({ roomId: room.roomId, status });
+                              setStatusError(null);
+                              setPendingStatus({
+                                rooms: [{ roomId: room.roomId, code: room.code }],
+                                status,
+                                attemptId: crypto.randomUUID(),
+                              });
                             }
                           }}
                         >
@@ -478,26 +625,59 @@ function HousekeepingBoard({
                           ))}
                         </NativeSelect>
                       )}
-                      {(room.oooRanges ?? []).map((range) => (
-                        <div key={range.oooId}>
-                          {range.startDate}–{range.endDate}
-                          {range.reason ? ` ${range.reason}` : ''}
-                          {canSetOoo ? (
+                      {(room.oooRanges ?? []).map((range) => {
+                        const times = blockTimes(range.startTime, range.endTime);
+                        return (
+                          <div key={range.oooId}>
+                            {format.dateHeading(range.startDate)} to {format.dateHeading(range.endDate)}
+                            {range.reason ? ` ${range.reason}` : ''}
+                            {' · '}
+                            {blockTypeLabel(range.blockType)}
+                            {times ? ` · ${times}` : ''}
+                            {range.inspectionNotes ? ` · ${range.inspectionNotes}` : ''}
+                            {canSetOoo ? (
+                              <Button
+                                type="button"
+                                intent="ghost"
+                                aria-label={`Release ${room.code} from out of order`}
+                                onClick={() => {
+                                  setReleaseError(null);
+                                  setPendingOooRelease({
+                                    roomId: room.roomId,
+                                    roomCode: room.code,
+                                    range,
+                                  });
+                                }}
+                              >
+                                Release early
+                              </Button>
+                            ) : null}
                             <Button
                               type="button"
                               intent="ghost"
+                              aria-label={`Block history for ${room.code}`}
                               onClick={() =>
-                                setPendingOooRelease({ roomId: room.roomId, range })
+                                setHistory({ kind: 'ooo', roomId: room.roomId, code: room.code })
                               }
                             >
-                              Release early
+                              Block history
                             </Button>
-                          ) : null}
-                        </div>
-                      ))}
+                          </div>
+                        );
+                      })}
                     </DataTableCell>
                     <DataTableCell>{assigneeLabel}</DataTableCell>
                     <DataTableCell>
+                      <Button
+                        type="button"
+                        intent="ghost"
+                        aria-label={`Status history for ${room.code}`}
+                        onClick={() =>
+                          setHistory({ kind: 'status', roomId: room.roomId, code: room.code })
+                        }
+                      >
+                        History
+                      </Button>
                       {showPicker ? (
                         <NativeSelect
                           aria-label={`Assign ${room.code}`}
@@ -539,107 +719,65 @@ function HousekeepingBoard({
       {canSetOoo ? (
         <Card>
           <CardContent>
-            <form
-              data-testid="hk-ooo-form"
-              className="ui-row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!formRoomId || !oooStart || !oooReturn) return;
-                oooMutation.mutate({
-                  roomId: formRoomId,
-                  startDate: oooStart,
-                  endDate: oooReturn,
-                  reason: oooReason.trim() || undefined,
-                });
-              }}
-            >
-              <Field
-                label="Room"
-                control={
-                  <NativeSelect
-                    aria-label="OOO room"
-                    value={formRoomId}
-                    onChange={(e) => setOooRoomId(e.target.value)}
-                  >
-                    {rooms.map((room) => (
-                      <option key={room.roomId} value={room.roomId}>
-                        {room.code}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                }
-              />
-              <Field
-                label="Start"
-                control={
-                  <Input
-                    type="date"
-                    aria-label="Start"
-                    value={oooStart}
-                    onChange={(e) => setOooStart(e.target.value)}
-                  />
-                }
-              />
-              <Field
-                label="Return"
-                control={
-                  <Input
-                    type="date"
-                    aria-label="Return"
-                    value={oooReturn}
-                    onChange={(e) => setOooReturn(e.target.value)}
-                  />
-                }
-              />
-              <Field
-                label="Reason"
-                control={
-                  <Input
-                    aria-label="OOO reason"
-                    value={oooReason}
-                    onChange={(e) => setOooReason(e.target.value)}
-                  />
-                }
-              />
-              <Button type="submit" intent="primary">
-                Set OOO
-              </Button>
-            </form>
+            <OooBlockForm
+              rooms={rooms}
+              busy={oooMutation.isPending}
+              onSubmit={(input) => oooMutation.mutate(input)}
+            />
           </CardContent>
         </Card>
       ) : null}
       {pendingOooRelease ? (
-        <Dialog
-          open
-          title="Release this OOO range early?"
+        <OooReleaseDialog
+          roomCode={pendingOooRelease.roomCode}
+          busy={oooMutation.isPending}
+          error={releaseError}
           onClose={() => setPendingOooRelease(null)}
-          footer={
-            <>
-              <Button type="button" intent="default" onClick={() => setPendingOooRelease(null)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                intent="primary"
-                onClick={() => {
-                  const { roomId, range } = pendingOooRelease;
-                  const defaultReturn =
-                    businessDate > range.startDate
-                      ? businessDate
-                      : addOneDay(range.startDate);
-                  oooMutation.mutate({
-                    roomId,
-                    oooId: range.oooId,
-                    startDate: range.startDate,
-                    endDate: defaultReturn,
-                  });
-                  setPendingOooRelease(null);
-                }}
-              >
-                Release early
-              </Button>
-            </>
-          }
+          onSubmit={(releaseReason) => {
+            const { roomId, range } = pendingOooRelease;
+            oooMutation.mutate({
+              roomId,
+              oooId: range.oooId,
+              ...oooReleaseDates(range, businessDate),
+              releaseReason,
+            });
+          }}
+        />
+      ) : null}
+      {pendingStatus ? (
+        <RoomStatusDialog
+          // A new dialog starts with empty fields.
+          key={pendingStatus.attemptId}
+          status={pendingStatus.status}
+          rooms={pendingStatus.rooms}
+          busy={statusMutation.isPending}
+          error={statusError}
+          onClose={() => setPendingStatus(null)}
+          onSubmit={(notes) => statusMutation.mutate({ ...pendingStatus, ...notes })}
+        />
+      ) : null}
+      {history?.kind === 'status' ? (
+        <RoomStatusHistoryDialog
+          propertyId={propertyId}
+          roomId={history.roomId}
+          roomCode={history.code}
+          api={api}
+          format={format}
+          formatError={formatError}
+          actorLabel={actorLabel}
+          onClose={() => setHistory(null)}
+        />
+      ) : null}
+      {history?.kind === 'ooo' ? (
+        <RoomOooHistoryDialog
+          propertyId={propertyId}
+          roomId={history.roomId}
+          roomCode={history.code}
+          api={api}
+          format={format}
+          formatError={formatError}
+          actorLabel={actorLabel}
+          onClose={() => setHistory(null)}
         />
       ) : null}
     </div>
@@ -661,6 +799,20 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
         formatError={props.formatError}
         isQueuedResult={props.isQueuedResult}
         queuedCopy={props.queuedCopy}
+      />
+    );
+  }
+  if (location.pathname.endsWith('/tasks')) {
+    return (
+      <HousekeepingTasks
+        propertyId={props.propertyId}
+        defaultBusinessDate={props.defaultBusinessDate}
+        api={props.api}
+        canWrite={props.canAssign}
+        canReadRoster={readRoster}
+        subtitle={props.subtitle}
+        formatError={props.formatError}
+        format={props.format}
       />
     );
   }

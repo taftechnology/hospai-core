@@ -148,8 +148,8 @@ async function seedBoard(actor: string) {
     (
       await stub.tryUpdateRoomStatus(
         { kind: 'user', userId: actor },
-        { roomId: rm103, status: 'dirty' },
-        await idemFor(`dirty-${rm103}`, { roomId: rm103, status: 'dirty' }),
+        { roomId: rm103, status: 'dirty', reason: 'Test' },
+        await idemFor(`dirty-${rm103}`, { roomId: rm103, status: 'dirty', reason: 'Test' }),
       )
     ).ok,
   ).toBe(true);

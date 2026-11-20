@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
 import type {
+  HousekeepingTaskAction,
+  HousekeepingTaskList,
+  HousekeepingTaskPriority,
+  OooBlockType,
+  RoomOooEventRow,
+  RoomStatusHistoryRow,
   HousekeepingInventoryCategory,
   HousekeepingInventoryItemRow,
   HousekeepingInventoryMovementKind,
@@ -13,7 +19,15 @@ export type HousekeepingOooRange = {
   startDate: string;
   endDate: string;
   reason: string | null;
+  blockType?: OooBlockType;
+  /** HH:MM, display and audit only. */
+  startTime?: string | null;
+  endTime?: string | null;
+  inspectionNotes?: string | null;
 };
+
+export type HousekeepingStatusNotes = { reason?: string; comment?: string };
+
 
 export type HousekeepingRoom = {
   roomId: string;
@@ -57,6 +71,54 @@ export type HousekeepingApi = {
     propertyId: string,
     roomId: string,
     status: string,
+    opId: string,
+    notes?: HousekeepingStatusNotes,
+  ) => Promise<unknown>;
+  bulkUpdateRoomStatus: (
+    propertyId: string,
+    input: { updates: Array<{ roomId: string; status: string }> } & HousekeepingStatusNotes,
+    opId: string,
+  ) => Promise<unknown>;
+  getRoomStatusHistory: (
+    propertyId: string,
+    roomId: string,
+  ) => Promise<{ ok: true; roomId: string; history: RoomStatusHistoryRow[] }>;
+  getRoomOooHistory: (
+    propertyId: string,
+    roomId: string,
+  ) => Promise<{ ok: true; roomId: string; events: RoomOooEventRow[] }>;
+  getHousekeepingTasks: (
+    propertyId: string,
+    query: { date: string; status?: string; assigneeRef?: string; roomId?: string; search?: string },
+  ) => Promise<HousekeepingTaskList>;
+  createHousekeepingTask: (
+    propertyId: string,
+    input: {
+      businessDate: string;
+      taskType: string;
+      roomId: string;
+      assigneeRef?: string | null;
+      priority?: HousekeepingTaskPriority;
+      notes?: string | null;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  updateHousekeepingTask: (
+    propertyId: string,
+    taskId: string,
+    input: {
+      taskType?: string;
+      assigneeRef?: string | null;
+      priority?: HousekeepingTaskPriority;
+      notes?: string | null;
+      businessDate?: string;
+    },
+    opId: string,
+  ) => Promise<unknown>;
+  transitionHousekeepingTask: (
+    propertyId: string,
+    taskId: string,
+    input: { action: HousekeepingTaskAction; notes?: string | null; reason?: string },
     opId: string,
   ) => Promise<unknown>;
   listRoster: (
@@ -118,6 +180,11 @@ export type HousekeepingApi = {
       endDate: string;
       oooId?: string;
       reason?: string;
+      blockType?: OooBlockType;
+      startTime?: string | null;
+      endTime?: string | null;
+      inspectionNotes?: string | null;
+      releaseReason?: string;
       idempotencyKey: string;
     },
   ) => Promise<unknown>;

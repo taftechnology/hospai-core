@@ -292,8 +292,8 @@ describe('in-house room move', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_dirty', status: 'dirty' },
-        await idemFor('dirty', { roomId: 'rm_dirty', status: 'dirty' }),
+        { roomId: 'rm_dirty', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty', { roomId: 'rm_dirty', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
 

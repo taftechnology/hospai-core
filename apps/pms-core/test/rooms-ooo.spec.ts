@@ -90,7 +90,7 @@ async function setupOoo(name: string) {
 
 async function setOoo(
   stub: DurableObjectStub<PropertyDO>,
-  input: { roomId: string; startDate: string; endDate: string; oooId?: string; reason?: string },
+  input: { roomId: string; startDate: string; endDate: string; oooId?: string; reason?: string; releaseReason?: string },
   key: string,
 ) {
   const payload = {
@@ -327,7 +327,7 @@ describe('rooms.set_ooo_range', () => {
     expect(
       await setOoo(
         stub,
-        { roomId: 'rm_1', oooId: created.oooId, startDate: open, endDate: open },
+        { roomId: 'rm_1', oooId: created.oooId, startDate: open, endDate: open, releaseReason: 'Repaired' },
         'ooo-14b',
       ),
     ).toMatchObject({ ok: true });
@@ -501,8 +501,8 @@ describe('rooms.set_ooo_range', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_1', status: 'dirty' },
-        await idemFor('dirty19', { roomId: 'rm_1', status: 'dirty' }),
+        { roomId: 'rm_1', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty19', { roomId: 'rm_1', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     expect(
@@ -525,8 +525,8 @@ describe('rooms.set_ooo_range', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_1', status: 'dirty' },
-        await idemFor('dirty19b', { roomId: 'rm_1', status: 'dirty' }),
+        { roomId: 'rm_1', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty19b', { roomId: 'rm_1', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     const endDate = addCalendarDays(open, 2);
@@ -798,6 +798,7 @@ describe('rooms.set_ooo_range', () => {
         { roomId: 'rm_1', status: 'dirty' },
         { roomId: 'rm_2', status: 'out_of_order' },
       ],
+      reason: 'Test',
     };
     expect(
       await stub.tryBulkUpdateRoomStatus(TEST_OWNER_ACTOR, bulk, await idemFor('bulk23', bulk)),
@@ -827,8 +828,8 @@ describe('rooms.set_ooo_range', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_1', status: 'dirty' },
-        await idemFor('st30d', { roomId: 'rm_1', status: 'dirty' }),
+        { roomId: 'rm_1', status: 'dirty', reason: 'Test' },
+        await idemFor('st30d', { roomId: 'rm_1', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     expect(

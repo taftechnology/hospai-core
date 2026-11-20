@@ -1291,6 +1291,48 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'post_housekeeping_tasks',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.create_task',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'patch_housekeeping_task',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.update_task',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_housekeeping_task_transition',
+    scope: 'property',
+    permission: 'housekeeping:write',
+    commandId: 'housekeeping.transition_task',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_housekeeping_tasks',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_room_status_history',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_room_ooo_history',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

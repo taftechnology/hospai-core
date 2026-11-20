@@ -1,7 +1,7 @@
 import { Tabs } from '@hospai/ui-kit';
 import { Link } from 'react-router';
 
-export function HousekeepingNav({ view }: { view: 'board' | 'priority' | 'inventory' }) {
+export function HousekeepingNav({ view }: { view: 'board' | 'tasks' | 'priority' | 'inventory' }) {
   return (
     <Tabs label="Housekeeping">
       <Link
@@ -10,6 +10,13 @@ export function HousekeepingNav({ view }: { view: 'board' | 'priority' | 'invent
         aria-current={view === 'board' ? 'page' : undefined}
       >
         Board
+      </Link>
+      <Link
+        className="ui-tab"
+        to="/housekeeping/tasks"
+        aria-current={view === 'tasks' ? 'page' : undefined}
+      >
+        Tasks
       </Link>
       <Link
         className="ui-tab"

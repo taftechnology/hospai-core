@@ -251,6 +251,11 @@ import {
   addedInclusionsMinor,
   inclusionUnits,
   ROOMS_BULK_STATUS_MAX,
+  ROOM_HISTORY_PAGE,
+  OOO_INSPECTION_NOTES_MAX,
+  OOO_RELEASE_REASON_MAX,
+  OOO_TIME_RE,
+  isOooBlockType,
   FOLIO_SPLIT_MAX,
   FOLIO_TRANSFER_BULK_MAX,
   RESERVATION_SEARCH_GUEST_REF_CAP,
@@ -291,11 +296,24 @@ import {
   type ProvisionalContext,
   type ProvisionalExceptionRow,
 } from '@hospai/contracts';
+import type {
+  HousekeepingTaskAction,
+  HousekeepingTaskType,
+  OooBlockType,
+  OooRangeRow,
+  RoomOooEventRow,
+} from '@hospai/contracts';
 import {
   adjustInventoryItem,
   assignHousekeeping,
   bulkUpdateRoomStatus,
   createInventoryItem,
+  createTask as createHousekeepingTask,
+  recordRoomStatusChange,
+  readHousekeepingTasks,
+  readRoomStatusHistory,
+  transitionTask as transitionHousekeepingTask,
+  updateTask as updateHousekeepingTask,
   deleteFutureHousekeepingAssignments,
   HousekeepingOooViaRangeError,
   HousekeepingRoomNotFoundError,
@@ -1815,6 +1833,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'housekeeping_priority',
   'housekeeping_inventory_item',
   'housekeeping_inventory_movement',
+  'housekeeping_task',
   'maintenance_task_type',
   'maintenance_ticket',
   'idempotency',
@@ -1845,6 +1864,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'restriction_day',
       'room',
   'room_ooo',
+  'room_ooo_event',
+  'room_status_history',
   'room_type_constituent',
   'room_type',
   'shift',
@@ -1876,6 +1897,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM housekeeping_priority) +
       (SELECT COUNT(*) FROM housekeeping_inventory_item) +
       (SELECT COUNT(*) FROM housekeeping_inventory_movement) +
+      (SELECT COUNT(*) FROM housekeeping_task) +
       (SELECT COUNT(*) FROM maintenance_task_type) +
       (SELECT COUNT(*) FROM maintenance_ticket) +
       (SELECT COUNT(*) FROM idempotency) +
@@ -1906,6 +1928,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM restriction_day) +
       (SELECT COUNT(*) FROM room) +
       (SELECT COUNT(*) FROM room_ooo) +
+      (SELECT COUNT(*) FROM room_ooo_event) +
+      (SELECT COUNT(*) FROM room_status_history) +
       (SELECT COUNT(*) FROM room_type_constituent) +
       (SELECT COUNT(*) FROM room_type) +
       (SELECT COUNT(*) FROM shift) +
@@ -8448,20 +8472,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         now,
         covering[0]!.ooo_id,
       );
-      this.ctx.storage.sql.exec(
-        `UPDATE room SET status = 'out_of_order', updated_at = ? WHERE room_id = ?`,
-        now,
+      recordRoomStatusChange(this.moduleTxnCtx(this.getOrgIdSync() ?? '', propertyId ?? ''), {
         roomId,
-      );
-      this.appendPropertyOutbox({
-        eventId: crypto.randomUUID(),
-        eventType: 'room.status_changed',
-        payload: {
-          propertyId,
-          roomId,
-          fromStatus: room[0].status,
-          toStatus: 'out_of_order',
-        },
+        toStatus: 'out_of_order',
+        source: 'ooo',
+        actor: 'system',
+        businessDate: openDate,
       });
     } else if (!desiredOoo && currentlyOoo) {
       let restore = releasedStatusBefore;
@@ -8478,16 +8494,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           .toArray() as Array<{ status_before: string }>;
         restore = justEnded[0]?.status_before ?? 'clean';
       }
-      this.ctx.storage.sql.exec(
-        `UPDATE room SET status = ?, updated_at = ? WHERE room_id = ?`,
-        restore,
-        now,
+      recordRoomStatusChange(this.moduleTxnCtx(this.getOrgIdSync() ?? '', propertyId ?? ''), {
         roomId,
-      );
-      this.appendPropertyOutbox({
-        eventId: crypto.randomUUID(),
-        eventType: 'room.status_changed',
-        payload: { propertyId, roomId, fromStatus: 'out_of_order', toStatus: restore },
+        toStatus: restore,
+        source: 'ooo',
+        actor: 'system',
+        businessDate: openDate,
       });
     }
   }
@@ -8499,7 +8511,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Create / edit / release a per-room OOO range. Implements `rooms.set_ooo_range`.
-   * Fingerprint allowlist: `{ roomId, startDate, endDate, oooId? }`.
+   * Fingerprint allowlist: `{ roomId, startDate, endDate, oooId?, reason?, blockType?, startTime?,
+   * endTime?, inspectionNotes?, releaseReason? }` (R4.30 block details; `availability_day` stays per
+   * night — times are display and audit only).
    * FAIL_CLOSED — inventory:write + pms.core.
    */
   async trySetOooRange(
@@ -8510,6 +8524,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       endDate: string;
       oooId?: string;
       reason?: string;
+      blockType?: string;
+      startTime?: string | null;
+      endTime?: string | null;
+      inspectionNotes?: string | null;
+      releaseReason?: string;
     },
     idem: IdempotencyKey,
   ): Promise<
@@ -8600,13 +8619,22 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             end_date: string;
             reason: string | null;
             status_before: string;
+            block_type: string;
+            start_time: string | null;
+            end_time: string | null;
+            inspection_notes: string | null;
           };
           let old: OooRow | null = null;
           let oooId = input.oooId;
           const isEdit = Boolean(input.oooId);
           if (isEdit) {
             const existing = this.ctx.storage.sql
-              .exec(`SELECT ooo_id, room_id, start_date, end_date, reason, status_before FROM room_ooo WHERE ooo_id = ?`, input.oooId)
+              .exec(
+                `SELECT ooo_id, room_id, start_date, end_date, reason, status_before,
+                        block_type, start_time, end_time, inspection_notes
+                   FROM room_ooo WHERE ooo_id = ?`,
+                input.oooId,
+              )
               .toArray() as OooRow[];
             if (!existing[0] || existing[0].room_id !== input.roomId) throw new RoomNotFoundError();
             old = existing[0];
@@ -8620,6 +8648,42 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (!isEdit && input.startDate < openDate) throw new OooInvalidRangeError();
 
           const nextReason = input.reason !== undefined ? reason : (old?.reason ?? null);
+
+          // R4.30 D7 block details. On edit an omitted field keeps its stored value; null clears times/notes.
+          if (input.blockType !== undefined && !isOooBlockType(input.blockType)) {
+            throw new Error(INVALID_REQUEST);
+          }
+          for (const t of [input.startTime, input.endTime]) {
+            if (t !== undefined && t !== null && !OOO_TIME_RE.test(t)) throw new Error(INVALID_REQUEST);
+          }
+          let inspectionNotes: string | null | undefined;
+          if (input.inspectionNotes !== undefined) {
+            if (input.inspectionNotes !== null && typeof input.inspectionNotes !== 'string') {
+              throw new Error(INVALID_REQUEST);
+            }
+            const trimmed = input.inspectionNotes === null ? '' : input.inspectionNotes.trim();
+            if (trimmed.length > OOO_INSPECTION_NOTES_MAX) throw new Error(LIMIT_EXCEEDED);
+            inspectionNotes = trimmed.length === 0 ? null : trimmed;
+          }
+          const nextBlockType = (input.blockType ?? old?.block_type ?? 'maintenance') as string;
+          const nextStartTime = input.startTime !== undefined ? input.startTime : (old?.start_time ?? null);
+          const nextEndTime = input.endTime !== undefined ? input.endTime : (old?.end_time ?? null);
+          const nextInspectionNotes =
+            inspectionNotes !== undefined ? inspectionNotes : (old?.inspection_notes ?? null);
+
+          // R4.30 D8: a release, or an edit that pulls the end date back to on or before today
+          // (the SPA's release-now), needs a reason.
+          let releaseReason: string | null = null;
+          if (input.releaseReason !== undefined) {
+            if (typeof input.releaseReason !== 'string') throw new Error(INVALID_REQUEST);
+            const trimmed = input.releaseReason.trim();
+            if (trimmed.length > OOO_RELEASE_REASON_MAX) throw new Error(LIMIT_EXCEEDED);
+            releaseReason = trimmed.length === 0 ? null : trimmed;
+          }
+          const pullsEndToToday = Boolean(
+            old && !isRelease && input.endDate < old.end_date && input.endDate <= openDate,
+          );
+          if ((isRelease || pullsEndToToday) && !releaseReason) throw new Error(REASON_REQUIRED);
           const oldNights = old ? this.oooNights(old.start_date, old.end_date) : [];
           const newNights = isRelease ? [] : this.oooNights(input.startDate, input.endDate);
           const nightsToAdd = this.setDifference(newNights, oldNights);
@@ -8629,7 +8693,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             old &&
             !isRelease &&
             old.start_date === input.startDate &&
-            old.end_date === input.endDate
+            old.end_date === input.endDate &&
+            old.block_type === nextBlockType &&
+            (old.start_time ?? null) === nextStartTime &&
+            (old.end_time ?? null) === nextEndTime &&
+            (old.inspection_notes ?? null) === nextInspectionNotes &&
+            (old.reason ?? null) === nextReason
           ) {
             return { ok: true as const, roomId: input.roomId, oooId: oooId!, alreadyApplied: true as const };
           }
@@ -8688,8 +8757,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           const span = this.applyBlockedDeltaSync(room.room_type_id, nightsToAdd, nightsToRemove);
           const now = Date.now();
           const oldJson = old
-            ? { oooId: old.ooo_id, startDate: old.start_date, endDate: old.end_date, reason: old.reason }
+            ? {
+                oooId: old.ooo_id,
+                startDate: old.start_date,
+                endDate: old.end_date,
+                reason: old.reason,
+                blockType: old.block_type,
+                startTime: old.start_time,
+                endTime: old.end_time,
+                inspectionNotes: old.inspection_notes,
+              }
             : null;
+          const newJson = {
+            oooId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            reason: nextReason,
+            blockType: nextBlockType,
+            startTime: nextStartTime,
+            endTime: nextEndTime,
+            inspectionNotes: nextInspectionNotes,
+          };
           let action: 'created' | 'updated' | 'released';
           let releasedStatusBefore: string | undefined;
 
@@ -8699,10 +8787,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             action = 'released';
           } else if (old) {
             this.ctx.storage.sql.exec(
-              `UPDATE room_ooo SET start_date = ?, end_date = ?, reason = ?, updated_at = ? WHERE ooo_id = ?`,
+              `UPDATE room_ooo SET start_date = ?, end_date = ?, reason = ?, block_type = ?,
+                      start_time = ?, end_time = ?, inspection_notes = ?, updated_at = ?
+                WHERE ooo_id = ?`,
               input.startDate,
               input.endDate,
               nextReason,
+              nextBlockType,
+              nextStartTime,
+              nextEndTime,
+              nextInspectionNotes,
               now,
               oooId,
             );
@@ -8710,19 +8804,40 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           } else {
             const placeholder = this.placeholderStatusBeforeSync(input.roomId, room.status);
             this.ctx.storage.sql.exec(
-              `INSERT INTO room_ooo (ooo_id, room_id, start_date, end_date, reason, status_before, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              `INSERT INTO room_ooo (ooo_id, room_id, start_date, end_date, reason, status_before,
+                                     block_type, start_time, end_time, inspection_notes,
+                                     created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               oooId,
               input.roomId,
               input.startDate,
               input.endDate,
               nextReason,
               placeholder,
+              nextBlockType,
+              nextStartTime,
+              nextEndTime,
+              nextInspectionNotes,
               now,
               now,
             );
             action = 'created';
           }
+
+          // Release history survives a full release (the room_ooo row is gone, this row stays).
+          this.ctx.storage.sql.exec(
+            `INSERT INTO room_ooo_event (event_id, ooo_id, room_id, kind, before_json, after_json, reason, actor, at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `ooe_${crypto.randomUUID()}`,
+            oooId,
+            input.roomId,
+            action,
+            oldJson ? JSON.stringify(oldJson) : null,
+            action === 'released' ? null : JSON.stringify(newJson),
+            releaseReason ?? nextReason,
+            this.auditActorSync(actor),
+            now,
+          );
 
           this.syncOooStatusForRoomSync(input.roomId, releasedStatusBefore);
 
@@ -8753,6 +8868,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               endDate: isRelease ? old!.end_date : input.endDate,
               action,
               reason: nextReason,
+              blockType: isRelease ? old!.block_type : nextBlockType,
               actorRef: this.auditActorSync(actor),
             },
           });
@@ -8764,8 +8880,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             entityId: input.roomId,
             beforeJson: oldJson,
             afterJson: isRelease
-              ? null
-              : { oooId, startDate: input.startDate, endDate: input.endDate, reason: nextReason },
+              ? { released: true, releaseReason }
+              : { ...newJson, ...(releaseReason ? { releaseReason } : {}) },
           });
 
           return { ok: true as const, roomId: input.roomId, oooId: oooId! };
@@ -8781,12 +8897,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Update a single room's housekeeping status. Implements `rooms.update_status`.
-   * Fingerprint allowlist: `{ roomId, status }`.
+   * Fingerprint allowlist: `{ roomId, status, reason?, comment? }` (R4.30: marking dirty needs
+   * a reason; the change is written to room_status_history by the housekeeping module).
    * QUEUE_PROVISIONAL — no entitlement gate.
    */
   async tryUpdateRoomStatus(
     actor: ActorContext,
-    input: { roomId: string; status: string },
+    input: { roomId: string; status: string; reason?: string; comment?: string },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
@@ -8833,14 +8950,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             .toArray() as Array<{ status: string; archived_at: number | null }>;
           if (!fromRows[0] || fromRows[0].archived_at != null) throw new RoomNotFoundError();
           const fromStatus = fromRows[0].status;
-          const result = updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          const auditActor = this.auditActorForCommandSync(actor, provisional);
+          const result = updateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), {
+            ...input,
+            actor: auditActor,
+            businessDate: this.historyBusinessDateSync(),
+          });
           this.appendAuditLogSync({
-            actor: this.auditActorForCommandSync(actor, provisional),
+            actor: auditActor,
             commandId: 'rooms.update_status',
             entityType: 'room',
             entityId: input.roomId,
             beforeJson: { status: fromStatus },
-            afterJson: { status: input.status },
+            afterJson: {
+              status: input.status,
+              ...(input.reason ? { reason: input.reason } : {}),
+              ...(input.comment ? { comment: input.comment } : {}),
+            },
           });
           return result;
         }, actor),
@@ -8860,12 +8986,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /**
    * Bulk room status update. Implements `rooms.bulk_update_status`.
-   * Fingerprint allowlist: `{ updates }` with updates sorted by roomId at the edge.
+   * Fingerprint allowlist: `{ updates, reason?, comment? }` with updates sorted by roomId at the edge.
    * Catalog lane BULK — still uses touchInteractive (no touchBulk on LaneGuard).
    */
   async tryBulkUpdateRoomStatus(
     actor: ActorContext,
-    input: { updates: Array<{ roomId: string; status: string }> },
+    input: {
+      updates: Array<{ roomId: string; status: string }>;
+      reason?: string;
+      comment?: string;
+    },
     idem: IdempotencyKey,
     provisional?: ProvisionalContext,
   ): Promise<
@@ -8922,15 +9052,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             if (!rows[0] || rows[0].archived_at != null) throw new RoomNotFoundError();
             fromByRoom.set(u.roomId, rows[0].status);
           }
-          const result = bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), input);
+          const auditActor = this.auditActorForCommandSync(actor, provisional);
+          const result = bulkUpdateRoomStatus(this.moduleTxnCtx(orgId, propertyId, provisional), {
+            ...input,
+            actor: auditActor,
+            businessDate: this.historyBusinessDateSync(),
+          });
           for (const u of input.updates) {
             this.appendAuditLogSync({
-              actor: this.auditActorForCommandSync(actor, provisional),
+              actor: auditActor,
               commandId: 'rooms.bulk_update_status',
               entityType: 'room',
               entityId: u.roomId,
               beforeJson: { status: fromByRoom.get(u.roomId) },
-              afterJson: { status: u.status },
+              afterJson: {
+                status: u.status,
+                ...(input.reason ? { reason: input.reason } : {}),
+                ...(input.comment ? { comment: input.comment } : {}),
+              },
             });
           }
           return result;
@@ -8978,29 +9117,32 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (occupied.length > 0) throw new RoomAlreadyAssignedError();
   }
 
+  /** Business date stamped on room_status_history rows; falls back to the UTC day before the first open. */
+  private historyBusinessDateSync(): string {
+    return this.readBusinessDateSync() ?? new Date().toISOString().slice(0, 10);
+  }
+
   /**
    * Checkout and in-house move: a vacated room becomes dirty unless it is out of order.
+   * The room row, its event and a system history row are written by the housekeeping
+   * module use case (pms-core never writes room_status_history itself).
    */
-  private markRoomDirtySync(roomId: string, propertyId: string, now: number): void {
+  private markRoomDirtySync(
+    roomId: string,
+    propertyId: string,
+    source: 'check_out' | 'room_move' | 'stay_change',
+  ): void {
     const roomRows = this.ctx.storage.sql
       .exec(`SELECT status FROM room WHERE room_id = ?`, roomId)
       .toArray() as Array<{ status: string }>;
     const fromStatus = roomRows[0]?.status ?? 'clean';
-    if (fromStatus !== 'out_of_order') {
-      this.ctx.storage.sql.exec(
-        `UPDATE room SET status = 'dirty', updated_at = ? WHERE room_id = ?`,
-        now,
+    if (fromStatus !== 'out_of_order' && roomRows[0]) {
+      recordRoomStatusChange(this.moduleTxnCtx(this.getOrgIdSync() ?? '', propertyId), {
         roomId,
-      );
-      this.appendPropertyOutbox({
-        eventId: crypto.randomUUID(),
-        eventType: 'room.status_changed',
-        payload: {
-          propertyId,
-          roomId,
-          fromStatus,
-          toStatus: 'dirty',
-        },
+        toStatus: 'dirty',
+        source,
+        actor: 'system',
+        businessDate: this.historyBusinessDateSync(),
       });
     }
   }
@@ -9182,7 +9324,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           );
 
           if (isMove && previousRoomId) {
-            this.markRoomDirtySync(previousRoomId, propertyId, now);
+            this.markRoomDirtySync(previousRoomId, propertyId, 'room_move');
           }
 
           this.appendPropertyOutbox({
@@ -9415,7 +9557,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       floor: string | null;
       createdAt: number;
       updatedAt: number;
-      oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
+      oooRanges: OooRangeRow[];
     }>;
   }> {
     this.assertRpcAvailable();
@@ -9445,18 +9587,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }>;
 
     const oooRows = this.ctx.storage.sql
-      .exec(`SELECT ooo_id, room_id, start_date, end_date, reason FROM room_ooo`)
+      .exec(
+        `SELECT ooo_id, room_id, start_date, end_date, reason, block_type, start_time, end_time,
+                inspection_notes
+           FROM room_ooo`,
+      )
       .toArray() as Array<{
       ooo_id: string;
       room_id: string;
       start_date: string;
       end_date: string;
       reason: string | null;
+      block_type: string;
+      start_time: string | null;
+      end_time: string | null;
+      inspection_notes: string | null;
     }>;
-    const oooByRoom = new Map<
-      string,
-      Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>
-    >();
+    const oooByRoom = new Map<string, OooRangeRow[]>();
     for (const o of oooRows) {
       const list = oooByRoom.get(o.room_id) ?? [];
       list.push({
@@ -9464,6 +9611,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         startDate: o.start_date,
         endDate: o.end_date,
         reason: o.reason,
+        blockType: o.block_type as OooBlockType,
+        startTime: o.start_time,
+        endTime: o.end_time,
+        inspectionNotes: o.inspection_notes,
       });
       oooByRoom.set(o.room_id, list);
     }
@@ -12684,7 +12835,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             const nowMove = Date.now();
             const previousRoomId = reservation.room_id;
             if (previousRoomId) {
-              this.markRoomDirtySync(previousRoomId, propertyId, nowMove);
+              this.markRoomDirtySync(previousRoomId, propertyId, 'stay_change');
             }
             nextRoomId = moveRoomId;
             this.appendPropertyOutbox({
@@ -12984,7 +13135,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           );
 
           if (reservation.room_id) {
-            this.markRoomDirtySync(reservation.room_id, propertyId, now);
+            this.markRoomDirtySync(reservation.room_id, propertyId, 'check_out');
           }
 
           this.appendPropertyOutbox({
@@ -17844,6 +17995,272 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         return { result, before: null, after: result.item };
       },
     );
+  }
+
+  /** Codes in `pms.housekeeping.task_types`, read inside the create/update transaction (R4.30 D3). */
+  private housekeepingTaskTypesSync(): HousekeepingTaskType[] {
+    const raw = this.readConfigValueSync('pms.housekeeping.task_types');
+    if (!Array.isArray(raw)) return [];
+    const out: HousekeepingTaskType[] = [];
+    for (const t of raw) {
+      const o = t as { code?: unknown; label?: unknown } | null;
+      if (o && typeof o.code === 'string' && typeof o.label === 'string') {
+        out.push({ code: o.code, label: o.label });
+      }
+    }
+    return out;
+  }
+
+  private housekeepingTaskTypeCodesSync(): string[] {
+    return this.housekeepingTaskTypesSync().map((t) => t.code);
+  }
+
+  /**
+   * Shared write path for housekeeping tasks (R4.30). INTERACTIVE, pms.core-entitled,
+   * FAIL_CLOSED; the key is per user at the DO boundary (`runIdempotent` scopes it).
+   */
+  private async runHousekeepingTaskWrite<R extends { ok: true }>(
+    actor: ActorContext,
+    idem: IdempotencyKey,
+    audit: {
+      commandId:
+        | 'housekeeping.create_task'
+        | 'housekeeping.update_task'
+        | 'housekeeping.transition_task';
+      entityId?: string;
+      /** Staff ref to verify against the roster before the transaction opens. */
+      assigneeRef?: string | null;
+    },
+    execute: (
+      ctx: ModuleTxnCtx,
+      actorRef: string,
+    ) => { result: R; entityId: string; before: unknown | null; after: unknown },
+  ): Promise<
+    | R
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof PROPERTY_ID_UNSET }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof NOT_FOUND }
+    | {
+        ok: false;
+        error:
+          | typeof INVALID_ASSIGNEE_REF
+          | typeof ORG_UNREACHABLE
+          | typeof STAFF_NOT_FOUND
+          | typeof STAFF_EXITED
+          | typeof STAFF_NOT_ASSIGNABLE;
+      }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+
+    const permDenied = await this.gatePermission(actor, 'housekeeping:write');
+    if (permDenied) return permDenied;
+
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+
+    if (audit.assigneeRef !== undefined && audit.assigneeRef !== null) {
+      if (!isStaffRef(audit.assigneeRef)) return { ok: false, error: INVALID_ASSIGNEE_REF };
+      const staffGate = await this.gateStaffRef(orgId, audit.assigneeRef, 'housekeeper');
+      if (!staffGate.ok) return staffGate;
+    }
+
+    const actorRef = this.auditActorSync(actor);
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const out = execute(this.moduleTxnCtx(orgId, propertyId), actorRef);
+          this.appendAuditLogSync({
+            actor: actorRef,
+            commandId: audit.commandId,
+            entityType: 'housekeeping_task',
+            entityId: out.entityId,
+            beforeJson: out.before,
+            afterJson: out.after,
+          });
+          return out.result as Sync<R>;
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof InvalidAssigneeRefError) return { ok: false, error: INVALID_ASSIGNEE_REF };
+      if (e instanceof HousekeepingRoomNotFoundError || e instanceof RoomNotFoundError) {
+        return { ok: false, error: NOT_FOUND };
+      }
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** Implements catalog `housekeeping.create_task`. */
+  async tryCreateHousekeepingTask(
+    actor: ActorContext,
+    input: {
+      businessDate: string;
+      taskType: string;
+      roomId: string;
+      assigneeRef?: string | null;
+      priority?: string;
+      notes?: string | null;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      { commandId: 'housekeeping.create_task', assigneeRef: input.assigneeRef },
+      (ctx, actorRef) => {
+        const result = createHousekeepingTask(ctx, {
+          ...input,
+          actorRef,
+          allowedTaskTypes: this.housekeepingTaskTypeCodesSync(),
+        });
+        return { result, entityId: result.task.taskId, before: null, after: result.task };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.update_task`. */
+  async tryUpdateHousekeepingTask(
+    actor: ActorContext,
+    input: {
+      taskId: string;
+      taskType?: string;
+      assigneeRef?: string | null;
+      priority?: string;
+      notes?: string | null;
+      businessDate?: string;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      { commandId: 'housekeeping.update_task', assigneeRef: input.assigneeRef },
+      (ctx) => {
+        const r = updateHousekeepingTask(ctx, {
+          ...input,
+          allowedTaskTypes: this.housekeepingTaskTypeCodesSync(),
+        });
+        return {
+          result: { ok: true as const, task: r.task },
+          entityId: input.taskId,
+          before: r.before,
+          after: r.task,
+        };
+      },
+    );
+  }
+
+  /** Implements catalog `housekeeping.transition_task`. */
+  async tryTransitionHousekeepingTask(
+    actor: ActorContext,
+    input: {
+      taskId: string;
+      action: HousekeepingTaskAction;
+      notes?: string | null;
+      reason?: string;
+    },
+    idem: IdempotencyKey,
+  ) {
+    return this.runHousekeepingTaskWrite(
+      actor,
+      idem,
+      { commandId: 'housekeeping.transition_task' },
+      (ctx, actorRef) => {
+        const r = transitionHousekeepingTask(ctx, { ...input, actorRef });
+        return {
+          result: { ok: true as const, task: r.task },
+          entityId: input.taskId,
+          before: r.before,
+          after: r.task,
+        };
+      },
+    );
+  }
+
+  /** `get_housekeeping_tasks` — filtered list plus counters for one business date. */
+  async readHousekeepingTaskList(filters: {
+    businessDate: string;
+    status?: string;
+    assigneeRef?: string;
+    roomId?: string;
+    search?: string;
+  }) {
+    this.assertRpcAvailable();
+    const list = readHousekeepingTasks(this.ctx.storage.sql, {
+      ...filters,
+      today: this.readBusinessDateSync(),
+    });
+    return { ...list, taskTypes: this.housekeepingTaskTypesSync() };
+  }
+
+  /** `get_room_status_history` — newest 100 rows for one room of this property. */
+  async readRoomStatusHistoryForRoom(roomId: string): Promise<
+    ReturnType<typeof readRoomStatusHistory> | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    try {
+      return readRoomStatusHistory(this.ctx.storage.sql, roomId);
+    } catch (e) {
+      if (e instanceof HousekeepingRoomNotFoundError) return { ok: false, error: NOT_FOUND };
+      throw e;
+    }
+  }
+
+  /** `get_room_ooo_history` — newest 100 block events (create, edit, release) for one room. */
+  async readRoomOooHistoryForRoom(
+    roomId: string,
+  ): Promise<{ ok: true; roomId: string; events: RoomOooEventRow[] } | { ok: false; error: typeof NOT_FOUND }> {
+    this.assertRpcAvailable();
+    const room = this.ctx.storage.sql.exec(`SELECT room_id FROM room WHERE room_id = ?`, roomId).toArray();
+    if (room.length === 0) return { ok: false, error: NOT_FOUND };
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT event_id, ooo_id, room_id, kind, before_json, after_json, reason, actor, at
+           FROM room_ooo_event WHERE room_id = ?
+          ORDER BY at DESC, rowid DESC
+          LIMIT ?`,
+        roomId,
+        ROOM_HISTORY_PAGE,
+      )
+      .toArray() as Array<{
+      event_id: string;
+      ooo_id: string;
+      room_id: string;
+      kind: string;
+      before_json: string | null;
+      after_json: string | null;
+      reason: string | null;
+      actor: string;
+      at: number;
+    }>;
+    return {
+      ok: true,
+      roomId,
+      events: rows.map((r) => ({
+        eventId: r.event_id,
+        oooId: r.ooo_id,
+        roomId: r.room_id,
+        kind: r.kind as RoomOooEventRow['kind'],
+        before: r.before_json ? (JSON.parse(r.before_json) as Record<string, unknown>) : null,
+        after: r.after_json ? (JSON.parse(r.after_json) as Record<string, unknown>) : null,
+        reason: r.reason,
+        actor: r.actor,
+        at: r.at,
+      })),
+    };
   }
 
   private async runMaintenanceWrite<R extends { ok: true }>(

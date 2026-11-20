@@ -132,7 +132,7 @@ async function postRoomStatus(
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-dev-actor': actor },
-        body: JSON.stringify({ status, idempotencyKey }),
+        body: JSON.stringify({ status, reason: 'Test', idempotencyKey }),
       },
     ),
     env,

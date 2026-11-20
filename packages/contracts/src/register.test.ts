@@ -377,7 +377,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(93);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(96);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -980,16 +980,22 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_room_board');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_reservation_draft_bill');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('post_reservation_undo_check_out');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('post_folio_transfer_bulk');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_open_folios');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_folio_hold');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('post_folio_hold_release');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-10)?.id).toBe('get_reservation_registration_card');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-11)?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(208);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_room_ooo_history');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_room_status_history');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_housekeeping_tasks');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('post_housekeeping_task_transition');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('patch_housekeeping_task');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('post_housekeeping_tasks');
+    expect(V1_HTTP_ROUTE_AUDIT[207]?.id).toBe('get_room_board');
+    expect(V1_HTTP_ROUTE_AUDIT[206]?.id).toBe('get_reservation_draft_bill');
+    expect(V1_HTTP_ROUTE_AUDIT[205]?.id).toBe('post_reservation_undo_check_out');
+    expect(V1_HTTP_ROUTE_AUDIT[204]?.id).toBe('post_folio_transfer_bulk');
+    expect(V1_HTTP_ROUTE_AUDIT[203]?.id).toBe('get_open_folios');
+    expect(V1_HTTP_ROUTE_AUDIT[202]?.id).toBe('get_folio_hold');
+    expect(V1_HTTP_ROUTE_AUDIT[201]?.id).toBe('post_folio_hold_release');
+    expect(V1_HTTP_ROUTE_AUDIT[198]?.id).toBe('get_reservation_registration_card');
+    expect(V1_HTTP_ROUTE_AUDIT[197]?.id).toBe('get_reservation_proforma');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(214);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1051,8 +1057,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(93);
-    expect(COMMAND_CATALOG).toHaveLength(127);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(96);
+    expect(COMMAND_CATALOG).toHaveLength(130);
     expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
       id: 'post_folio_hold',
       scope: 'property',
@@ -1120,6 +1126,49 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[207] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[208]).toMatchObject({
+      id: 'post_housekeeping_tasks',
+      permission: 'housekeeping:write',
+      commandId: 'housekeeping.create_task',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[209]).toMatchObject({
+      id: 'patch_housekeeping_task',
+      permission: 'housekeeping:write',
+      commandId: 'housekeeping.update_task',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[210]).toMatchObject({
+      id: 'post_housekeeping_task_transition',
+      permission: 'housekeeping:write',
+      commandId: 'housekeeping.transition_task',
+    });
+    for (const [i, id] of [
+      [211, 'get_housekeeping_tasks'],
+      [212, 'get_room_status_history'],
+      [213, 'get_room_ooo_history'],
+    ] as const) {
+      expect(V1_HTTP_ROUTE_AUDIT[i]).toMatchObject({
+        id,
+        permission: 'housekeeping:read',
+        entitlement: 'pms.core',
+        degradedRead: 'FAIL_CLOSED',
+      });
+      expect('commandId' in (V1_HTTP_ROUTE_AUDIT[i] ?? {})).toBe(false);
+    }
+    for (const id of [
+      'housekeeping.create_task',
+      'housekeeping.update_task',
+      'housekeeping.transition_task',
+    ]) {
+      expect(COMMAND_CATALOG.find((c) => c.id === id)).toMatchObject({
+        lane: 'INTERACTIVE',
+        degraded: 'FAIL_CLOSED',
+        idempotent: true,
+        entitlement: 'pms.core',
+        permission: 'housekeeping:write',
+      });
+      expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(true);
+    }
     expect(COMMAND_CATALOG.find((c) => c.id === 'invoice.void')?.permission).toBe('folio:reverse');
     expect(COMMAND_CATALOG.find((c) => c.id === 'folio.transfer_charges')).toMatchObject({
       lane: 'INTERACTIVE',
@@ -1590,6 +1639,30 @@ describe('command catalog', () => {
     expect(e?.class).toBe('DOMAIN');
     expect(e?.default).toBe(false);
     expect(e?.consumersExempt).toBe(true);
+  });
+
+  it('task_types is a DOMAIN list with five defaults, a 20 cap and code pattern', () => {
+    const e = CONFIG_REGISTER.find((x) => x.key === 'pms.housekeeping.task_types');
+    expect(e?.class).toBe('DOMAIN');
+    expect((e?.default as Array<{ code: string }>).map((t) => t.code)).toEqual([
+      'departure_clean',
+      'stayover_clean',
+      'deep_clean',
+      'turndown',
+      'inspection',
+    ]);
+    expect(e?.schema.safeParse(e?.default).success).toBe(true);
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ code: `t${i}`, label: `T${i}` }));
+    expect(e?.schema.safeParse(twenty).success).toBe(true);
+    expect(e?.schema.safeParse([...twenty, { code: 't20', label: 'T20' }]).success).toBe(false);
+    expect(e?.schema.safeParse([{ code: 'Bad Code', label: 'x' }]).success).toBe(false);
+    expect(e?.schema.safeParse([{ code: '1x', label: 'x' }]).success).toBe(false);
+    expect(
+      e?.schema.safeParse([
+        { code: 'a', label: 'A' },
+        { code: 'a', label: 'B' },
+      ]).success,
+    ).toBe(false);
   });
 
   it('folio money-ops config keys are DOMAIN bool default false', () => {

@@ -96,6 +96,7 @@ if (process.argv.includes('--self-test')) {
   let PACKAGES_SCHEDULES_V49_SQL;
   let FOLIO_HOLD_V50_SQL;
   let FOLIO_HOLD_EVENT_REACTIVATED_V51_SQL;
+  let HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -167,6 +168,7 @@ if (process.argv.includes('--self-test')) {
       PACKAGES_SCHEDULES_V49_SQL,
       FOLIO_HOLD_V50_SQL,
       FOLIO_HOLD_EVENT_REACTIVATED_V51_SQL,
+      HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -670,6 +672,15 @@ const doPropertyTargets = [
 
 `,
     sql: FOLIO_HOLD_EVENT_REACTIVATED_V51_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0052_housekeeping_tasks_status_history.sql'),
+    header: `-- PropertyDO housekeeping tasks, room status history, OOO block details — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: HOUSEKEEPING_TASKS_STATUS_HISTORY_V52_SQL,
   },
 ];
 

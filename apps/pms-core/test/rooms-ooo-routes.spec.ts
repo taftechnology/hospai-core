@@ -173,8 +173,18 @@ describe('rooms OOO HTTP [104]', () => {
         oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
       }>;
     };
+    // R4.30: the list also carries the block details (defaults here: maintenance, no times or notes).
     expect(rooms.rooms.find((r) => r.roomId === 'rm_1')?.oooRanges).toEqual([
-      { oooId: body.oooId, startDate: open, endDate, reason: 'pipe' },
+      {
+        oooId: body.oooId,
+        startDate: open,
+        endDate,
+        reason: 'pipe',
+        blockType: 'maintenance',
+        startTime: null,
+        endTime: null,
+        inspectionNotes: null,
+      },
     ]);
   });
 

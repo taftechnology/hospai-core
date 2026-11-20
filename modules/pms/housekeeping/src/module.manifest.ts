@@ -12,6 +12,8 @@ const manifest = {
       'housekeeping_priority',
       'housekeeping_inventory_item',
       'housekeeping_inventory_movement',
+      'housekeeping_task',
+      'room_status_history',
     ],
   },
   writes: [
@@ -20,6 +22,8 @@ const manifest = {
     'housekeeping_priority',
     'housekeeping_inventory_item',
     'housekeeping_inventory_movement',
+    'housekeeping_task',
+    'room_status_history',
   ],
   publishes: [
     'housekeeping.assigned',

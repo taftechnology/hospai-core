@@ -113,7 +113,7 @@ async function setupOoo(name: string) {
 
 async function setOoo(
   stub: DurableObjectStub<PropertyDO>,
-  input: { roomId: string; startDate: string; endDate: string; oooId?: string; reason?: string },
+  input: { roomId: string; startDate: string; endDate: string; oooId?: string; reason?: string; releaseReason?: string },
   idemKey: string,
 ) {
   const payload = {
@@ -192,7 +192,7 @@ describe('maintenance (Part D)', () => {
     expect(
       await setOoo(
         stub,
-        { roomId: 'rm_1', oooId: created.oooId, startDate: open, endDate: open },
+        { roomId: 'rm_1', oooId: created.oooId, startDate: open, endDate: open, releaseReason: 'Repaired' },
         'mnt-ooo-3b',
       ),
     ).toMatchObject({ ok: true });
@@ -243,7 +243,7 @@ describe('maintenance (Part D)', () => {
     expect(
       await setOoo(
         stub,
-        { roomId: 'rm_1', oooId: long.oooId, startDate: open, endDate: later },
+        { roomId: 'rm_1', oooId: long.oooId, startDate: open, endDate: later, releaseReason: 'Done early' },
         'mnt-active-shrink',
       ),
     ).toMatchObject({ ok: true });

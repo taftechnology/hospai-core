@@ -27,12 +27,28 @@ import {
   EmptyState,
   Field,
   FieldGroup,
+  Input,
   NativeSelect,
   PageHeader,
   Skeleton,
   Textarea,
 } from '@hospai/ui-kit';
+import {
+  BLOCK_TYPE_LABEL,
+  OooBlockEditDialog,
+  OooBlockForm,
+  OooReleaseDialog,
+  RoomOooHistoryDialog,
+  blockTimes,
+  invalidateOooViews,
+  oooReleaseDates,
+  type HousekeepingOooRange,
+  type OooBlockInput,
+} from '@hospai/pms-housekeeping/ui';
+import { hasPropertyPermission, type PropertyMe } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
+import { usePropertyActorLabel } from '../status/use-property-actor-label.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
@@ -106,12 +122,31 @@ export function MaintenanceScreen() {
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelNote, setCancelNote] = useState('');
+  const [dialogReleaseReason, setDialogReleaseReason] = useState('');
+  const [blockDialog, setBlockDialog] = useState<
+    | { kind: 'edit' | 'release' | 'history'; roomId: string; roomCode: string; range: HousekeepingOooRange }
+    | null
+  >(null);
+  const [blockError, setBlockError] = useState<string | null>(null);
+  const [blockDone, setBlockDone] = useState<string | null>(null);
+  const { dateHeading, dateTime } = useFormat();
 
   const ticketsQuery = useQuery({
     queryKey: ticketsKey,
     queryFn: () => api.getMaintenanceTickets(propertyId, { status: statusFilter, roomId: roomFilter || undefined }),
     enabled: Boolean(propertyId),
   });
+
+  const meQuery = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+    staleTime: 60_000,
+    retry: false,
+    enabled: Boolean(propertyId),
+  });
+  const me = meQuery.data as PropertyMe | undefined;
+  const canSetOoo = me ? hasPropertyPermission(me, 'inventory:write') : false;
+  const actorLabel = usePropertyActorLabel(me ? hasPropertyPermission(me, 'staff:read') : false);
 
   const roomsQuery = useQuery({
     queryKey: ['rooms', propertyId],
@@ -184,8 +219,15 @@ export function MaintenanceScreen() {
     mutationFn: async (input: {
       ticketId: string;
       body: Parameters<typeof api.updateMaintenanceTicket>[2];
-      afterResolveRelease?: { roomId: string; oooId: string; startDate: string; endDate: string };
+      afterResolveRelease?: {
+        roomId: string;
+        oooId: string;
+        startDate: string;
+        endDate: string;
+        releaseReason: string;
+      };
       closeAfter?: boolean;
+      roomCode?: string;
     }) => {
       const res = await api.updateMaintenanceTicket(
         propertyId,
@@ -200,6 +242,7 @@ export function MaintenanceScreen() {
             oooId: input.afterResolveRelease.oooId,
             startDate: input.afterResolveRelease.startDate,
             endDate: input.afterResolveRelease.endDate,
+            releaseReason: input.afterResolveRelease.releaseReason,
             idempotencyKey: crypto.randomUUID(),
           });
           released = true;
@@ -213,8 +256,8 @@ export function MaintenanceScreen() {
     onSuccess: async (result, input) => {
       await invalidateTickets();
       if (result.released) {
-        await queryClient.invalidateQueries({ queryKey: ['rooms', propertyId] });
-        await queryClient.invalidateQueries({ queryKey: ['housekeeping-priorities', propertyId] });
+        setBlockDone(`Room ${input.roomCode ?? ''} is back in service.`);
+        await invalidateOooViews(queryClient, propertyId);
       }
       if (input.closeAfter) {
         setCancelConfirm(false);
@@ -241,7 +284,45 @@ export function MaintenanceScreen() {
     setReleaseError(null);
     setCancelNote('');
     setCancelConfirm(false);
+    setDialogReleaseReason('');
   }
+
+  const blockMutation = useMutation({
+    mutationFn: (input: OooBlockInput) =>
+      api.setOooRange(propertyId, input.roomId, {
+        startDate: input.startDate,
+        endDate: input.endDate,
+        ...(input.oooId ? { oooId: input.oooId } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.blockType ? { blockType: input.blockType } : {}),
+        ...(input.startTime !== undefined ? { startTime: input.startTime } : {}),
+        ...(input.endTime !== undefined ? { endTime: input.endTime } : {}),
+        ...(input.inspectionNotes !== undefined ? { inspectionNotes: input.inspectionNotes } : {}),
+        ...(input.releaseReason ? { releaseReason: input.releaseReason } : {}),
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    onSuccess: async (_res, input) => {
+      const code = rooms.find((r) => r.roomId === input.roomId)?.code ?? '';
+      setBlockDone(
+        input.releaseReason
+          ? `Room ${code} is back in service.`
+          : input.oooId
+            ? `Block for room ${code} saved.`
+            : `Room ${code} is now out of order.`,
+      );
+      setBlockDialog(null);
+      setBlockError(null);
+      await invalidateOooViews(queryClient, propertyId);
+    },
+    onError: (err) =>
+      setBlockError(
+        classifiedUserMessage(asClassified(err), { fallback: 'Could not update the out-of-order block.' }),
+      ),
+  });
+
+  const blocks = rooms.flatMap((room) =>
+    (room.oooRanges ?? []).map((range) => ({ roomId: room.roomId, roomCode: room.code, range })),
+  );
 
   const ticketClosed =
     activeTicket?.status === 'resolved' || activeTicket?.status === 'cancelled';
@@ -344,6 +425,105 @@ export function MaintenanceScreen() {
             </DataTable>
           ) : null}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Out-of-order rooms</CardTitle>
+        </CardHeader>
+        <CardContent flush>
+          {blockDone ? (
+            <Alert intent="settled" data-testid="ooo-block-done">
+              {blockDone}
+            </Alert>
+          ) : null}
+          {roomsQuery.isLoading ? <Skeleton /> : null}
+          {roomsQuery.isError ? (
+            <Alert intent="exception">
+              {classifiedUserMessage(asClassified(roomsQuery.error), {
+                fallback: 'Could not load rooms.',
+              })}
+            </Alert>
+          ) : null}
+          {roomsQuery.isSuccess && blocks.length === 0 ? (
+            <EmptyState title="No rooms are out of order." />
+          ) : null}
+          {blocks.length > 0 ? (
+            <DataTable data-testid="ooo-blocks">
+              <DataTableHead>
+                <DataTableRow>
+                  <DataTableHeaderCell>Room</DataTableHeaderCell>
+                  <DataTableHeaderCell>Type</DataTableHeaderCell>
+                  <DataTableHeaderCell>Dates</DataTableHeaderCell>
+                  <DataTableHeaderCell>Times</DataTableHeaderCell>
+                  <DataTableHeaderCell>Reason and notes</DataTableHeaderCell>
+                  <DataTableHeaderCell>Actions</DataTableHeaderCell>
+                </DataTableRow>
+              </DataTableHead>
+              <DataTableBody>
+                {blocks.map(({ roomId, roomCode, range }) => (
+                  <DataTableRow key={range.oooId}>
+                    <DataTableCell>{roomCode}</DataTableCell>
+                    <DataTableCell>{BLOCK_TYPE_LABEL[range.blockType ?? 'maintenance']}</DataTableCell>
+                    <DataTableCell>
+                      {dateHeading(range.startDate)} to {dateHeading(range.endDate)}
+                    </DataTableCell>
+                    <DataTableCell>{blockTimes(range.startTime, range.endTime) || '—'}</DataTableCell>
+                    <DataTableCell>
+                      {[range.reason, range.inspectionNotes ? `Inspection: ${range.inspectionNotes}` : null]
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </DataTableCell>
+                    <DataTableCell>
+                      <Button
+                        type="button"
+                        aria-label={`Block history for ${roomCode}`}
+                        onClick={() => setBlockDialog({ kind: 'history', roomId, roomCode, range })}
+                      >
+                        History
+                      </Button>
+                      {canSetOoo ? (
+                        <>
+                          <Button
+                            type="button"
+                            aria-label={`Edit block for ${roomCode}`}
+                            onClick={() => {
+                              setBlockError(null);
+                              setBlockDialog({ kind: 'edit', roomId, roomCode, range });
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            intent="destructive"
+                            aria-label={`Release ${roomCode} from out of order`}
+                            onClick={() => {
+                              setBlockError(null);
+                              setBlockDialog({ kind: 'release', roomId, roomCode, range });
+                            }}
+                          >
+                            Release
+                          </Button>
+                        </>
+                      ) : null}
+                    </DataTableCell>
+                  </DataTableRow>
+                ))}
+              </DataTableBody>
+            </DataTable>
+          ) : null}
+        </CardContent>
+        {canSetOoo ? (
+          <CardContent>
+            <OooBlockForm
+              rooms={rooms}
+              busy={blockMutation.isPending}
+              onSubmit={(input) => blockMutation.mutate(input)}
+            />
+            {blockError && !blockDialog ? <Alert intent="exception">{blockError}</Alert> : null}
+          </CardContent>
+        ) : null}
       </Card>
 
       <Card>
@@ -498,7 +678,10 @@ export function MaintenanceScreen() {
                 {activeTicket.status === 'open' || activeTicket.status === 'in_progress' ? (
                   <Button
                     type="button"
-                    disabled={patchMutation.isPending}
+                    disabled={
+                      patchMutation.isPending ||
+                      (dialogReleaseRoom && activeTicket.oooActive && !dialogReleaseReason.trim())
+                    }
                     onClick={() => {
                       setDialogError(null);
                       const release =
@@ -511,6 +694,7 @@ export function MaintenanceScreen() {
                               roomId: activeTicket.roomId,
                               oooId: activeTicket.oooId,
                               ...oooReleaseEdit(activeTicket.oooStartDate, businessDate),
+                              releaseReason: dialogReleaseReason.trim(),
                             }
                           : undefined;
                       patchMutation.mutate({
@@ -524,6 +708,7 @@ export function MaintenanceScreen() {
                           resolutionNote: dialogResolveNote.trim() || undefined,
                         },
                         afterResolveRelease: release,
+                        roomCode: activeTicket.roomCode,
                       });
                     }}
                   >
@@ -649,8 +834,64 @@ export function MaintenanceScreen() {
                 Release room now
               </label>
             ) : null}
+            {!ticketClosed && activeTicket.oooActive && dialogReleaseRoom ? (
+              <Field
+                label="Release reason (required to release the room)"
+                control={
+                  <Input
+                    aria-label="Release reason"
+                    value={dialogReleaseReason}
+                    maxLength={200}
+                    onChange={(ev) => setDialogReleaseReason(ev.target.value)}
+                  />
+                }
+              />
+            ) : null}
           </div>
         </FormDialog>
+      ) : null}
+
+      {blockDialog?.kind === 'edit' ? (
+        <OooBlockEditDialog
+          roomId={blockDialog.roomId}
+          roomCode={blockDialog.roomCode}
+          range={blockDialog.range}
+          today={businessDate ?? ''}
+          busy={blockMutation.isPending}
+          error={blockError}
+          onClose={() => setBlockDialog(null)}
+          onSubmit={(input) => blockMutation.mutate(input)}
+        />
+      ) : null}
+      {blockDialog?.kind === 'release' ? (
+        <OooReleaseDialog
+          roomCode={blockDialog.roomCode}
+          busy={blockMutation.isPending}
+          error={blockError}
+          onClose={() => setBlockDialog(null)}
+          onSubmit={(releaseReason) =>
+            blockMutation.mutate({
+              roomId: blockDialog.roomId,
+              oooId: blockDialog.range.oooId,
+              ...oooReleaseDates(blockDialog.range, businessDate ?? blockDialog.range.startDate),
+              releaseReason,
+            })
+          }
+        />
+      ) : null}
+      {blockDialog?.kind === 'history' ? (
+        <RoomOooHistoryDialog
+          propertyId={propertyId}
+          roomId={blockDialog.roomId}
+          roomCode={blockDialog.roomCode}
+          api={api}
+          format={{ dateHeading, dateTime }}
+          formatError={(err) =>
+            classifiedUserMessage(asClassified(err), { fallback: 'Could not load the block history.' })
+          }
+          actorLabel={actorLabel}
+          onClose={() => setBlockDialog(null)}
+        />
       ) : null}
 
       {cancelConfirm && activeTicket ? (

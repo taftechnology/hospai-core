@@ -219,14 +219,14 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.27 (live room view, 2026-11-20) — update this table when you bump them:
+After roadmap R4.30 (housekeeping tasks, room status history and block details, 2026-11-20) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **127** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **208** routes, last id **`get_room_board`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `AUDIT_WRITER_COMMAND_IDS` | **93** | `packages/contracts/src/register.test.ts` |
-| `PROPERTY_SCHEMA_HEAD` | **51** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **130** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **214** routes, last id **`get_room_ooo_history`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `AUDIT_WRITER_COMMAND_IDS` | **96** | `packages/contracts/src/register.test.ts` |
+| `PROPERTY_SCHEMA_HEAD` | **52** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length **10**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, and **`arrival_deposit_missing`** | `packages/contracts/src/register.test.ts` |

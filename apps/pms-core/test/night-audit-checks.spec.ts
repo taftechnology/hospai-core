@@ -178,15 +178,15 @@ describe('night audit checks', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_dirty', status: 'dirty' },
-        await idemFor('dirty-rm', { roomId: 'rm_dirty', status: 'dirty' }),
+        { roomId: 'rm_dirty', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty-rm', { roomId: 'rm_dirty', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_inhouse_dirty', status: 'dirty' },
-        await idemFor('dirty-ih', { roomId: 'rm_inhouse_dirty', status: 'dirty' }),
+        { roomId: 'rm_inhouse_dirty', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty-ih', { roomId: 'rm_inhouse_dirty', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
 

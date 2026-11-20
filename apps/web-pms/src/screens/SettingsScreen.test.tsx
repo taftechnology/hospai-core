@@ -948,6 +948,57 @@ describe('SettingsScreen', () => {
     });
   });
 
+  it('R4.30: task types list adds a row by name, derives the code, and saves with the reason', async () => {
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    expect(within(card).getByText('No task types. Add one so tasks can be created.')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Add task type' }));
+    fireEvent.change(within(card).getByLabelText('Task type 1'), { target: { value: 'Mini bar restock' } });
+    // The reason pattern: nothing is saved until one is given.
+    expect(putDomainConfig).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), { target: { value: 'ops:types' } });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls.at(-1)?.[1]).toEqual({
+      key: 'pms.housekeeping.task_types',
+      value: [{ code: 'mini_bar_restock', label: 'Mini bar restock' }],
+      reason: 'ops:types',
+    });
+  });
+
+  it('R4.30: stored task types show their names, never codes; remove saves the rest; a blank name blocks the save', async () => {
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [
+        domain('pms.housekeeping.task_types', [
+          { code: 'departure_clean', label: 'Departure clean' },
+          { code: 'turndown', label: 'Turndown' },
+        ]),
+        domain('pms.money.currency_code', 'USD'),
+        domain('pms.time.time_zone', 'UTC'),
+      ],
+    });
+    renderSettings('/settings/property');
+    const card = (await screen.findByRole('heading', { name: 'Housekeeping' })).closest('.ui-card') as HTMLElement;
+    const first = (await within(card).findByLabelText('Task type 1')) as HTMLInputElement;
+    expect(first.value).toBe('Departure clean');
+    expect(card.textContent).not.toMatch(/departure_clean/);
+
+    fireEvent.change(first, { target: { value: '' } });
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), { target: { value: 'ops:types' } });
+    expect(within(card).getByText('Give every task type a name to save the list.')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(putDomainConfig).not.toHaveBeenCalled();
+
+    fireEvent.change(first, { target: { value: 'Departure clean' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Remove task type Turndown' }));
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls.at(-1)?.[1]).toEqual({
+      key: 'pms.housekeeping.task_types',
+      value: [{ code: 'departure_clean', label: 'Departure clean' }],
+      reason: 'ops:types',
+    });
+  });
+
   it('R4.23: Open folio enable hint when auto invoices disallow pending', async () => {
     listDomainConfig.mockResolvedValue({
       ok: true,

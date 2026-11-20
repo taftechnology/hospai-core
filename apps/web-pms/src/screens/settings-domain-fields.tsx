@@ -19,7 +19,7 @@ type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 const AUTO_SAVE_DELAY_MS = 800;
 const SAVED_ACK_MS = 2000;
 
-function useAutoSave(props: { dirty: boolean; reason: string; save: () => void }) {
+export function useAutoSave(props: { dirty: boolean; reason: string; save: () => void }) {
   const [status, setStatus] = useState<AutoSaveStatus>('idle');
   const saveRef = useRef(props.save);
   saveRef.current = props.save;
@@ -37,7 +37,7 @@ function useAutoSave(props: { dirty: boolean; reason: string; save: () => void }
   return [status, setStatus] as const;
 }
 
-function AutoSaveStatusIndicator(props: { status: AutoSaveStatus; dirty: boolean; reason: string }) {
+export function AutoSaveStatusIndicator(props: { status: AutoSaveStatus; dirty: boolean; reason: string }) {
   let text: string | null = null;
   if (props.status === 'saving') text = 'Saving…';
   else if (props.status === 'saved') text = 'Saved.';

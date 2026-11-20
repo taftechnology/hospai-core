@@ -9,6 +9,10 @@ import type {
   HousekeepingPriorityLevel,
   HousekeepingPriorityLevelInput,
   HousekeepingPriorityQueueRow,
+  HousekeepingTaskAction,
+  HousekeepingTaskList,
+  HousekeepingTaskPriority,
+  HousekeepingTaskRow,
   MaintenanceCategory,
   MaintenancePriority,
   MaintenanceStatus,
@@ -16,11 +20,15 @@ import type {
   MaintenanceTicketRow,
   NightAuditCheckLog,
   NightAuditCheckPreviewRow,
+  OooBlockType,
+  OooRangeRow,
   OrgScopedPermission,
   PropertyScopedPermission,
   RatePlanInclusionInput,
   RatePlanListItem,
   RoomBoardResponse,
+  RoomOooEventRow,
+  RoomStatusHistoryRow,
   InclusionTaxMode,
   PackageComponentInput,
   PackageListItem,
@@ -2115,7 +2123,7 @@ export function createClient(opts: {
         floor: string | null;
         createdAt: number;
         updatedAt: number;
-        oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
+        oooRanges: OooRangeRow[];
       }>;
     }> {
       const qs = new URLSearchParams();
@@ -2135,7 +2143,7 @@ export function createClient(opts: {
           floor: string | null;
           createdAt: number;
           updatedAt: number;
-          oooRanges: Array<{ oooId: string; startDate: string; endDate: string; reason: string | null }>;
+          oooRanges: OooRangeRow[];
         }>;
       };
     },
@@ -2147,6 +2155,13 @@ export function createClient(opts: {
         endDate: string;
         oooId?: string;
         reason?: string;
+        /** R4.30 block details. On an edit an omitted field keeps its stored value. */
+        blockType?: OooBlockType;
+        startTime?: string | null;
+        endTime?: string | null;
+        inspectionNotes?: string | null;
+        /** Required when the edit releases the block (or ends it on or before today). */
+        releaseReason?: string;
         idempotencyKey: string;
       },
     ): Promise<{ ok: true; roomId: string; oooId: string; alreadyApplied?: true }> {
@@ -2200,18 +2215,140 @@ export function createClient(opts: {
       );
       return body as { ok: true; date: string; queue: HousekeepingPriorityQueueRow[] };
     },
+    /** Marking a room dirty needs a `reason`; clean and inspected take an optional `comment`. */
     async updateRoomStatus(
       propertyId: string,
       roomId: string,
       status: string,
       opId: string,
+      notes?: { reason?: string; comment?: string },
     ) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(`/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/status`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ status, idempotencyKey }),
+        body: JSON.stringify({
+          status,
+          ...(notes?.reason ? { reason: notes.reason } : {}),
+          ...(notes?.comment ? { comment: notes.comment } : {}),
+          idempotencyKey,
+        }),
       });
+    },
+    /** One reason and comment cover the whole batch (cap 200 rooms). */
+    async bulkUpdateRoomStatus(
+      propertyId: string,
+      input: {
+        updates: Array<{ roomId: string; status: string }>;
+        reason?: string;
+        comment?: string;
+      },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/rooms/bulk-status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          updates: input.updates,
+          ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.comment ? { comment: input.comment } : {}),
+          idempotencyKey,
+        }),
+      });
+    },
+    /** Newest 100 status changes for one room (R4.30). */
+    async getRoomStatusHistory(
+      propertyId: string,
+      roomId: string,
+    ): Promise<{ ok: true; roomId: string; history: RoomStatusHistoryRow[] }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/status-history`,
+      );
+      return body as { ok: true; roomId: string; history: RoomStatusHistoryRow[] };
+    },
+    /** Newest 100 block events (created, updated, released) for one room (R4.30). */
+    async getRoomOooHistory(
+      propertyId: string,
+      roomId: string,
+    ): Promise<{ ok: true; roomId: string; events: RoomOooEventRow[] }> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/ooo-history`,
+      );
+      return body as { ok: true; roomId: string; events: RoomOooEventRow[] };
+    },
+    async getHousekeepingTasks(
+      propertyId: string,
+      query: {
+        date: string;
+        status?: string;
+        assigneeRef?: string;
+        roomId?: string;
+        search?: string;
+      },
+    ): Promise<HousekeepingTaskList> {
+      const qs = new URLSearchParams({ date: query.date });
+      for (const k of ['status', 'assigneeRef', 'roomId', 'search'] as const) {
+        const v = query[k];
+        if (v) qs.set(k, v);
+      }
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/housekeeping/tasks?${qs}`);
+      return body as HousekeepingTaskList;
+    },
+    async createHousekeepingTask(
+      propertyId: string,
+      input: {
+        businessDate: string;
+        taskType: string;
+        roomId: string;
+        assigneeRef?: string | null;
+        priority?: HousekeepingTaskPriority;
+        notes?: string | null;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/tasks`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }>;
+    },
+    async updateHousekeepingTask(
+      propertyId: string,
+      taskId: string,
+      input: {
+        taskType?: string;
+        assigneeRef?: string | null;
+        priority?: HousekeepingTaskPriority;
+        notes?: string | null;
+        businessDate?: string;
+      },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/housekeeping/tasks/${enc(taskId)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+        body: JSON.stringify(input),
+      }) as Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }>;
+    },
+    /** review `notes` are the supervisor notes; cancel needs a `reason`. */
+    async transitionHousekeepingTask(
+      propertyId: string,
+      taskId: string,
+      input: { action: HousekeepingTaskAction; notes?: string | null; reason?: string },
+      opId: string,
+    ): Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/tasks/${enc(taskId)}/transition`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-idempotency-key': idempotencyKey },
+          body: JSON.stringify(input),
+        },
+      ) as Promise<{ classified: ClassifiedResponse; body: { ok: true; task: HousekeepingTaskRow } }>;
     },
     async listRoster(propertyId: string, query?: { kind?: string }) {
       const qs = new URLSearchParams();

@@ -1,5 +1,9 @@
 import {
   INSUFFICIENT_STOCK,
+  INVALID_REQUEST,
+  INVALID_TASK_TRANSITION,
+  NOT_FOUND,
+  REASON_REQUIRED,
   INVENTORY_ITEM_ARCHIVED,
   INVENTORY_ITEM_EXISTS,
   INVENTORY_ITEM_NOT_FOUND,
@@ -77,5 +81,40 @@ export class HousekeepingInventoryValidationError extends Error {
   constructor() {
     super(VALIDATION_ERROR);
     this.name = 'HousekeepingInventoryValidationError';
+  }
+}
+
+export class HousekeepingReasonRequiredError extends Error {
+  constructor() {
+    super(REASON_REQUIRED);
+    this.name = 'HousekeepingReasonRequiredError';
+  }
+}
+
+export class HousekeepingInvalidRequestError extends Error {
+  constructor() {
+    super(INVALID_REQUEST);
+    this.name = 'HousekeepingInvalidRequestError';
+  }
+}
+
+export class HousekeepingLimitError extends Error {
+  constructor() {
+    super(LIMIT_EXCEEDED);
+    this.name = 'HousekeepingLimitError';
+  }
+}
+
+export class HousekeepingTaskNotFoundError extends Error {
+  constructor() {
+    super(NOT_FOUND);
+    this.name = 'HousekeepingTaskNotFoundError';
+  }
+}
+
+export class HousekeepingInvalidTaskTransitionError extends Error {
+  constructor() {
+    super(INVALID_TASK_TRANSITION);
+    this.name = 'HousekeepingInvalidTaskTransitionError';
   }
 }

@@ -361,6 +361,45 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'housekeeping:write',
     notes: HOUSEKEEPING_INVENTORY_NOTES,
   },
+  {
+    id: 'housekeeping.create_task',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.30 housekeeping task record — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Create a task for a room and business date; type must be in pms.housekeeping.task_types; assignee defaults from the day housekeeping.assign when unset. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.update_task',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.30 housekeeping task record — kill-switch via pms.core entitlement; never queued offline. ' +
+      'Edit type, assignee, priority, notes or date while pending or in progress. Idempotency key is header x-idempotency-key.',
+  },
+  {
+    id: 'housekeeping.transition_task',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'housekeeping:write',
+    notes:
+      'R4.30 housekeeping task record — kill-switch via pms.core entitlement; never queued offline. ' +
+      'start | complete | review | cancel; cancel needs a reason; any other move is invalid_task_transition. Idempotency key is header x-idempotency-key.',
+  },
   // ADD_FOLIO_ITEM split — payments fail closed; non-payment may queue
   {
     id: 'folio.add_item',

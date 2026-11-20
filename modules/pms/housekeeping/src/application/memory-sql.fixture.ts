@@ -41,6 +41,18 @@ class MemorySql implements ModuleSql {
       updated_at: number;
     }
   >();
+  statusHistory: Array<{
+    history_id: string;
+    room_id: string;
+    business_date: string;
+    from_status: string;
+    to_status: string;
+    reason: string | null;
+    comment: string | null;
+    source: string;
+    actor: string;
+    created_at: number;
+  }> = [];
   inventoryMovements: Array<{
     movement_id: string;
     item_id: string;
@@ -55,6 +67,24 @@ class MemorySql implements ModuleSql {
 
   exec(query: string, ...bindings: unknown[]): { toArray(): unknown[] } {
     const q = query.replace(/\s+/g, ' ').trim();
+
+    if (q.startsWith('INSERT INTO room_status_history')) {
+      const [history_id, room_id, business_date, from_status, to_status, reason, comment, source, actor, created_at] =
+        bindings as [string, string, string, string, string, string | null, string | null, string, string, number];
+      this.statusHistory.push({
+        history_id,
+        room_id,
+        business_date,
+        from_status,
+        to_status,
+        reason,
+        comment,
+        source,
+        actor,
+        created_at,
+      });
+      return { toArray: () => [] };
+    }
 
     if (q.startsWith('SELECT room_id, archived_at FROM room')) {
       const roomId = bindings[0] as string;

@@ -176,7 +176,7 @@ describe('PropertyDO rooms + housekeeping', () => {
     expect(await createRoom(stub, 'room_101', 'rt_king', '101')).toMatchObject({ ok: true });
     await stub.flushOutbox();
     const ariBefore = await stub.readAriVersion();
-    const input = { roomId: 'room_101', status: 'dirty' };
+    const input = { roomId: 'room_101', status: 'dirty', reason: 'Test' };
     expect(
       await stub.tryUpdateRoomStatus(TEST_OWNER_ACTOR, input, await idemFor('st-dirty', input)),
     ).toMatchObject({ ok: true, status: 'dirty' });
@@ -195,6 +195,7 @@ describe('PropertyDO rooms + housekeeping', () => {
         { roomId: 'room_a', status: 'dirty' },
         { roomId: 'missing', status: 'dirty' },
       ],
+      reason: 'Test',
     };
     expect(
       await stub.tryBulkUpdateRoomStatus(TEST_OWNER_ACTOR, bad, await idemFor('bulk-bad', bad)),
@@ -206,6 +207,7 @@ describe('PropertyDO rooms + housekeeping', () => {
         { roomId: 'room_a', status: 'dirty' },
         { roomId: 'room_b', status: 'inspected' },
       ],
+      reason: 'Test',
     };
     expect(
       await stub.tryBulkUpdateRoomStatus(TEST_OWNER_ACTOR, good, await idemFor('bulk-ok', good)),

@@ -136,8 +136,8 @@ describe('reservation check-in triangle', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_26', status: 'dirty' },
-        await idemFor('dirty26', { roomId: 'rm_26', status: 'dirty' }),
+        { roomId: 'rm_26', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty26', { roomId: 'rm_26', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     await bookConfirmed(stub, guestRef, 'res_26', arrival, departure);
@@ -160,8 +160,8 @@ describe('reservation check-in triangle', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_27', status: 'dirty' },
-        await idemFor('dirty27', { roomId: 'rm_27', status: 'dirty' }),
+        { roomId: 'rm_27', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty27', { roomId: 'rm_27', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     await bookConfirmed(stub, guestRef, 'res_27', arrival, departure);
@@ -281,8 +281,8 @@ describe('reservation check-in triangle', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_31', status: 'dirty' },
-        await idemFor('dirty31', { roomId: 'rm_31', status: 'dirty' }),
+        { roomId: 'rm_31', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty31', { roomId: 'rm_31', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     await bookConfirmed(stub, guestRef, 'res_31', arrival, departure);

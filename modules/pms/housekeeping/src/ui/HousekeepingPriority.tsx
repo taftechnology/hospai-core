@@ -20,6 +20,7 @@ import {
   VisuallyHidden,
 } from '@hospai/ui-kit';
 import { useMemo, useState } from 'react';
+import { useBusinessDate } from './use-business-date.js';
 import type { HousekeepingApi, HousekeepingRosterPerson } from './housekeeping-types.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
 import { PRIORITY_LEVEL_LABEL, STAY_LABEL, priorityReasonLabel } from './priority-labels.js';
@@ -74,18 +75,20 @@ export function HousekeepingPriority({
   queuedCopy?: string;
 }) {
   const queryClient = useQueryClient();
-  const [businessDate, setBusinessDate] = useState(defaultBusinessDate);
+  const [businessDate, setBusinessDate] = useBusinessDate(defaultBusinessDate);
   const [queuedNotice, setQueuedNotice] = useState<string | null>(null);
   const readRoster = canReadRoster;
 
   const prioritiesQuery = useQuery({
     queryKey: ['housekeeping-priorities', propertyId, businessDate],
     queryFn: () => api.getHousekeepingPriorities(propertyId, businessDate),
+    enabled: Boolean(businessDate),
   });
 
   const assignmentsQuery = useQuery({
     queryKey: ['housekeeping-assignments', propertyId, businessDate],
     queryFn: () => api.listHousekeepingAssignments(propertyId, businessDate),
+    enabled: Boolean(businessDate),
   });
 
   const rosterQuery = useQuery({

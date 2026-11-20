@@ -32,6 +32,7 @@ export * from './guest-preferences.js';
 export * from './guest-document.js';
 export * from './housekeeping-priority.js';
 export * from './housekeeping-inventory.js';
+export * from './housekeeping-tasks.js';
 export * from './roster-ops.js';
 export * from './maintenance.js';
 export * from './zoned-wall-clock.js';

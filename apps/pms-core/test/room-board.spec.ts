@@ -298,7 +298,7 @@ describe('room board [R4.27]', () => {
   it('5. an assigned arrival today is reserved even when the room is dirty; unassigned arrivals are listed apart', async () => {
     const h = await provisionHotel('user_rb_5');
     const rm = await addRoom(h, '501');
-    const dirty = { roomId: rm, status: 'dirty' };
+    const dirty = { roomId: rm, status: 'dirty', reason: 'Test' };
     expect(await h.stub.tryUpdateRoomStatus(asUser(h.actor), dirty, await idemFor('dirty-rb5', dirty))).toMatchObject({
       ok: true,
     });

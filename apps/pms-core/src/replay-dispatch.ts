@@ -159,14 +159,23 @@ export const REPLAY_DISPATCH: Record<string, ReplayDispatch> = {
   'rooms.update_status': {
     fingerprintInput: (p) => p,
     invoke: (stub, actor, payload, idem, ctx) =>
-      stub.tryUpdateRoomStatus(actor, payload as { roomId: string; status: string }, idem, ctx),
+      stub.tryUpdateRoomStatus(
+        actor,
+        payload as { roomId: string; status: string; reason?: string; comment?: string },
+        idem,
+        ctx,
+      ),
   },
   'rooms.bulk_update_status': {
     fingerprintInput: (p) => p,
     invoke: (stub, actor, payload, idem, ctx) =>
       stub.tryBulkUpdateRoomStatus(
         actor,
-        payload as { updates: Array<{ roomId: string; status: string }> },
+        payload as {
+          updates: Array<{ roomId: string; status: string }>;
+          reason?: string;
+          comment?: string;
+        },
         idem,
         ctx,
       ),

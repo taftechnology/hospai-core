@@ -5,6 +5,10 @@ import {
   GUEST_SETTINGS_KEY,
   GuestSettingsSchema,
 } from '../guest-settings.js';
+import {
+  DEFAULT_HOUSEKEEPING_TASK_TYPES,
+  HousekeepingTaskTypesSchema,
+} from '../housekeeping-tasks.js';
 import { NIGHT_AUDIT_CHECKS_DEFAULT, NightAuditChecksSchema } from '../night-audit-checks.js';
 import type { Permission } from '../permissions.js';
 
@@ -304,6 +308,14 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     schema: bool,
     default: false,
     consumersExempt: true,
+  }),
+  entry({
+    key: 'pms.housekeeping.task_types',
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: HousekeepingTaskTypesSchema,
+    default: DEFAULT_HOUSEKEEPING_TASK_TYPES.map((t) => ({ ...t })),
+    consumersExempt: true, // DO reads inside the task create/update transaction
   }),
   entry({
     key: 'pms.reservations.check_out_require_zero_balance',

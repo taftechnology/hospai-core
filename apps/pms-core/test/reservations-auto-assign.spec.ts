@@ -178,8 +178,8 @@ describe('reservation check-in auto-assign', () => {
     expect(
       await stub.tryUpdateRoomStatus(
         TEST_OWNER_ACTOR,
-        { roomId: 'rm_dirty', status: 'dirty' },
-        await idemFor('dirty-aa5', { roomId: 'rm_dirty', status: 'dirty' }),
+        { roomId: 'rm_dirty', status: 'dirty', reason: 'Test' },
+        await idemFor('dirty-aa5', { roomId: 'rm_dirty', status: 'dirty', reason: 'Test' }),
       ),
     ).toMatchObject({ ok: true });
     await bookConfirmed(stub, guestRef, 'res_aa5', arrival, departure);

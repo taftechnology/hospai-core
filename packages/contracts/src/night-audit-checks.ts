@@ -7,6 +7,7 @@ export const NIGHT_AUDIT_CHECK_IDS = [
   'cashier_shift_open',
   'dirty_room_assigned',
   'departed_with_balance',
+  'id_proof_missing',
 ] as const;
 export type NightAuditCheckId = (typeof NIGHT_AUDIT_CHECK_IDS)[number];
 
@@ -27,6 +28,7 @@ export const NightAuditChecksSchema = z
     cashier_shift_open: nightAuditCheckSeveritySchema.optional(),
     dirty_room_assigned: nightAuditCheckSeveritySchema.optional(),
     departed_with_balance: nightAuditCheckSeveritySchema.optional(),
+    id_proof_missing: nightAuditCheckSeveritySchema.optional(),
   })
   .strict();
 export type NightAuditChecks = z.infer<typeof NightAuditChecksSchema>;
@@ -37,6 +39,7 @@ export const NIGHT_AUDIT_CHECKS_DEFAULT: { [K in NightAuditCheckId]: 'warn' } = 
   cashier_shift_open: 'warn',
   dirty_room_assigned: 'warn',
   departed_with_balance: 'warn',
+  id_proof_missing: 'warn',
 };
 
 /** Preview row from `evaluateNightAuditChecksSync` / `readNightAuditStatus`. */

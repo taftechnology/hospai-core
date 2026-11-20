@@ -11,6 +11,9 @@ const updateGuest = vi.fn();
 const eraseGuest = vi.fn();
 const getMe = vi.fn();
 const listRooms = vi.fn();
+const listGuestDocuments = vi.fn();
+const getGuestConsent = vi.fn();
+const getGuestSettings = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -25,6 +28,9 @@ vi.mock('../client.js', () => ({
     eraseGuest: (...args: unknown[]) => eraseGuest(...args),
     getMe: (...args: unknown[]) => getMe(...args),
     listRooms: (...args: unknown[]) => listRooms(...args),
+    listGuestDocuments: (...args: unknown[]) => listGuestDocuments(...args),
+    getGuestConsent: (...args: unknown[]) => getGuestConsent(...args),
+    getGuestSettings: (...args: unknown[]) => getGuestSettings(...args),
   },
 }));
 
@@ -101,6 +107,13 @@ describe('GuestProfileScreen', () => {
       nextCursor: null,
     });
     eraseGuest.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listGuestDocuments.mockResolvedValue({ ok: true, documents: [] });
+    getGuestConsent.mockResolvedValue({ ok: true, current: {}, history: [] });
+    getGuestSettings.mockResolvedValue({
+      ok: true,
+      version: 1,
+      value: { consentNoticeVersion: null, requireIdAtCheckIn: false },
+    });
     listRooms.mockResolvedValue({
       ok: true,
       rooms: [
@@ -136,18 +149,20 @@ describe('GuestProfileScreen', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(screen.getByText('No preferences recorded.')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('No tags recorded.')).toBeTruthy());
+    expect(screen.getByRole('heading', { name: 'Tags' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Preferences' })).toBeTruthy();
     expect(screen.getByText('No notes.')).toBeTruthy();
   });
 
   it('shows VIP badge, preference tags, and notes on saved profile', async () => {
     renderProfile();
     await waitFor(() => expect(screen.getAllByText('VIP').length).toBeGreaterThan(0));
-    expect(screen.getByText('High floor')).toBeTruthy();
+    expect(screen.getAllByText('High floor').length).toBeGreaterThan(0);
     expect(screen.getByText(/Line one/)).toBeTruthy();
   });
 
-  it('shows contact, stay folio link, and Book href; no merge or consent', async () => {
+  it('shows contact, stay folio link, Book href, and consent; no merge', async () => {
     renderProfile();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('Ada Lovelace'));
     expect(screen.getByText('ada@ex.com')).toBeTruthy();
@@ -159,7 +174,37 @@ describe('GuestProfileScreen', () => {
     expect(screen.queryByText('rm_101')).toBeNull();
     expect(screen.getByTestId('guest-book').getAttribute('href')).toBe('/book?guestRef=g1');
     expect(screen.queryByText(/merge/i)).toBeNull();
-    expect(screen.queryByText(/consent/i)).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Consent' })).toBeTruthy();
+  });
+
+  it('labels consent history by the property that recorded it', async () => {
+    getGuestConsent.mockResolvedValue({
+      ok: true,
+      current: {},
+      history: [
+        {
+          id: 'c_here',
+          purpose: 'MARKETING_EMAIL',
+          status: 'GRANTED',
+          source: 'DESK',
+          noticeVersion: 'notice-1',
+          recordedAt: 1,
+          recordedHere: true,
+        },
+        {
+          id: 'c_there',
+          purpose: 'MARKETING_EMAIL',
+          status: 'WITHDRAWN',
+          source: 'PHONE',
+          noticeVersion: 'notice-1',
+          recordedAt: 2,
+          recordedHere: false,
+        },
+      ],
+    });
+    renderProfile();
+    await waitFor(() => expect(screen.getByText(/Recorded at this property/)).toBeTruthy());
+    expect(screen.getByText(/Recorded at another property in your group/)).toBeTruthy();
   });
 
   it('two consecutive saves use distinct guest-update opIds', async () => {
@@ -299,5 +344,28 @@ describe('GuestProfileScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Erase guest' }));
     expect(await screen.findByText(/Property unreachable/)).toBeTruthy();
     expect(screen.queryByText('Erased')).toBeNull();
+  });
+
+  it('saving preferences invalidates the guest query and shows the saved badges', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+    updateGuest.mockImplementation(async () => {
+      getGuest.mockResolvedValue({
+        ...liveGuest,
+        profile: { ...liveGuest.profile, preferences: { room: ['QUIET_ROOM'] } },
+      });
+      return { classified: { class: 'live' }, body: { ok: true } };
+    });
+    renderProfileWithClient(client);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save preferences' })).toBeTruthy());
+    expect(screen.queryByTestId('guest-preference-badges')).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Quiet room' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['guest', 'prop_demo', 'g1'] }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('guest-preference-badges').textContent).toContain('Quiet room'),
+    );
   });
 });

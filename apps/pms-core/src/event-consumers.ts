@@ -8,6 +8,9 @@ import {
 } from '@hospai/entitlement-client';
 import { consumerIdempotencyKey } from '@hospai/do-runtime';
 import { MODULE_REGISTRY } from '@hospai/kernel';
+import { resolveOrgStub } from '@hospai/tenant-router';
+import { isOrgDoTransportFailure } from './do-transport-failure.js';
+import type { OrgDO } from './org-do.js';
 import { logError, logInfo, logWarn, type ObservabilityContext } from '@hospai/observability';
 import type { EventRetryMessage, PmsEnv } from './env.js';
 import {
@@ -43,6 +46,13 @@ export const CORE_CONSUMERS: ModuleConsumerDecl[] = [
     handler: 'handleGuestPurge',
     entitlement: null,
     gateExempt: 'legal_duty',
+  },
+  {
+    consumer: 'pms.guest_document_flag',
+    label: 'Guest ID on file',
+    events: ['guest.document_recorded', 'guest.document_removed'],
+    handler: 'handleGuestDocumentFlag',
+    entitlement: 'pms.core',
   },
 ];
 
@@ -80,10 +90,42 @@ async function handleGuestPurge(ctx: ConsumerCtx, event: DomainEventMessage): Pr
   await startGuestPurge(ctx.env, event);
 }
 
+async function handleGuestDocumentFlag(ctx: ConsumerCtx, event: DomainEventMessage): Promise<void> {
+  const payload = event.payload;
+  if (!payload || typeof payload !== 'object') throw new ConsumerPermanentError('bad_payload');
+  const rec = payload as Record<string, unknown>;
+  const propertyId = rec.propertyId;
+  const guestRef = rec.guestRef;
+  const orgId = rec.orgId;
+  if (typeof propertyId !== 'string' || typeof guestRef !== 'string' || typeof orgId !== 'string') {
+    throw new ConsumerPermanentError('bad_payload');
+  }
+  if (orgId !== ctx.orgId) throw new ConsumerPermanentError('tenant_mismatch');
+  const resolved = await resolvePropertyFromRegistry(ctx.env, propertyId);
+  if (!resolved) throw new Error('property_unresolved');
+  if (resolved.property.orgId !== orgId) throw new ConsumerPermanentError('tenant_mismatch');
+  let hasDocument = false;
+  try {
+    const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+    const gate = await org.checkInIdentityGate({ guestRef, propertyId });
+    hasDocument = gate.hasDocument;
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) throw new Error('org_unreachable');
+    throw e;
+  }
+  const result = await resolved.stub.trySetIdDocumentFlag({
+    guestRef,
+    hasDocument,
+    consumerIdempotencyKey: ctx.idempotencyKey,
+  });
+  if (!result.ok) throw new Error(result.error);
+}
+
 /** Static map. Keyed by consumer id. No dynamic import. */
 export const CONSUMER_HANDLERS: Record<string, ConsumerHandler> = {
   'pms.ari_projection': handleAvailabilityChangedConsumer,
   'pms.guest_purge': handleGuestPurge,
+  'pms.guest_document_flag': handleGuestDocumentFlag,
 };
 
 export type ConsumerGateDeps = {

@@ -51,6 +51,10 @@
     {
       "binding": "EVENT_LOG_R2",
       "bucket_name": "hospai-event-log"
+    },
+    {
+      "binding": "GUEST_DOCS_R2",
+      "bucket_name": "hospai-guest-docs"
     }
   ],
   "queues": {
@@ -186,6 +190,10 @@
         {
           "binding": "EVENT_LOG_R2",
           "bucket_name": "hospai-event-log-staging"
+        },
+        {
+          "binding": "GUEST_DOCS_R2",
+          "bucket_name": "hospai-guest-docs-staging"
         }
       ],
       "queues": {

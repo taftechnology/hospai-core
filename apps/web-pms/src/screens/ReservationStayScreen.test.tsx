@@ -18,6 +18,8 @@ const modifyReservation = vi.fn();
 const cancelReservation = vi.fn();
 const noShowReservation = vi.fn();
 const cancelCheckIn = vi.fn();
+const listGuestDocuments = vi.fn();
+const getGuest = vi.fn();
 
 const businessDate = { current: '2026-11-09' };
 
@@ -46,6 +48,8 @@ vi.mock('../client.js', () => ({
     cancelReservation: (...args: unknown[]) => cancelReservation(...args),
     noShowReservation: (...args: unknown[]) => noShowReservation(...args),
     cancelCheckIn: (...args: unknown[]) => cancelCheckIn(...args),
+    listGuestDocuments: (...args: unknown[]) => listGuestDocuments(...args),
+    getGuest: (...args: unknown[]) => getGuest(...args),
   },
 }));
 
@@ -130,6 +134,12 @@ describe('ReservationStayScreen', () => {
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     updateFrontOffice.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listGuestDocuments.mockResolvedValue({ ok: true, documents: [], requireIdAtCheckIn: false });
+    getGuest.mockResolvedValue({
+      guestId: 'g1',
+      erased: false,
+      profile: { displayName: 'Ada Lovelace' },
+    });
   });
 
   afterEach(() => cleanup());
@@ -254,5 +264,41 @@ describe('ReservationStayScreen', () => {
     );
     renderStay();
     await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/Property unreachable/));
+  });
+
+  it('shows No ID on file when this property has no document', async () => {
+    getReservation.mockResolvedValue(stay('confirmed'));
+    renderStay();
+    expect((await screen.findByTestId('id-on-file')).textContent).toBe('No ID on file');
+  });
+
+  it('shows ID on file and preference labels from the guest profile', async () => {
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {
+        g1: {
+          ok: true,
+          profile: {
+            displayName: 'Ada Lovelace',
+            preferences: { room: ['QUIET_ROOM'], dietary: ['VEGAN'], other: 'Late arrival' },
+          },
+        },
+      },
+      states: { g1: { kind: 'resolved', displayName: 'Ada Lovelace' } },
+    });
+    listGuestDocuments.mockResolvedValue({
+      ok: true,
+      requireIdAtCheckIn: false,
+      documents: [
+        { id: 'doc_1', kind: 'PASSPORT', hasScan: true, scanContentType: 'image/jpeg', createdAt: 1 },
+      ],
+    });
+    getReservation.mockResolvedValue(stay('confirmed'));
+    renderStay();
+    expect((await screen.findByTestId('id-on-file')).textContent).toBe('ID on file');
+    const prefs = screen.getByTestId('guest-preference-badges');
+    expect(prefs.textContent).toContain('Quiet room');
+    expect(prefs.textContent).toContain('Vegan');
+    expect(prefs.textContent).toContain('Late arrival');
   });
 });

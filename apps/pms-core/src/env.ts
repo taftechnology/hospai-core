@@ -70,6 +70,8 @@ export type PmsEnv = {
   ARI_KV: KVNamespace;
   /** Durable event log — tenant-prefixed segments. Optional so skip can be derived. */
   EVENT_LOG_R2?: R2Bucket;
+  /** Encrypted guest identity scans. Object keys carry no PII. */
+  GUEST_DOCS_R2?: R2Bucket;
   /**
    * Must be `1` for any local-only unsafe flags (simulate jurisdiction, dev actor).
    * Set only via `.dev.vars` / vitest bindings — never top-level wrangler `vars`.

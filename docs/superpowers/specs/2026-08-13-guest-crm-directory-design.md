@@ -76,14 +76,14 @@ This chunk is that path: a staff CRM directory, a profile screen, equality blind
 - **New PropertyDO tables for PII.** PII stays in the OrgDO vault. `PROPERTY_GUEST_PII_COLUMNS` does not grow. Do not add `display_name` / `email` / `phone` (or hashes of them) to PropertyDO.
 - **Guest-facing portal or self-service.** Staff CRM only.
 - **`guests.merge` / dedupe / alias table.** Domain has no merge. Duplicate `guest_id`s remain accepted debt. No merge button.
-- **`guests.update_consent` / consent flags.** `GuestProfile` has no consent field. Legal basis in §4.8 is documentary, not a column. Do not invent flags.
+- **`guests.update_consent` / consent flags.** Built by R4.15 as append-only `guest_consent` rows, not fields on `GuestProfile`. See `docs/superpowers/specs/2026-11-19-guest-documents-consent-design.md`.
 - **Pending shred-request queue.** `guests.erase` is immediate crypto-shred. Profile shows live vs erased. No “requested / scheduled” state.
 - **Tags, guest-level VIP, lifetime value, guest notes.** §16.1 names them. VIP is already a **stay** flag (`reservation.vip_flag`). LTV is warehouse (§7.8). Tags / guest notes / profile VIP are a later CRM slice.
 - **Cross-property stay fan-out.** §7.6 forbids interactive PropertyDO fan-out. Stay history is **this property only**. Chain LTV / other-property stays are warehouse / Phase 3.
 - **Prototype substring / trigram / prefix typeahead.** Search is **equality** (full field + name tokens). Reservation-search decrypt-scan stays as-is (leftover: optionally point it at the blind index later).
 - **E.164 phone canonicalization / libphonenumber.** Phase 1 strips non-digits.
 - **Org master-key rotation rebuild** of hashes.
-- **ID documents / passport / R2 guest files.**
+- **ID documents / passport / R2 guest files.** Built by R4.15 (`guest_document` in OrgDO, scans in `GUEST_DOCS_R2`). See `docs/superpowers/specs/2026-11-19-guest-documents-consent-design.md`.
 - **Whistle / guest-engagement** (Phase 3 module group).
 - **New catalog command ids.** Reads are not commands. Existing `guests.create` / `update` / `erase` fingerprints do not change.
 - **Widening `GuestProfile` JSON** with new keys this chunk.
@@ -185,7 +185,7 @@ Kill-switch: entitled reads follow the existing `entitlementForRoute` pair (402 
 | `guests.search` | **Reject as catalog command.** | Read. No mutation, no outbox, no idempotency key. HTTP `[125]` + OrgDO `searchGuests`. |
 | `guests.get_profile` | **Reject.** | `[42]` already returns the vault profile + tombstone. Stays are a different store → `[126]`. |
 | `guests.merge` | **Defer.** | No alias table, no surviving-id rewrite of `reservation.guest_ref`, no catalog row. Duplicate guests stay accepted debt. |
-| `guests.update_consent` | **Defer.** | Not modeled on `GuestProfile`. Do not add a JSON key “while we are here.” |
+| `guests.update_consent` | **Built by R4.15.** | Append-only `guest_consent`. Not a JSON key on `GuestProfile`. |
 
 `PLATFORM_GAPS` stays `[]`. Do not add merge/consent as gaps — they are named leftovers, not catalog holes.
 
@@ -582,7 +582,7 @@ Page size 25 ⇒ no virtualization requirement (guideline threshold is >50).
 | 12 | PCI / real PSP | Simulate stays |
 | 13 | Reclass guest / front-desk GETs to `READ_STALE` | Prototype-holes leftover **4** — still no KV projection |
 | 14 | `guests.merge` / alias / surviving-id rewrite | Domain does not support it |
-| 15 | Consent flags / `guests.update_consent` | Not on `GuestProfile` |
+| 15 | Consent flags / `guests.update_consent` | Built by R4.15 as `guest_consent`, not on `GuestProfile` |
 | 16 | Pending shred-request workflow | Erase is immediate |
 | 17 | Tags / guest-level VIP / guest notes | §16.1 remainder; stay VIP already exists |
 | 18 | Lifetime value | Warehouse §7.8 |
@@ -591,7 +591,7 @@ Page size 25 ⇒ no virtualization requirement (guideline threshold is >50).
 | 21 | Point `[105] reservations-search` at the blind index | Decrypt-scan stays; optional later |
 | 22 | E.164 phone canonicalization | Digit-strip only |
 | 23 | Master-key rotation hash rebuild | Dual-generation leftover |
-| 24 | ID documents / passport / R2 guest files | §4.7 |
+| 24 | ID documents / passport / R2 guest files | Built by R4.15 |
 | 25 | Guest-facing portal / Whistle | Phase 3 |
 | 26 | Widening `GuestProfile` | displayName / email / phone only |
 | 27 | New PropertyDO PII columns or tables | Denylist unchanged |
@@ -649,7 +649,7 @@ No `pending-commands-consumer` / `REPLAY_DISPATCH` / `NIGHT_AUDIT_STEPS` / Prope
 **Contracts / register**
 
 1. `V1_HTTP_ROUTE_AUDIT[123].id === 'post_provisional_exception_note'`; `[124]='get_guests'`; `[125]='post_guests_search'`; `[126]='get_guest_stays'`. Each new row: `scope:'property'`, no `commandId`, `entitlement:'pms.core'`, `degradedRead:'FAIL_CLOSED'`, `permission:'guests:read'`.
-2. `COMMAND_CATALOG` length **77**. `AUDIT_WRITER_COMMAND_IDS.size === 52`. `PLATFORM_GAPS` `[]`. No `guests.search` / `guests.merge` / `guests.update_consent` / `guests.get_profile` ids.
+2. `COMMAND_CATALOG` length **77** at the time of this directory spec. `AUDIT_WRITER_COMMAND_IDS.size === 52`. `PLATFORM_GAPS` `[]`. No `guests.search` / `guests.merge` / `guests.get_profile` ids. `guests.update_consent` was added later by R4.15.
 3. `ORG_SCHEMA_HEAD === 7`. `PROPERTY_SCHEMA_HEAD === 25`. `NIGHT_AUDIT_STEPS.length === 7`. `PROPERTY_PURGE_INVENTORY_TABLES` unchanged. `PROPERTY_GUEST_PII_COLUMNS` still only `billed_party`. `CLASS_DENYLIST` unchanged.
 
 **Blind index / crypto**
@@ -718,7 +718,7 @@ No `pending-commands-consumer` / `REPLAY_DISPATCH` / `NIGHT_AUDIT_STEPS` / Prope
 
 - [ ] Verified-current-state table matches the tree (route **124**, catalog **77**, org head **6→7**, property head **25**, no new commands).
 - [ ] Normative invariants include integer money, append-only folio, schema-freeze (no PropertyDO PII table), Rule 3/events-by-ref, no new `export class`, no new PropertyDO purge table, route audit append-only.
-- [ ] Command decision is explicit: existing reads/writes suffice; `guests.search` / `get_profile` are HTTP-only; `merge` / `update_consent` deferred.
+- [ ] Command decision is explicit: existing reads/writes suffice; `guests.search` / `get_profile` are HTTP-only; `merge` stays deferred. `update_consent` shipped in R4.15.
 - [ ] Blind index is OrgDO HMAC only; PropertyDO stays `guest_ref`; erase deletes hashes.
 - [ ] Routes **124–126** named with method, path, permission, entitlement, `FAIL_CLOSED`.
 - [ ] Scope-out names every required exclusion (virtual types, derived rates, `rooms.delete`, tape/WS, property setup, `ui-kit`, city ledger / invoices / auto-transfer / recurring / partial refunds, PCI, `READ_STALE` reclass, PropertyDO PII tables, guest portal).

@@ -218,6 +218,7 @@
 }
 
 .ui-input,
+.ui-file,
 .ui-select,
 .ui-textarea {
   font: inherit;
@@ -231,6 +232,7 @@
 }
 
 .ui-input,
+.ui-file,
 .ui-select {
   block-size: var(--input-h);
   padding-inline: 0.625rem;
@@ -249,6 +251,7 @@
 }
 
 .ui-input:hover:not(:disabled),
+.ui-file:hover:not(:disabled),
 .ui-select:hover:not(:disabled),
 .ui-textarea:hover:not(:disabled) {
   border-color: var(--muted);
@@ -270,6 +273,7 @@
 }
 
 .ui-input:focus-visible,
+.ui-file:focus-visible,
 .ui-select:focus-visible,
 .ui-textarea:focus-visible,
 .ui-checkbox:focus-visible {
@@ -278,6 +282,7 @@
 }
 
 .ui-input:disabled,
+.ui-file:disabled,
 .ui-select:disabled,
 .ui-textarea:disabled {
   background: var(--selected);
@@ -291,6 +296,7 @@
 }
 
 .ui-field--error .ui-input,
+.ui-field--error .ui-file,
 .ui-field--error .ui-select,
 .ui-field--error .ui-textarea {
   border-color: var(--status-exception-fg);

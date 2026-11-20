@@ -219,15 +219,16 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.5 (outbox consumers, 2026-11-19) — update this table when you bump them:
+After roadmap R4.15 (guest documents, preferences, consent, 2026-11-19) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **111** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **179** routes, last id **`post_event_consumer_exception_dismiss`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `PROPERTY_SCHEMA_HEAD` | **44** | `packages/do-runtime` migrate tests |
-| `ORG_SCHEMA_HEAD` | **11** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **115** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **187** routes, last id **`post_guest_consent`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `PROPERTY_SCHEMA_HEAD` | **45** | `packages/do-runtime` migrate tests |
+| `ORG_SCHEMA_HEAD` | **12** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
+| `NIGHT_AUDIT_CHECK_IDS` | length 6, includes **`id_proof_missing`** | `packages/contracts/src/register.test.ts` |
 
 There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
 

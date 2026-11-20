@@ -1,4 +1,4 @@
-import { forwardRef, type ReactNode, type Ref, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
+import { forwardRef, type ChangeEvent, type ReactNode, type Ref, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
 import type { AriaLabelProps, InputHandlerProps, TestIdProps } from './types.js';
 
 type TextInputType =
@@ -301,5 +301,53 @@ export const NativeSelect = forwardRef(function NativeSelect(
     >
       {children}
     </select>
+  );
+});
+
+export type FileInputProps = TestIdProps &
+  AriaLabelProps & {
+    accept?: string;
+    disabled?: boolean;
+    required?: boolean;
+    id?: string;
+    name?: string;
+    onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+  };
+
+export const FileInput = forwardRef(function FileInput(
+  {
+    accept,
+    disabled,
+    required,
+    id,
+    name,
+    'data-testid': dataTestId,
+    'aria-label': ariaLabel,
+    'aria-labelledby': ariaLabelledBy,
+    'aria-describedby': ariaDescribedBy,
+    'aria-invalid': ariaInvalid,
+    'aria-required': ariaRequired,
+    onChange,
+  }: FileInputProps,
+  ref: Ref<HTMLInputElement>,
+) {
+  return (
+    <input
+      ref={ref}
+      className="ui-input ui-file"
+      type="file"
+      accept={accept}
+      disabled={disabled}
+      required={required}
+      id={id}
+      name={name}
+      data-testid={dataTestId}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
+      aria-describedby={ariaDescribedBy}
+      aria-invalid={ariaInvalid}
+      aria-required={ariaRequired}
+      onChange={onChange}
+    />
   );
 });

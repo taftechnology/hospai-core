@@ -1,4 +1,5 @@
 import type { FolioPaymentRow, GuestRowState, ReservationRead } from '@hospai/client-core';
+import type { GuestPreferences } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { useState } from 'react';
@@ -27,6 +28,7 @@ import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { FormDialog } from '../shell/FormDialog.js';
 import { useFormat, usePropertyTimeZone } from '../shell/PropertyFormat.js';
 import { propertyLocalToday } from '../status/property-local-today.js';
+import { GuestDocumentBadges, GuestPreferenceBadges, useGuestPreferences } from './guest-identity.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { GuestNameLink } from './guest-row.js';
@@ -122,6 +124,7 @@ export function ReservationStayScreen() {
   const res = reservationQ.data;
   const propertyName = propertyQ.data?.property?.name;
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
+  const preferences = useGuestPreferences(propertyId, guestRef, guestsQ.data, guestsQ.isFetched);
   const displayName =
     guestState?.kind === 'resolved'
       ? guestState.displayName
@@ -319,6 +322,7 @@ export function ReservationStayScreen() {
         dateRange={dateRange}
         dateTime={dateTime}
         money={money}
+        preferences={preferences}
       />
       <DamagePanel
         reservationId={reservationId}
@@ -490,6 +494,7 @@ function StayCard({
   dateRange,
   dateTime,
   money,
+  preferences,
 }: {
   res: ReservationRead;
   guestState: GuestRowState | undefined;
@@ -500,6 +505,7 @@ function StayCard({
   dateRange: (from: string, to: string) => string;
   dateTime: (ms: number) => string;
   money: (minor: number, currency?: string) => string;
+  preferences?: GuestPreferences;
 }) {
   const nights = stayNights(res.arrivalDate, res.departureDate);
   return (
@@ -517,6 +523,8 @@ function StayCard({
               reservationStatusLabel(res.status)
             )}
           </div>
+          <GuestDocumentBadges propertyId={tenant.propertyId} guestRef={guestRef} />
+          <GuestPreferenceBadges preferences={preferences} />
           <div className="ui-stat-grid">
             <StatField
               label="Dates"

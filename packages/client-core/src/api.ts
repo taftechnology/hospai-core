@@ -1,5 +1,6 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import type {
+  GuestDocumentList,
   GuestSettings,
   HousekeepingInventoryCategory,
   HousekeepingInventoryItemRow,
@@ -1420,6 +1421,7 @@ export function createClient(opts: {
         tags?: string[];
         vip?: boolean;
         notes?: string;
+        preferences?: import('@hospai/contracts').GuestPreferences | null;
       },
       opId: string,
     ) {
@@ -1433,10 +1435,129 @@ export function createClient(opts: {
       if (input.tags !== undefined) payload.tags = input.tags;
       if (input.vip !== undefined) payload.vip = input.vip;
       if (input.notes !== undefined) payload.notes = input.notes;
+      if ('preferences' in input) payload.preferences = input.preferences;
       return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestId)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
+      });
+    },
+
+    async listGuestDocuments(propertyId: string, guestRef: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/documents`,
+      );
+      return body as { ok: true } & GuestDocumentList;
+    },
+
+    async readGuestDocument(propertyId: string, guestRef: string, documentId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/documents/${enc(documentId)}`,
+      );
+      return body;
+    },
+
+    async addGuestDocument(
+      propertyId: string,
+      guestRef: string,
+      input: { documentId: string; kind: string; fields: Record<string, unknown> },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/documents`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+
+    async attachGuestDocumentScan(
+      propertyId: string,
+      guestRef: string,
+      documentId: string,
+      file: { contentType: string; bytes: Uint8Array },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/documents/${enc(documentId)}/scan`,
+        {
+          method: 'PUT',
+          headers: {
+            'content-type': file.contentType,
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: new Blob([file.bytes.buffer.slice(file.bytes.byteOffset, file.bytes.byteOffset + file.bytes.byteLength) as ArrayBuffer], {
+            type: file.contentType,
+          }),
+        },
+      );
+    },
+
+    async getGuestDocumentScan(propertyId: string, guestRef: string, documentId: string) {
+      const res = await opts.transport.fetch(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/documents/${enc(documentId)}/scan`,
+      );
+      if (!res.ok) {
+        const body: unknown = await res.json().catch(() => ({}));
+        return { ok: false as const, status: res.status, body };
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      return {
+        ok: true as const,
+        bytes,
+        contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+      };
+    },
+
+    async removeGuestDocument(
+      propertyId: string,
+      guestRef: string,
+      documentId: string,
+      reason: string,
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/documents/${enc(documentId)}/remove`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ reason, idempotencyKey }),
+        },
+      );
+    },
+
+    async getGuestConsent(propertyId: string, guestRef: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/consent`,
+      );
+      return body as {
+        ok: true;
+        current: Record<string, { status: string; source: string; noticeVersion: string; recordedAt: number } | null>;
+        history: Array<{
+          id: string;
+          purpose: string;
+          status: string;
+          source: string;
+          noticeVersion: string;
+          recordedAt: number;
+          recordedHere: boolean;
+        }>;
+      };
+    },
+
+    async updateGuestConsent(
+      propertyId: string,
+      guestRef: string,
+      input: { purpose: string; status: 'GRANTED' | 'WITHDRAWN'; source: string },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/guests/${enc(guestRef)}/consent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
       });
     },
 

@@ -1097,6 +1097,58 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     commandId: 'events.dismiss_consumer_exception',
     entitlement: 'pms.core',
   },
+  {
+    id: 'get_guest_documents',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_guest_document',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_guest_documents',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'guests.add_document',
+  },
+  {
+    id: 'put_guest_document_scan',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'guests.attach_document_scan',
+  },
+  {
+    id: 'get_guest_document_scan',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_guest_document_remove',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'guests.remove_document',
+  },
+  {
+    id: 'get_guest_consent',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_guest_consent',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'guests.update_consent',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

@@ -73,9 +73,10 @@ export type {
 export { Field } from './Field.js';
 export type { FieldProps } from './Field.js';
 
-export { Checkbox, Input, NativeSelect, Textarea } from './Input.js';
+export { Checkbox, FileInput, Input, NativeSelect, Textarea } from './Input.js';
 export type {
   CheckboxProps,
+  FileInputProps,
   InputProps,
   NativeSelectProps,
   TextareaProps,

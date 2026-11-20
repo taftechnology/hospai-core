@@ -39,7 +39,9 @@ export function SettingsGuests() {
       draft.requireEmail !== stored.requireEmail ||
       draft.requirePhone !== stored.requirePhone ||
       draft.matchOnEmail !== stored.matchOnEmail ||
-      draft.matchOnPhone !== stored.matchOnPhone);
+      draft.matchOnPhone !== stored.matchOnPhone ||
+      draft.requireIdAtCheckIn !== stored.requireIdAtCheckIn ||
+      draft.consentNoticeVersion !== stored.consentNoticeVersion);
   const unsavedGuard = useUnsavedChanges(dirty);
 
   const save = useMutation({
@@ -91,9 +93,7 @@ export function SettingsGuests() {
         </CardContent>
       </Card>
       {saveError ? <Alert intent="exception">{saveError}</Alert> : null}
-      {saved && !save.isPending ? (
-        <Alert intent="settled">Saved. New guest profiles follow these rules.</Alert>
-      ) : null}
+      {saved && !save.isPending ? <Alert intent="settled">Saved.</Alert> : null}
       <Card>
         <CardHeader>
           <CardTitle>Required on new profiles</CardTitle>
@@ -157,6 +157,44 @@ export function SettingsGuests() {
                   onChange={(e) => {
                     setSaved(false);
                     setDraft((prev) => ({ ...prev, matchOnPhone: e.target.checked }));
+                  }}
+                />
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Check-in and consent</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="settings-property__grid">
+            <Field
+              label="Require an identity document at check-in"
+              hint="Check-in is refused until this property has a live identity document for the guest."
+              control={
+                <Checkbox
+                  checked={draft.requireIdAtCheckIn}
+                  onChange={(e) => {
+                    setSaved(false);
+                    setDraft((prev) => ({ ...prev, requireIdAtCheckIn: e.target.checked }));
+                  }}
+                />
+              }
+            />
+            <Field
+              label="Consent notice version"
+              hint="Required before staff can record consent. Letters, digits, dot, underscore, or hyphen. Leave blank until the notice is published."
+              control={
+                <Input
+                  value={draft.consentNoticeVersion ?? ''}
+                  maxLength={40}
+                  autoComplete="off"
+                  onChange={(e) => {
+                    setSaved(false);
+                    const next = e.target.value.trim();
+                    setDraft((prev) => ({ ...prev, consentNoticeVersion: next.length > 0 ? next : null }));
                   }}
                 />
               }

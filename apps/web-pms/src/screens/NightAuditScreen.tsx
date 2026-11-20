@@ -188,6 +188,8 @@ function actionFor(
       return { to: `/departures?date=${date}`, label: 'Departures' };
     case 'cashier_shift_open':
       return { to: '/shift', label: 'Shift' };
+    case 'id_proof_missing':
+      return { to: '/in-house', label: 'In house' };
     default:
       return null;
   }

@@ -151,6 +151,13 @@ import {
   KEY_SHRED_FAILED,
   LAST_OWNER,
   LIMIT_EXCEEDED,
+  parseGuestPreferences,
+  parseGuestDocumentFields,
+  GUEST_DOCUMENT_KINDS,
+  ConsentWriteSchema,
+  SCAN_MAX_BYTES,
+  type GuestDocumentKind,
+  type GuestPreferences,
   NAMED_LIST_MAX_ENTRIES,
   RATES_BULK_UPDATE_MAX,
   RATE_PLAN_INCLUSION_MAX,
@@ -217,6 +224,7 @@ import { logError, logWarn, type ObservabilityContext } from '@hospai/observabil
 import { resolveOrgStub } from '@hospai/tenant-router';
 import { authorizedParties, resolveActor, requirePermission, type Actor } from './auth.js';
 import { applySecurityHeaders } from './security-headers.js';
+import { isScanContentType, scanFilename, sha256Hex } from './guest-documents.js';
 import { parseRequestJson } from './parse-request-json.js';
 import {
   clerkUnreachableResponse,
@@ -1432,6 +1440,7 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
     tags?: string[];
     vip?: boolean;
     notes?: string;
+    preferences?: unknown;
     idempotencyKey: string;
   }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
@@ -1459,14 +1468,46 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
   if (guestCrmExceedsCaps(profile)) {
     return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
   }
-  const fingerprint = await commandFingerprint('guests.update', { guestId, ...profile });
+  let preferencesUpdate: GuestPreferences | null = null;
+  const preferencesTouched = 'preferences' in body;
+  if (preferencesTouched) {
+    if (body.preferences === null) {
+      preferencesUpdate = null;
+    } else {
+      const parsedPrefs = parseGuestPreferences(body.preferences);
+      if (!parsedPrefs.ok) {
+        return json({ ok: false, error: parsedPrefs.error }, commandErrorHttpStatus(parsedPrefs.error));
+      }
+      preferencesUpdate = parsedPrefs.preferences;
+    }
+  }
+  const fingerprint = await commandFingerprint('guests.update', {
+    guestId,
+    ...profile,
+    ...(preferencesTouched ? { preferences: preferencesUpdate! } : {}),
+  });
 
   try {
     await org.ensureMetaOrgId(resolvedCtx.property.orgId);
     const result = await org.tryUpdateGuest(
       actor,
       propertyId,
-      { guestId, profile },
+      {
+        guestId,
+        profile,
+        ...(preferencesTouched
+          ? {
+              preferencesUpdate: preferencesUpdate!,
+              present: {
+                email: 'email' in body,
+                phone: 'phone' in body,
+                tags: 'tags' in body,
+                vip: 'vip' in body,
+                notes: 'notes' in body,
+              },
+            }
+          : {}),
+      },
       { key: body.idempotencyKey, fingerprint },
     );
     if (!result.ok) {
@@ -1480,6 +1521,273 @@ async function handlePatchGuest(ctx: V1DispatchContext): Promise<Response> {
         503,
         { 'Retry-After': '30' },
       );
+    }
+    throw e;
+  }
+}
+
+async function readCappedBody(request: Request, cap: number): Promise<Uint8Array | Response> {
+  const declared = request.headers.get('content-length');
+  if (declared !== null) {
+    const n = Number(declared);
+    if (!Number.isFinite(n) || n < 0 || n > cap) return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const step = await reader.read();
+    if (step.done) break;
+    total += step.value.byteLength;
+    if (total > cap) {
+      await reader.cancel();
+      return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+    }
+    chunks.push(step.value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function onlyKeys(body: object, keys: readonly string[]): boolean {
+  return Object.keys(body).every((key) => keys.includes(key));
+}
+
+async function guestWriteOrg(ctx: V1DispatchContext, propertyId: string) {
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+  await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+  return { org, actor: { kind: 'user' as const, userId: ctx.actor.userId } };
+}
+
+async function handleGetGuestDocuments(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  try {
+    const result = await ready.org.listPropertyGuestDocuments(ready.actor, propertyId, guestRef);
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:read');
+    return json({
+      ok: true,
+      documents: result.documents,
+      requireIdAtCheckIn: result.requireIdAtCheckIn,
+    });
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.get_documents' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handleGetGuestDocument(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  const documentId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  try {
+    const result = await ready.org.readPropertyGuestDocument(ready.actor, propertyId, guestRef, documentId);
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:read');
+    return json(result);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.get_document' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handlePostGuestDocuments(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{
+    documentId?: string;
+    kind?: string;
+    fields?: unknown;
+    idempotencyKey?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  if (!bodyParsed || typeof bodyParsed !== 'object' || !onlyKeys(bodyParsed, ['documentId', 'kind', 'fields', 'idempotencyKey'])) {
+    return json({ ok: false, error: 'validation_error' }, 422);
+  }
+  const { documentId, kind, fields, idempotencyKey } = bodyParsed;
+  if (!documentId || !kind || !idempotencyKey || fields === undefined) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  try {
+    validateTenantId(documentId);
+  } catch (e) {
+    if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
+    throw e;
+  }
+  if (!(GUEST_DOCUMENT_KINDS as readonly string[]).includes(kind)) {
+    return json({ ok: false, error: 'validation_error' }, 422);
+  }
+  const parsed = parseGuestDocumentFields(kind as GuestDocumentKind, fields);
+  if (!parsed.ok) return json({ ok: false, error: parsed.error }, commandErrorHttpStatus(parsed.error));
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  const sent = { guestRef, documentId, kind: kind as GuestDocumentKind, fields: parsed.fields };
+  const fingerprint = await commandFingerprint('guests.add_document', sent);
+  try {
+    const result = await ready.org.tryAddGuestDocument(ready.actor, propertyId, sent, { key: idempotencyKey, fingerprint });
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:write');
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.add_document' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handlePutGuestDocumentScan(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  const documentId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+  const contentType = (ctx.request.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+  if (!isScanContentType(contentType)) return json({ ok: false, error: 'scan_type_not_allowed' }, 422);
+  const bytes = await readCappedBody(ctx.request, SCAN_MAX_BYTES);
+  if (bytes instanceof Response) return bytes;
+  try {
+    validateTenantId(documentId);
+  } catch (e) {
+    if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
+    throw e;
+  }
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  const sha256 = await sha256Hex(bytes);
+  const hashed = { documentId, contentType, sha256 };
+  const fingerprint = await commandFingerprint('guests.attach_document_scan', hashed);
+  try {
+    const result = await ready.org.tryAttachGuestDocumentScan(
+      ready.actor,
+      propertyId,
+      { guestRef, documentId, contentType, bytes, sha256 },
+      { key: idempotencyKey, fingerprint },
+    );
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:write');
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.attach_document_scan' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handleGetGuestDocumentScan(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  const documentId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  try {
+    const result = await ready.org.readPropertyGuestDocumentScan(ready.actor, propertyId, guestRef, documentId);
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:read');
+    return new Response(result.bytes, {
+      status: 200,
+      headers: {
+        'content-type': result.contentType,
+        'content-disposition': `attachment; filename="${scanFilename(documentId, result.contentType)}"`,
+        'cache-control': 'no-store',
+      },
+    });
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.get_document_scan' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handlePostGuestDocumentRemove(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  const documentId = decodeURIComponent(ctx.match[3]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{ reason?: string; idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  if (!bodyParsed || typeof bodyParsed !== 'object' || !onlyKeys(bodyParsed, ['reason', 'idempotencyKey'])) {
+    return json({ ok: false, error: 'validation_error' }, 422);
+  }
+  if (typeof bodyParsed.reason !== 'string' || !bodyParsed.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  const sent = { guestRef, documentId, reason: bodyParsed.reason };
+  const fingerprint = await commandFingerprint('guests.remove_document', sent);
+  try {
+    const result = await ready.org.tryRemoveGuestDocument(ready.actor, propertyId, sent, {
+      key: bodyParsed.idempotencyKey,
+      fingerprint,
+    });
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:write');
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.remove_document' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handleGetGuestConsent(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  try {
+    const result = await ready.org.readPropertyGuestConsent(ready.actor, propertyId, guestRef);
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:read');
+    return json(result);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.get_consent' }, 503, { 'Retry-After': '30' });
+    }
+    throw e;
+  }
+}
+
+async function handlePostGuestConsent(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const guestRef = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<unknown>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const parsed = ConsentWriteSchema.safeParse(bodyParsed);
+  if (!parsed.success) return json({ ok: false, error: 'validation_error' }, 422);
+  const ready = await guestWriteOrg(ctx, propertyId);
+  if (ready instanceof Response) return ready;
+  const sent = { guestRef, purpose: parsed.data.purpose, status: parsed.data.status, source: parsed.data.source };
+  const fingerprint = await commandFingerprint('guests.update_consent', sent);
+  try {
+    const result = await ready.org.tryUpdateGuestConsent(ready.actor, propertyId, sent, {
+      key: parsed.data.idempotencyKey,
+      fingerprint,
+    });
+    if (!result.ok) return commandErrorResponse(result.error, 'guests:write');
+    return json(result, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) {
+      return json({ error: 'org_unreachable', degraded: 'FAIL_CLOSED', commandId: 'guests.update_consent' }, 503, { 'Retry-After': '30' });
     }
     throw e;
   }
@@ -10104,6 +10412,78 @@ export const V1_ROUTES: V1RouteDef[] = [
     commandId: 'events.dismiss_consumer_exception',
     entitlement: 'pms.core',
     handler: handlePostEventConsumerExceptionDismiss,
+  },
+  {
+    id: 'get_guest_documents',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/documents$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestDocuments,
+  },
+  {
+    id: 'post_guest_documents',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/documents$/,
+    permission: 'guests:write',
+    commandId: 'guests.add_document',
+    handler: handlePostGuestDocuments,
+  },
+  {
+    id: 'get_guest_document',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/documents\/([^/]+)$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestDocument,
+  },
+  {
+    id: 'put_guest_document_scan',
+    scope: 'property',
+    method: 'PUT',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/documents\/([^/]+)\/scan$/,
+    permission: 'guests:write',
+    commandId: 'guests.attach_document_scan',
+    handler: handlePutGuestDocumentScan,
+  },
+  {
+    id: 'get_guest_document_scan',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/documents\/([^/]+)\/scan$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestDocumentScan,
+  },
+  {
+    id: 'post_guest_document_remove',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/documents\/([^/]+)\/remove$/,
+    permission: 'guests:write',
+    commandId: 'guests.remove_document',
+    handler: handlePostGuestDocumentRemove,
+  },
+  {
+    id: 'get_guest_consent',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/consent$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetGuestConsent,
+  },
+  {
+    id: 'post_guest_consent',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/guests\/([^/]+)\/consent$/,
+    permission: 'guests:write',
+    commandId: 'guests.update_consent',
+    handler: handlePostGuestConsent,
   },
 ];
 

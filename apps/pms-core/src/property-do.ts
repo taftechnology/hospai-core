@@ -175,6 +175,7 @@ import {
   INVOICE_COUNTER_RACE,
   INVOICE_NUMBER_INVALID,
   ORG_UNREACHABLE,
+  ID_DOCUMENT_REQUIRED,
   INTERNAL_ERROR,
   DOMAIN_ERROR,
   LIMIT_EXCEEDED,
@@ -988,6 +989,14 @@ class PrepaymentRequiredError extends Error {
   constructor() {
     super(PREPAYMENT_REQUIRED);
     this.name = 'PrepaymentRequiredError';
+  }
+}
+
+/** Thrown inside check-in so a guest_ref race is not stored as an idempotent failure. */
+class GuestRefChangedError extends Error {
+  constructor() {
+    super('guest_ref_changed');
+    this.name = 'GuestRefChangedError';
   }
 }
 
@@ -3573,6 +3582,20 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return this.bumpAriVersionSync();
   }
 
+  /** Test helper (unsafe-local only): the non-PII id-on-file bit for one stay. */
+  async readIdDocumentOnFileForTest(reservationId: string): Promise<number | null> {
+    this.assertUnsafeLocal('readIdDocumentOnFileForTest');
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT id_document_on_file AS flag FROM reservation WHERE reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{ flag: number | null }>;
+    const row = rows[0];
+    if (!row) return null;
+    return Number(row.flag ?? 0);
+  }
+
   /** Test helper (unsafe-local only): read the business date stamped at checkout. */
   async readCheckedOutBusinessDateForTest(reservationId: string): Promise<string | null> {
     this.assertUnsafeLocal('readCheckedOutBusinessDateForTest');
@@ -3823,6 +3846,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
              AND r.arrival_date <= ?
              AND rm.status = 'dirty'`,
           businessDate,
+        );
+      case 'id_proof_missing':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM reservation
+           WHERE status = 'checked_in' AND id_document_on_file = 0`,
         );
       case 'departed_with_balance':
         return this.countQuerySync(
@@ -11225,6 +11253,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
     | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
     | { ok: false; error: typeof BUSINESS_DATE_CLOSED }
+    | { ok: false; error: typeof ID_DOCUMENT_REQUIRED | typeof ORG_UNREACHABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
   > {
@@ -11243,6 +11272,25 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
+
+    const preview = this.ctx.storage.sql
+      .exec(`SELECT guest_ref, status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+      .toArray() as Array<{ guest_ref: string; status: string }>;
+    const previewRow = preview[0];
+
+    let idDocumentOnFile = 0;
+    let gatedGuestRef: string | null = null;
+    if (previewRow && previewRow.status === 'confirmed') {
+      gatedGuestRef = previewRow.guest_ref;
+    }
+    if (gatedGuestRef !== null) {
+      const gate = await this.gateOrgRef(orgId, (org) =>
+        org.checkInIdentityGate({ guestRef: gatedGuestRef, propertyId }),
+      );
+      if (!gate || !('required' in gate)) return { ok: false, error: ORG_UNREACHABLE };
+      if (gate.required && !gate.hasDocument) return { ok: false, error: ID_DOCUMENT_REQUIRED };
+      idDocumentOnFile = gate.hasDocument ? 1 : 0;
+    }
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -11273,6 +11321,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (!reservation) return { ok: false as const, error: NOT_FOUND };
           if (reservation.status !== 'confirmed') {
             return { ok: false as const, error: INVALID_STATUS_TRANSITION };
+          }
+          if (gatedGuestRef === null || reservation.guest_ref !== gatedGuestRef) {
+            throw new GuestRefChangedError();
           }
           if (
             this.readConfigValueSync('pms.booking.require_prepayment') === true &&
@@ -11374,7 +11425,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET status = 'checked_in', updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET status = 'checked_in', id_document_on_file = ?, updated_at = ? WHERE reservation_id = ?`,
+            idDocumentOnFile,
             now,
             input.reservationId,
           );
@@ -11412,11 +11464,67 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }, actor),
       );
     } catch (e) {
+      if (e instanceof GuestRefChangedError) return { ok: false, error: NOT_FOUND };
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       if (e instanceof RoomNotFoundError) return { ok: false, error: NOT_FOUND };
       const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
       return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * Consumer write: set id_document_on_file on open stays for one guest.
+   * The key is `consumer:${consumerId}:${eventId}` and is not recomputed here.
+   */
+  async trySetIdDocumentFlag(input: {
+    guestRef: string;
+    hasDocument: boolean;
+    consumerIdempotencyKey: string;
+  }): Promise<{ ok: true; updated: number } | { ok: false; error: typeof IDEM_KEY_REUSED | typeof ORG_ID_UNSET | typeof PROPERTY_ID_UNSET }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    if (!this.getOrgIdSync()) return { ok: false, error: ORG_ID_UNSET };
+    if (!this.getPropertyIdSync()) return { ok: false, error: PROPERTY_ID_UNSET };
+    const flag = input.hasDocument ? 1 : 0;
+    // The consumer key already names the consumer and the event. `hasDocument` is
+    // read live, so folding it in turns a redelivery after a later document
+    // change into IDEM_KEY_REUSED and a dead letter. Replay returns the first write.
+    const fingerprint = await fingerprintPayload({
+      guestRef: input.guestRef,
+    });
+    const idem = { key: input.consumerIdempotencyKey, fingerprint };
+    const actor = { kind: 'system' as const, reason: 'event_consumer' as const };
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(
+          this.ctx.storage.sql,
+          idem,
+          () => {
+            const now = Date.now();
+            const rows = this.ctx.storage.sql
+              .exec(
+                `SELECT reservation_id FROM reservation
+                 WHERE guest_ref = ? AND status IN ('pending', 'confirmed', 'checked_in')`,
+                input.guestRef,
+              )
+              .toArray() as Array<{ reservation_id: string }>;
+            for (const row of rows) {
+              this.ctx.storage.sql.exec(
+                `UPDATE reservation SET id_document_on_file = ?, updated_at = ? WHERE reservation_id = ?`,
+                flag,
+                now,
+                row.reservation_id,
+              );
+            }
+            return { ok: true as const, updated: rows.length };
+          },
+          actor,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      throw e;
     }
   }
 

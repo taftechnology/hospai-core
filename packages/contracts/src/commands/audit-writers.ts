@@ -88,6 +88,10 @@ export const AUDIT_WRITER_EXEMPTIONS: ReadonlyArray<{ id: string; reason: string
   { id: 'guests.create', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
   { id: 'guests.update', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
   { id: 'guests.erase', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  { id: 'guests.add_document', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  { id: 'guests.attach_document_scan', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  { id: 'guests.remove_document', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
+  { id: 'guests.update_consent', reason: 'OrgDO home — guest PII not on PropertyDO audit_log' },
   {
     id: 'config.put_domain',
     reason: 'Covered by property_config_audit (separate surface); dual-write out of scope',

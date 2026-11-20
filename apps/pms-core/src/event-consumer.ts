@@ -221,6 +221,15 @@ export async function assertEventContract(message: DomainEventMessage): Promise<
       assertStringField(payload, 'consumerId', message.eventType);
       break;
     }
+    case 'guest.document_recorded':
+    case 'guest.document_removed': {
+      assertStringField(payload, 'orgId', message.eventType);
+      assertStringField(payload, 'guestRef', message.eventType);
+      assertStringField(payload, 'propertyId', message.eventType);
+      assertStringField(payload, 'documentId', message.eventType);
+      assertNoPlaintextGuestName(payload, message.eventType);
+      break;
+    }
     default:
       throw new Error(`unknown event type: ${message.eventType}`);
   }

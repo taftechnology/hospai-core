@@ -1,7 +1,7 @@
 import { env, createMessageBatch } from 'cloudflare:test';
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { DomainEventMessage, EventSource } from '@hospai/contracts';
+import { DEFAULT_GUEST_SETTINGS, type DomainEventMessage, type EventSource } from '@hospai/contracts';
 import { fingerprintPayload } from '@hospai/contracts';
 import { toQueueMessage, type OutboxRow } from '@hospai/do-runtime';
 import worker from '../src/index.js';
@@ -34,6 +34,7 @@ import {
   type PurgeStoreRecord,
 } from '../src/purge-certificate.js';
 import { ensurePurgeWorkflowInstance } from '../src/purge-workflow-create.js';
+import { sha256Hex } from '../src/guest-documents.js';
 import { HaltError, PurgeWorkflow, type PurgeWorkflowParams } from '../src/purge-workflow.js';
 import { createGuest, idemFor, orgStub, provisionedOrg, TEST_OWNER_ACTOR } from './guest-helpers.js';
 import { provisionedPropertyStub } from './fixtures.js';
@@ -295,6 +296,7 @@ describe('PurgeWorkflow spine', () => {
       'verify-shred',
       'property-do-guest-pii',
       'clear-guest-blobs',
+      'org-do-guest-documents',
       'retain-r2',
       'skip-iceberg',
       'verify-key-state',
@@ -326,6 +328,11 @@ describe('PurgeWorkflow spine', () => {
       store: 'r2',
       status: 'retained',
       reason: 'pii_by_reference_event_log',
+    });
+    expect(stores.find((s) => s.store === 'r2_guest_documents')).toEqual({
+      store: 'r2_guest_documents',
+      status: 'skipped',
+      reason: 'none',
     });
     expect('deleted' in r2).toBe(false);
     expect(stores.every((s) => s.status !== 'pending')).toBe(true);
@@ -364,6 +371,101 @@ describe('PurgeWorkflow spine', () => {
     });
 
     expect((await listEventLogKeys(env.EVENT_LOG_R2!, prefix)).length).toBeGreaterThan(0);
+  });
+
+  it('deletes guest document objects and rows and keeps the access log', async () => {
+    const orgId = `org_gdocs_${crypto.randomUUID().slice(0, 8)}`;
+    const org = await provisionedOrg(orgId);
+    const propertyA = `prop_gdocs_a_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyB = `prop_gdocs_b_${crypto.randomUUID().slice(0, 8)}`;
+    const guestId = `guest_gdocs_${crypto.randomUUID().slice(0, 8)}`;
+    const refs = await createGuest(org, propertyA, guestId, 'Document Guest');
+    expect(await org.upsertGuestPropertyAssociation(TEST_OWNER_ACTOR, propertyB, guestId)).toEqual({ ok: true });
+    expect(
+      await org.tryPutGuestSettings(
+        TEST_OWNER_ACTOR,
+        { value: { ...DEFAULT_GUEST_SETTINGS, consentNoticeVersion: 'notice-2026.1' }, reason: 'publish notice' },
+        await idemFor(`notice-${guestId}`, { notice: 'notice-2026.1' }),
+      ),
+    ).toMatchObject({ ok: true });
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0x00, 0x11]);
+    const hash = await sha256Hex(jpeg);
+    const fields = { number: 'AB123456', issuingCountry: 'US', nationality: 'US' };
+    for (const [propertyId, documentId] of [
+      [propertyA, `doc_a_${guestId.slice(-6)}`],
+      [propertyB, `doc_b_${guestId.slice(-6)}`],
+    ] as const) {
+      expect(
+        await org.tryAddGuestDocument(
+          TEST_OWNER_ACTOR,
+          propertyId,
+          { guestRef: guestId, documentId, kind: 'PASSPORT', fields },
+          await idemFor(`add-${documentId}`, { documentId }),
+        ),
+      ).toMatchObject({ ok: true, documentId });
+      expect(
+        await org.tryAttachGuestDocumentScan(
+          TEST_OWNER_ACTOR,
+          propertyId,
+          { guestRef: guestId, documentId, contentType: 'image/jpeg', bytes: jpeg, sha256: hash },
+          await idemFor(`scan-${documentId}`, { documentId }),
+        ),
+      ).toMatchObject({ ok: true, documentId });
+      expect(
+        await org.readPropertyGuestDocument(TEST_OWNER_ACTOR, propertyId, guestId, documentId),
+      ).toMatchObject({ ok: true, id: documentId });
+      expect(
+        await org.tryUpdateGuestConsent(
+          TEST_OWNER_ACTOR,
+          propertyId,
+          { guestRef: guestId, purpose: 'MARKETING_EMAIL', status: 'GRANTED', source: 'DESK' },
+          await idemFor(`consent-${documentId}`, { propertyId }),
+        ),
+      ).toMatchObject({ ok: true });
+    }
+    const prefix = `guest-docs/${orgId}/`;
+    expect(await listEventLogKeys(env.GUEST_DOCS_R2!, prefix)).toHaveLength(2);
+    expect(await org.countGuestDocumentResidueForTest(guestId)).toEqual({ documents: 2, consent: 2, access: 2 });
+
+    expect(
+      await org.tryEraseGuest(
+        TEST_OWNER_ACTOR,
+        propertyA,
+        { guestId },
+        await idemFor(`erase-${guestId}`, { guestId }),
+      ),
+    ).toMatchObject({ ok: true });
+    await org.resetLaneGuardForTest();
+
+    const workflowId = guestPurgeWorkflowId(guestId);
+    await runPurgeWorkflow({
+      kind: 'guest',
+      workflowId,
+      orgId,
+      guestRef: guestId,
+      piiKeyId: refs.piiKeyId,
+      operatorUserId: null,
+      started: Date.now(),
+    });
+
+    expect(await listEventLogKeys(env.GUEST_DOCS_R2!, prefix)).toEqual([]);
+    expect(await org.countGuestDocumentResidueForTest(guestId)).toEqual({ documents: 0, consent: 0, access: 2 });
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT stores_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ stores_json: string }>();
+    const stores = JSON.parse(row!.stores_json) as PurgeStoreRecord[];
+    expect(stores.find((s) => s.store === 'r2_guest_documents')).toEqual({
+      store: 'r2_guest_documents',
+      status: 'reached',
+      deleted: 2,
+    });
+    expect(stores.find((s) => s.store === 'r2')).toEqual({
+      store: 'r2',
+      status: 'retained',
+      reason: 'pii_by_reference_event_log',
+    });
   });
 });
 
@@ -418,6 +520,7 @@ describe('PurgeWorkflow org plan', () => {
       'purge-org-do',
       'purge-r2',
       'purge-pending-command-open',
+      'purge-guest-documents-r2',
       'skip-iceberg',
       'verify',
       'certify',

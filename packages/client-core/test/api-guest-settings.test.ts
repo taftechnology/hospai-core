@@ -19,6 +19,8 @@ const value = {
   requirePhone: false,
   matchOnEmail: true,
   matchOnPhone: false,
+  requireIdAtCheckIn: false,
+  consentNoticeVersion: null,
 };
 
 describe('guest settings client', () => {

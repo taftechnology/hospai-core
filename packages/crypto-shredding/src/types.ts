@@ -1,6 +1,33 @@
 /** §4.8 — staff scope reserved; shredding one scope must not touch the other. */
 export type KeyScope = 'guest' | 'staff';
 
+export type GuestPreferences = {
+  room?: Array<
+    | 'HIGH_FLOOR'
+    | 'LOW_FLOOR'
+    | 'QUIET_ROOM'
+    | 'NEAR_ELEVATOR'
+    | 'AWAY_FROM_ELEVATOR'
+    | 'CONNECTING_ROOM'
+  >;
+  bedding?: Array<'KING' | 'QUEEN' | 'TWIN' | 'EXTRA_BED' | 'CRIB' | 'FEATHER_FREE'>;
+  dietary?: Array<
+    | 'VEGETARIAN'
+    | 'VEGAN'
+    | 'JAIN'
+    | 'HALAL'
+    | 'KOSHER'
+    | 'GLUTEN_FREE'
+    | 'NUT_ALLERGY'
+    | 'LACTOSE_FREE'
+  >;
+  accessibility?: Array<
+    'WHEELCHAIR' | 'ACCESSIBLE_BATHROOM' | 'GROUND_FLOOR' | 'HEARING_SUPPORT' | 'VISUAL_SUPPORT'
+  >;
+  /** ≤ 200 chars. Not a second notes field. */
+  other?: string;
+};
+
 export type GuestProfile = {
   displayName: string;
   email?: string;
@@ -8,6 +35,7 @@ export type GuestProfile = {
   tags?: string[];
   vip?: boolean;
   notes?: string;
+  preferences?: GuestPreferences;
 };
 
 export type StaffProfile = {

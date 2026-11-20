@@ -9,7 +9,7 @@ export type FieldProps = {
   htmlFor?: string;
   /** Width cap. Defaults to `md`; the field still shrinks in narrow containers. */
   size?: FieldSize;
-  /** The single control slot — Input, NativeSelect, Textarea, or Checkbox. */
+  /** The single control slot — Input, FileInput, NativeSelect, Textarea, or Checkbox. */
   control: ReactElement<{ id?: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean }>;
 };
 

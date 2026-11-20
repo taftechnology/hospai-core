@@ -25,8 +25,8 @@ Binds the existing org-scoped OPERATIONAL key `pms.guests.settings` to a Setting
 
    | Prototype control | Why hidden | Owner |
    |---|---|---|
-   | Require ID / passport at check-in | No document can be recorded until R4.15; a toggle now would block every check-in. | **R4.15** adds it, failing check-in closed when on and no document is recorded (R4.15 "Also locked"). |
-   | Store stay preferences, match on passport / ID | No preference or document fields on `GuestProfile`. | R4.15 |
+   | Require ID / passport at check-in | Built by R4.15 as `requireIdAtCheckIn`. Check-in fails closed with `id_document_required` when the switch is on and this property has no live document. | R4.15 |
+   | Store stay preferences, match on passport / ID | Preferences are on the encrypted profile and edited from the guest screen (R4.15). Passport match stays out of this settings page. | R4.15 |
    | Default country, default language | `GuestProfile` has neither field. | none yet |
    | Auto-suggest merge, allow explicit duplicates, share profiles across properties | No overnight merge job; the two match toggles are the duplicate policy; cross-property sharing has no consumer. | none yet |
    | VIP / loyalty thresholds and later prototype sections | Outside "profile defaults". | not scheduled |

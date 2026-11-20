@@ -225,6 +225,11 @@ export const GUEST_EXISTS = 'guest_exists' as const;
 export const GUEST_EMAIL_REQUIRED = 'guest_email_required' as const;
 export const GUEST_PHONE_REQUIRED = 'guest_phone_required' as const;
 export const GUEST_DUPLICATE = 'guest_duplicate' as const;
+export const AADHAAR_FULL_NUMBER_NOT_ALLOWED = 'aadhaar_full_number_not_allowed' as const;
+export const AADHAAR_SCAN_NOT_ALLOWED = 'aadhaar_scan_not_allowed' as const;
+export const CONSENT_NOTICE_NOT_CONFIGURED = 'consent_notice_not_configured' as const;
+export const ID_DOCUMENT_REQUIRED = 'id_document_required' as const;
+export const SCAN_TYPE_NOT_ALLOWED = 'scan_type_not_allowed' as const;
 
 export const STAFF_NOT_FOUND = 'staff_not_found' as const;
 export const STAFF_EXITED = 'staff_exited' as const;

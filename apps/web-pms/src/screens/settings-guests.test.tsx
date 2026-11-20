@@ -33,6 +33,8 @@ const stored = {
   requirePhone: false,
   matchOnEmail: false,
   matchOnPhone: false,
+  requireIdAtCheckIn: false,
+  consentNoticeVersion: null,
 };
 
 function renderSettings(path: string) {
@@ -106,6 +108,14 @@ describe('Settings → Guests', () => {
   it('Save sends the full object with a reason and invalidates the org query', async () => {
     configureMe(['org:manage']);
     const { invalidateSpy } = renderSettings('/settings/guests');
+    expect(await screen.findByRole('heading', { name: 'Check-in and consent' })).toBeTruthy();
+    const checkInCard = screen.getByRole('heading', { name: 'Check-in and consent' }).closest('.ui-card');
+    expect(checkInCard?.textContent).toContain('Require an identity document at check-in');
+    expect(checkInCard?.textContent).toContain('Consent notice version');
+    const duplicateCard = screen
+      .getByRole('heading', { name: 'Duplicate check at this property' })
+      .closest('.ui-card');
+    expect(duplicateCard?.textContent).not.toContain('Require an identity document at check-in');
     fireEvent.click(await screen.findByLabelText('Require email on new guest profiles'));
     fireEvent.click(screen.getByLabelText('Match on phone at this property'));
     fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
@@ -120,6 +130,8 @@ describe('Settings → Guests', () => {
         requirePhone: false,
         matchOnEmail: false,
         matchOnPhone: true,
+        requireIdAtCheckIn: false,
+        consentNoticeVersion: null,
       },
       'Desk asked for email',
       3,
@@ -127,7 +139,7 @@ describe('Settings → Guests', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['org-guest-settings', 'org_demo'],
     });
-    expect(await screen.findByText('Saved. New guest profiles follow these rules.')).toBeTruthy();
+    expect(await screen.findByText('Saved.')).toBeTruthy();
     // The reason belongs to that save: it is cleared, so Save is disabled until a new one is typed.
     expect((screen.getByPlaceholderText('Why this change…') as HTMLInputElement).value).toBe('');
     expect((screen.getByTestId('guest-settings-save') as HTMLButtonElement).disabled).toBe(true);

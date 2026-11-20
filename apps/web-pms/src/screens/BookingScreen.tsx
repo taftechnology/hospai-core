@@ -9,6 +9,7 @@ import {
   type NamedListEntry,
 } from '@hospai/client-core';
 import { addedInclusionsMinor as sumAddedInclusionsMinor } from '@hospai/contracts';
+import { SelectedGuestDocument } from './guest-identity.js';
 import { applyPromoToAmountMinor, type PromoApplyInput } from '@hospai/money';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -890,7 +891,12 @@ export function BookingScreen() {
 
             <SectionLabel>Guest</SectionLabel>
             {contextMode && contextDisplayName ? (
-              <p data-testid="context-guest">Booking for {contextDisplayName}</p>
+              <>
+                <p data-testid="context-guest">Booking for {contextDisplayName}</p>
+                {contextGuestRef ? (
+                  <SelectedGuestDocument propertyId={propertyId} guestRef={contextGuestRef} />
+                ) : null}
+              </>
             ) : (
               <>
                 <Field

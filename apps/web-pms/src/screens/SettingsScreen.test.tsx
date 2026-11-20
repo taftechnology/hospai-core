@@ -103,6 +103,7 @@ const WARN_CHECKS = {
   cashier_shift_open: 'warn',
   dirty_room_assigned: 'warn',
   departed_with_balance: 'warn',
+  id_proof_missing: 'warn',
 };
 
 function configureMe(permissions: string[]) {

@@ -16,6 +16,11 @@ const listRatePlans = vi.fn();
 const listOperationalConfig = vi.fn();
 const listDomainConfig = vi.fn();
 const getFolioPayments = vi.fn();
+const listGuestDocuments = vi.fn();
+const getMe = vi.fn();
+const getGuest = vi.fn();
+const addGuestDocument = vi.fn();
+const getGuestSettings = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -41,6 +46,11 @@ vi.mock('../client.js', () => ({
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
     getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
+    listGuestDocuments: (...args: unknown[]) => listGuestDocuments(...args),
+    getMe: (...args: unknown[]) => getMe(...args),
+    getGuest: (...args: unknown[]) => getGuest(...args),
+    addGuestDocument: (...args: unknown[]) => addGuestDocument(...args),
+    getGuestSettings: (...args: unknown[]) => getGuestSettings(...args),
   },
 }));
 
@@ -133,6 +143,21 @@ describe('CheckInScreen', () => {
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     listDomainConfig.mockResolvedValue({ ok: true, keys: [] });
     getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    listGuestDocuments.mockResolvedValue({ ok: true, documents: [], requireIdAtCheckIn: false });
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:write'],
+      orgPermissions: [],
+    });
+    getGuest.mockResolvedValue({
+      guestId: 'g1',
+      erased: false,
+      profile: { displayName: 'Ada Lovelace' },
+    });
     listRoomTypes.mockResolvedValue({
       ok: true,
       roomTypes: [{ roomTypeId: 'rt', code: 'KNG', name: 'King Room' }],
@@ -325,6 +350,23 @@ describe('CheckInScreen', () => {
     fireEvent.click(screen.getByTestId('print-reg-card'));
     expect(print).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it('successful check-in and room assign use a settled alert, not an exception', async () => {
+    assignRoom.mockResolvedValue({ ok: true });
+    renderCheckIn();
+    fireEvent.click(await screen.findByTestId('check-in'));
+    const checkedIn = await screen.findByTestId('check-in-message');
+    expect(checkedIn.textContent).toMatch(/Checked in/);
+    expect(checkedIn.className).toContain('ui-alert--settled');
+    expect(checkedIn.className).not.toContain('ui-alert--exception');
+
+    fireEvent.change(screen.getByTestId('check-in-room'), { target: { value: 'rm_1' } });
+    fireEvent.click(screen.getByRole('button', { name: /assign room/i }));
+    const assigned = await screen.findByTestId('check-in-message');
+    expect(assigned.textContent).toMatch(/Room assigned/);
+    expect(assigned.className).toContain('ui-alert--settled');
+    expect(assigned.className).not.toContain('ui-alert--exception');
   });
 
   it('57: check-in success invalidates board prefix', async () => {
@@ -737,5 +779,68 @@ describe('CheckInScreen', () => {
     expect((await screen.findByTestId('check-in-reservation-error')).textContent).toMatch(
       /Data is stale/,
     );
+  });
+
+  it('disables check-in from the documents list when an ID is required', async () => {
+    listGuestDocuments.mockResolvedValue({ ok: true, documents: [], requireIdAtCheckIn: true });
+    renderCheckIn();
+    await waitFor(() =>
+      expect(screen.getByText('Record an identity document before check-in.')).toBeTruthy(),
+    );
+    expect(checkInButton().disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Record ID' })).toBeNull();
+    expect((screen.getByTestId('id-on-file')).textContent).toBe('No ID on file');
+    expect(getGuestSettings).not.toHaveBeenCalled();
+  });
+
+  it('records an ID and enables check-in without reading org guest settings', async () => {
+    listGuestDocuments
+      .mockResolvedValueOnce({ ok: true, documents: [], requireIdAtCheckIn: true })
+      .mockResolvedValue({
+        ok: true,
+        requireIdAtCheckIn: true,
+        documents: [
+          { id: 'doc_1', kind: 'PASSPORT', hasScan: false, scanContentType: null, createdAt: 1 },
+        ],
+      });
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:write', 'guests:write'],
+      orgPermissions: [],
+    });
+    postGuestsBatch.mockResolvedValue({
+      ok: true,
+      guests: {
+        g1: {
+          ok: true,
+          profile: { displayName: 'Ada Lovelace', preferences: { bedding: ['KING'] } },
+        },
+      },
+      states: { g1: { kind: 'resolved', displayName: 'Ada Lovelace' } },
+    });
+    addGuestDocument.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    const { invalidateSpy } = renderCheckIn();
+    await waitFor(() =>
+      expect(screen.getByText('Record an identity document before check-in.')).toBeTruthy(),
+    );
+    expect(screen.getByTestId('guest-preference-badges').textContent).toContain('King');
+    fireEvent.click(screen.getByRole('button', { name: 'Record ID' }));
+    fireEvent.change(screen.getByLabelText('Number'), { target: { value: 'AB123456' } });
+    fireEvent.change(screen.getByLabelText('Issuing country'), { target: { value: 'IN' } });
+    fireEvent.change(screen.getByLabelText('Nationality'), { target: { value: 'IN' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record document' }));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['guest-documents', 'prop_demo', 'g1'],
+      }),
+    );
+    await waitFor(() => expect(checkInButton().disabled).toBe(false));
+    expect(screen.queryByText('Record an identity document before check-in.')).toBeNull();
+    expect(screen.getByText('Identity document recorded.')).toBeTruthy();
+    expect(getGuestSettings).not.toHaveBeenCalled();
   });
 });

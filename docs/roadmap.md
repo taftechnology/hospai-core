@@ -507,7 +507,15 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - **R4.3 adds a manifest entry and a handler, nothing else.**
     - **Ops:** the staging queues `hospai-event-retries-staging` and `hospai-event-retries-dlq-staging` were created on 2026-11-19. Create the production pair (`hospai-event-retries`, `hospai-event-retries-dlq`) with `wrangler queues create` before the first production deploy.
 
-- [ ] **R4.15 Guest ID documents, preferences + consent**
+- [x] **R4.15 Guest ID documents, preferences + consent**
+  - **Done (2026-11-19):** [spec](superpowers/specs/2026-11-19-guest-documents-consent-design.md).
+    - ID documents live in OrgDO under the guest's own key and belong to the hotel that recorded them; another hotel in the group cannot list or read them. Scans are encrypted into a new R2 bucket (`GUEST_DOCS_R2`, 5 MiB, JPEG/PNG/PDF checked by magic bytes). Every decrypted read writes an access row; lists never decrypt.
+    - **Aadhaar is the last four digits only, with no scan.** UIDAI approved a rule in Dec 2025 to stop hotels storing Aadhaar copies (QR or app verification instead); the advisor confirms at go-live.
+    - Structured preferences (room, bedding, dietary, accessibility) ride in the encrypted profile and show on Guest 360, the stay card and check-in. Consent is per purpose (marketing email, SMS, WhatsApp, profile retention) with the notice version stamped from Settings → Guests; withdrawal applies across the group, and history hides other hotels' ids.
+    - Settings → Guests gains *Require ID at check-in* (check-in fails closed, also when OrgDO is unreachable) and *Consent notice version*. Check-in has a Record ID button. A queue consumer keeps a non-PII `id_document_on_file` bit per stay for the new `id_proof_missing` night-audit check (warn by default).
+    - Purge deletes the scans and the document and consent rows, keeps the access log, and records `r2_guest_documents` on the certificate.
+    - Adds 4 commands, 8 routes, OrgDO migration 12 and PropertyDO migration 45. Stay flags (Q20) and OCR stay out.
+    - **Ops:** create the R2 buckets `hospai-guest-docs-staging` (`wrangler r2 bucket create hospai-guest-docs-staging --env staging`) and `hospai-guest-docs` before the next staging and the first production deploy.
   - **Depends:** **R1.8** (guest CRM remainder), **R0.5** (per-org HKDF keys — shipped).
   - **Pilot checklist:** *Guest lookup (ID documents)*, *Guest documents*, *Edit reservation and guest preferences*, *Guest 360 (identity, stays, preferences, consent)*.
   - **Preferences:** structured guest preferences (room, bedding, dietary, accessibility) on the OrgDO profile, shown on the stay card and at check-in. R1.8's free-text notes stay notes; do not fold one into the other. `GuestProfile` holds none of these today.
@@ -1014,14 +1022,14 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R4.5** (2026-11-19):
+After **R4.15** (2026-11-19):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **111** |
-| `V1_HTTP_ROUTE_AUDIT` | **179** routes, last `post_event_consumer_exception_dismiss` |
-| `PROPERTY_SCHEMA_HEAD` | **44** |
-| `ORG_SCHEMA_HEAD` | **11** |
+| `COMMAND_CATALOG` | length **115** |
+| `V1_HTTP_ROUTE_AUDIT` | **187** routes, last `post_guest_consent` |
+| `PROPERTY_SCHEMA_HEAD` | **45** |
+| `ORG_SCHEMA_HEAD` | **12** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |
 
 After a slice that adds a command/route/migration, **edit this table** in the same PR so the next agent does not use stale heads.

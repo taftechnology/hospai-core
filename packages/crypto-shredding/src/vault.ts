@@ -28,6 +28,14 @@ function profileAad(piiKeyId: string): Uint8Array {
   return new TextEncoder().encode(piiKeyId);
 }
 
+function documentAad(piiKeyId: string, documentId: string): Uint8Array {
+  return new TextEncoder().encode(`${piiKeyId}:${documentId}`);
+}
+
+function scanAad(piiKeyId: string, documentId: string): Uint8Array {
+  return new TextEncoder().encode(`${piiKeyId}:${documentId}:scan`);
+}
+
 export class PiiVault {
   constructor(
     private readonly masters: VaultMasters,
@@ -153,6 +161,76 @@ export class PiiVault {
       await crypto.subtle.encrypt({ name: 'AES-GCM', iv: profileIv, additionalData: aad as BufferSource }, dataKey, encoded),
     );
     return { profileCipher, profileIv };
+  }
+
+  /** Document payload. AAD is `piiKeyId:documentId`, not the profile AAD. */
+  async sealDocument(
+    piiKeyId: string,
+    documentId: string,
+    fields: object,
+  ): Promise<{ ciphertext: Uint8Array; iv: Uint8Array }> {
+    return this.sealBytes(piiKeyId, new TextEncoder().encode(JSON.stringify(fields)), documentAad(piiKeyId, documentId));
+  }
+
+  async openDocument<T>(
+    piiKeyId: string,
+    documentId: string,
+    ciphertext: Uint8Array,
+    iv: Uint8Array,
+  ): Promise<T> {
+    const plain = await this.openBytes(piiKeyId, ciphertext, iv, documentAad(piiKeyId, documentId));
+    return JSON.parse(new TextDecoder().decode(plain)) as T;
+  }
+
+  /** Scan bytes. AAD is `piiKeyId:documentId:scan`. */
+  async sealScan(
+    piiKeyId: string,
+    documentId: string,
+    bytes: Uint8Array,
+  ): Promise<{ ciphertext: Uint8Array; iv: Uint8Array }> {
+    return this.sealBytes(piiKeyId, bytes, scanAad(piiKeyId, documentId));
+  }
+
+  async openScan(
+    piiKeyId: string,
+    documentId: string,
+    ciphertext: Uint8Array,
+    iv: Uint8Array,
+  ): Promise<Uint8Array> {
+    return this.openBytes(piiKeyId, ciphertext, iv, scanAad(piiKeyId, documentId));
+  }
+
+  private async sealBytes(
+    piiKeyId: string,
+    plaintext: Uint8Array,
+    aad: Uint8Array,
+  ): Promise<{ ciphertext: Uint8Array; iv: Uint8Array }> {
+    const dataKey = await this.unwrapDataKey(piiKeyId);
+    const iv = crypto.getRandomValues(new Uint8Array(DATA_IV_BYTES));
+    const ciphertext = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, additionalData: aad as BufferSource },
+        dataKey,
+        plaintext as BufferSource,
+      ),
+    );
+    return { ciphertext, iv };
+  }
+
+  private async openBytes(
+    piiKeyId: string,
+    ciphertext: Uint8Array,
+    iv: Uint8Array,
+    aad: Uint8Array,
+  ): Promise<Uint8Array> {
+    const dataKey = await this.unwrapDataKey(piiKeyId);
+    return new Uint8Array(
+      await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv as BufferSource, additionalData: aad as BufferSource },
+        dataKey,
+        ciphertext as BufferSource,
+      ),
+    );
   }
 
   async decryptProfile<T>(piiKeyId: string, ciphertext: Uint8Array, iv: Uint8Array): Promise<T> {

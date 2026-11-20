@@ -1,4 +1,5 @@
 import { ClassifiedError } from '@hospai/client-core';
+import { maskedDocumentNumber } from '@hospai/contracts';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
@@ -16,6 +17,9 @@ const listRatePromos = vi.fn();
 const listOperationalConfig = vi.fn();
 const listProducts = vi.fn();
 const addFolioLine = vi.fn();
+const listGuestDocuments = vi.fn();
+const readGuestDocument = vi.fn();
+const getGuestDocumentScan = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -41,6 +45,9 @@ vi.mock('../client.js', () => ({
     listOperationalConfig: (...a: unknown[]) => listOperationalConfig(...a),
     listProducts: (...a: unknown[]) => listProducts(...a),
     addFolioLine: (...a: unknown[]) => addFolioLine(...a),
+    listGuestDocuments: (...a: unknown[]) => listGuestDocuments(...a),
+    readGuestDocument: (...a: unknown[]) => readGuestDocument(...a),
+    getGuestDocumentScan: (...a: unknown[]) => getGuestDocumentScan(...a),
   },
 }));
 
@@ -254,6 +261,7 @@ describe('BookingScreen', () => {
     listOperationalConfig.mockResolvedValue({ ok: true, items: [] });
     listProducts.mockResolvedValue({ ok: true, categories: [], items: [] });
     addFolioLine.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    listGuestDocuments.mockResolvedValue({ ok: true, documents: [], requireIdAtCheckIn: false });
   });
 
   afterEach(() => {
@@ -1331,5 +1339,62 @@ describe('BookingScreen', () => {
     fireEvent.click(await screen.findByRole('radio', { name: /King Deluxe/i }));
     await waitFor(() => expect(screen.getByTestId('stay-quote').textContent).toContain('₹750.00'));
     expect(screen.getByTestId('quote-added').textContent).toContain('₹600.00');
+  });
+
+  async function selectAda() {
+    searchGuests.mockResolvedValue({
+      classified: { class: 'live' },
+      body: {
+        items: [
+          {
+            guestId: 'g_ada',
+            erased: false,
+            profile: { displayName: 'Ada Lovelace', email: 'ada@ex.com' },
+            createdAt: 1,
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    renderBook();
+    await waitFor(() => expect(screen.getByRole('radio', { name: /King Deluxe/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('radio', { name: /King Deluxe/i }));
+    fireEvent.change(screen.getByTestId('guest-find'), { target: { value: 'Ada' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Ada Lovelace/i }));
+    await screen.findByTestId('context-guest');
+  }
+
+  it('shows nothing for a selected guest with no identity document', async () => {
+    await selectAda();
+    await waitFor(async () => {
+      expect(listGuestDocuments).toHaveBeenCalledWith('prop_demo', 'g_ada');
+      await Promise.all(listGuestDocuments.mock.results.map((result) => result.value as Promise<unknown>));
+      expect(screen.queryByText('Identity on file')).toBeNull();
+    });
+    expect(screen.queryByTestId('selected-guest-document')).toBeNull();
+  });
+
+  it('shows the masked number and expiry after a guest is selected', async () => {
+    listGuestDocuments.mockResolvedValue({
+      ok: true,
+      requireIdAtCheckIn: false,
+      documents: [
+        { id: 'doc_1', kind: 'PASSPORT', hasScan: false, scanContentType: null, createdAt: 1 },
+      ],
+    });
+    readGuestDocument.mockResolvedValue({
+      ok: true,
+      id: 'doc_1',
+      kind: 'PASSPORT',
+      fields: { number: 'AB123456', issuingCountry: 'IN', nationality: 'IN', expiryDate: '2030-01-15' },
+      hasScan: false,
+      createdAt: 1,
+    });
+    await selectAda();
+    const block = await screen.findByTestId('selected-guest-document');
+    expect(block.textContent).toContain('Identity on file');
+    expect(block.textContent).toContain('Passport');
+    expect(block.textContent).toContain(maskedDocumentNumber({ number: 'AB123456' }));
+    expect(block.textContent).toContain('expires 15/01/2030');
   });
 });

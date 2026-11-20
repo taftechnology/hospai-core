@@ -63,7 +63,7 @@ The client ticked *Night audit (customisable)*, and every tick is a must-have. O
 |---|---|---|
 | Open folios and open folio holds, auto-open, auto-close | HospAI has no bill-on-hold yet | R4.23, which adds the check |
 | Arrival deposits | No rule yet says a deposit is required, so a count would be noise | R4.25, reading the R1.20 rule |
-| ID proof completeness | Guest ID documents are not built | R4.15 |
+| ID proof completeness | Built by R4.15 as `id_proof_missing` (warn). Counts in-house stays with `id_document_on_file = 0`. | R4.15 |
 | Country/state | Guest details live in OrgDO; PropertyDO cannot count them, and events carry no PII | R4.15 or R6.2 |
 | Pseudo rooms | HospAI has no such concept | Dropped unless the client needs it |
 | Weather and notes setup | No data, and unclear value | Ask the client (§8) |
@@ -171,7 +171,7 @@ Three stages on `/night-audit`, in local state with the `ui-tabs` look and no ne
 None of these blocks the build; the answers set values or add later checks.
 
 1. In BluePMS's Night Audit Check Configuration, which checks do you have on, and which are set to Fail, Warn or Info?
-2. Do you rely on any listed check that this build leaves out, especially arrival deposits, ID proof, rate mismatch or weather/notes?
+2. Do you rely on any listed check that this build leaves out, especially arrival deposits, rate mismatch or weather/notes? ID proof completeness is now the `id_proof_missing` check from R4.15.
 3. Do you use open folio holds? This decides whether the open folio slice comes before cut-over.
 
 ## 9. Out

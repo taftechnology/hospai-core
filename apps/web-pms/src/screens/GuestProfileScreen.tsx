@@ -39,6 +39,7 @@ import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
 import { useFormat } from '../shell/PropertyFormat.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
+import { GuestIdentityPanels } from './guest-identity.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 
 type GuestProfile = {
@@ -48,6 +49,7 @@ type GuestProfile = {
   tags?: string[];
   vip?: boolean;
   notes?: string;
+  preferences?: import('@hospai/contracts').GuestPreferences;
 };
 type GuestRead =
   | { guestId: string; erased: false; profile: GuestProfile }
@@ -496,12 +498,21 @@ export function GuestProfileScreen() {
               </div>
             </CardContent>
           </Card>
+          {guest.erased ? null : (
+            <GuestIdentityPanels
+              propertyId={propertyId}
+              guestRef={guestRef}
+              displayName={guest.profile.displayName}
+              preferences={guest.profile.preferences}
+              canWrite={canWrite}
+            />
+          )}
 
           {guest.erased ? null : (
             <>
-              <Card data-testid="guest-preferences-card">
+              <Card data-testid="guest-tags-card">
                 <CardHeader>
-                  <CardTitle>Preferences</CardTitle>
+                  <CardTitle>Tags</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {guest.profile.tags && guest.profile.tags.length > 0 ? (
@@ -513,7 +524,7 @@ export function GuestProfileScreen() {
                       ))}
                     </div>
                   ) : (
-                    <EmptyState title="No preferences recorded." />
+                    <EmptyState title="No tags recorded." />
                   )}
                 </CardContent>
               </Card>

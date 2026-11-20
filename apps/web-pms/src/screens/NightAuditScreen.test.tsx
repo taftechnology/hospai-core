@@ -93,6 +93,7 @@ function clearChecks() {
     'cashier_shift_open',
     'dirty_room_assigned',
     'departed_with_balance',
+    'id_proof_missing',
   ].map((checkId) => ({ checkId, severity: 'warn' as const, count: 0 }));
 }
 

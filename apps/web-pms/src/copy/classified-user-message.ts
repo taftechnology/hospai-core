@@ -76,6 +76,11 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   room_not_ready: () => 'That room is not ready yet — pick a clean or inspected room.',
   prepayment_required: () =>
     'This hotel requires a card hold or payment before check-in. Authorize a card or take a payment on the folio.',
+  id_document_required: () => 'Record an identity document before check-in.',
+  aadhaar_full_number_not_allowed: () => 'Aadhaar stores the last four digits only.',
+  aadhaar_scan_not_allowed: () => 'Aadhaar scans are not stored.',
+  consent_notice_not_configured: () => 'Set a consent notice version in Settings before recording consent.',
+  scan_type_not_allowed: () => 'That file type is not allowed. Use a JPEG, PNG, or PDF.',
   room_out_of_order: () => 'Room is out of order — pick another room.',
   room_type_mismatch: () =>
     'That room does not match the booked room type — pick another room.',

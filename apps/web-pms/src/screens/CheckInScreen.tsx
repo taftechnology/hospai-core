@@ -16,6 +16,7 @@ import {
   isReservationStatus,
   StatusBadge,
 } from '@hospai/ui-kit';
+import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { isQueuedResult, queuedWriteCopy } from '../copy/is-queued-result.js';
@@ -23,6 +24,14 @@ import { FrontOfficeEditor } from './front-office-editor.js';
 import { PrintRegCardControl, RegistrationCard, useRegCardLabels } from './registration-card.js';
 import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { useFormat } from '../shell/PropertyFormat.js';
+import {
+  GuestDocumentBadges,
+  GuestPreferenceBadges,
+  ID_DOCUMENT_BLOCK_REASON,
+  RecordIdDocumentDialog,
+  useGuestDocumentList,
+  useGuestPreferences,
+} from './guest-identity.js';
 import { isStayGuarantee, stayGuaranteeText } from './tender-label.js';
 
 function bodyErrorCode(body: unknown): string | null {
@@ -145,7 +154,9 @@ export function CheckInScreen() {
   const { reservationId = '' } = useParams();
   const [roomId, setRoomId] = useState('');
   const [message, setMessageText] = useState<string | null>(null);
-  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention'>('exception');
+  const [messageIntent, setMessageIntent] = useState<'exception' | 'attention' | 'settled'>(
+    'exception',
+  );
   const setMessage = (text: string | null) => {
     setMessageIntent('exception');
     setMessageText(text);
@@ -154,8 +165,14 @@ export function CheckInScreen() {
     setMessageIntent('attention');
     setMessageText(text);
   };
+  const setSettledNotice = (text: string) => {
+    setMessageIntent('settled');
+    setMessageText(text);
+  };
   const [showOverride, setShowOverride] = useState(false);
   const [overrideCleanliness, setOverrideCleanliness] = useState(false);
+  const [recordIdOpen, setRecordIdOpen] = useState(false);
+  const [idNotice, setIdNotice] = useState<string | null>(null);
 
   const reservationQ = useQuery({
     queryKey: ['reservation', tenant.propertyId, reservationId],
@@ -223,7 +240,7 @@ export function CheckInScreen() {
         setQueuedNotice(queuedWriteCopy());
         return;
       }
-      setMessage('Room assigned');
+      setSettledNotice('Room assigned');
       void queryClient.invalidateQueries({ queryKey: ['board'] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', tenant.propertyId] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-free', tenant.propertyId] });
@@ -255,7 +272,7 @@ export function CheckInScreen() {
         setQueuedNotice(queuedWriteCopy());
         return;
       }
-      setMessage('Checked in');
+      setSettledNotice('Checked in');
       void queryClient.invalidateQueries({ queryKey: ['board'] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', tenant.propertyId] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-free', tenant.propertyId] });
@@ -326,7 +343,17 @@ export function CheckInScreen() {
   const selectedRoom = rooms.find((r) => r.roomId === roomId) ?? null;
   const arrival = res?.arrivalDate ?? '';
   const departure = res?.departureDate ?? '';
-  const blockReason = checkInBlockReason({
+  const docsQ = useGuestDocumentList(tenant.propertyId, guestRef ?? '', Boolean(guestRef));
+  const preferences = useGuestPreferences(tenant.propertyId, guestRef, guestsQ.data, guestsQ.isFetched);
+  const meQ = useQuery({
+    queryKey: ['me', tenant.propertyId],
+    queryFn: () => api.getMe(tenant.propertyId),
+  });
+  const canRecordId = Boolean(meQ.data && hasPropertyPermission(meQ.data, 'guests:write'));
+  const idRequired = docsQ.data?.requireIdAtCheckIn === true;
+  const docCount = docsQ.data && 'documents' in docsQ.data ? docsQ.data.documents.length : 0;
+  const idBlock = idRequired && docsQ.isSuccess && docCount === 0 ? ID_DOCUMENT_BLOCK_REASON : null;
+  const blockReason = idBlock ?? checkInBlockReason({
     status,
     roomPicked: roomId.trim().length > 0,
     room: selectedRoom,
@@ -495,6 +522,35 @@ export function CheckInScreen() {
           </div>
         </CardContent>
       </Card>
+
+      {guestRef ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Identity and preferences</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="ui-stack">
+              {idNotice ? <Alert intent="settled">{idNotice}</Alert> : null}
+              <GuestDocumentBadges propertyId={tenant.propertyId} guestRef={guestRef} />
+              <GuestPreferenceBadges preferences={preferences} />
+              {canRecordId ? (
+                <Button type="button" onClick={() => setRecordIdOpen(true)}>
+                  Record ID
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      {guestRef ? (
+        <RecordIdDocumentDialog
+          open={recordIdOpen}
+          onClose={() => setRecordIdOpen(false)}
+          propertyId={tenant.propertyId}
+          guestRef={guestRef}
+          onRecorded={() => setIdNotice('Identity document recorded.')}
+        />
+      ) : null}
 
       {res ? (
         <FrontOfficeEditor

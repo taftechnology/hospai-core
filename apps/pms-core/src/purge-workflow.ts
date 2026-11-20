@@ -202,6 +202,19 @@ async function runOrgPlan(
       .run();
   });
 
+  await step.do('purge-guest-documents-r2', async () => {
+    if (!env.GUEST_DOCS_R2) {
+      replaceStore(stores, { store: 'r2_guest_documents', status: 'skipped', reason: 'no_r2_binding' });
+      return;
+    }
+    const deleted = await deleteEventLogPrefix(env.GUEST_DOCS_R2, `guest-docs/${params.orgId}/`);
+    replaceStore(stores, {
+      store: 'r2_guest_documents',
+      status: deleted > 0 ? 'reached' : 'skipped',
+      ...(deleted > 0 ? { deleted } : { reason: 'none' }),
+    });
+  });
+
   await step.do('skip-iceberg', async () => {
     // Iceberg is out of scope — already skipped in initialStores.
   });
@@ -392,7 +405,33 @@ async function runGuestPlan(
       store: 'org_do',
       status: 'reached',
       deleted: 0,
-      note: 'profile_blobs_cleared',
+      note: 'profile_blobs_cleared; guest_document_access kept without PII',
+    });
+  });
+
+  await step.do('org-do-guest-documents', async () => {
+    const listed = await org().listGuestDocumentPurgeKeys(params.guestRef);
+    if (!listed.ok) throw new HaltError(listed.error);
+    if (listed.scanKeys.length > 0 && !env.GUEST_DOCS_R2) throw new HaltError('guest_docs_r2_unbound');
+    let deleted = 0;
+    if (env.GUEST_DOCS_R2) {
+      for (const key of [...listed.scanKeys, ...listed.computedKeys]) {
+        const head = await env.GUEST_DOCS_R2.head(key);
+        if (head) {
+          await env.GUEST_DOCS_R2.delete(key);
+          deleted += 1;
+        }
+      }
+      for (const prefix of listed.prefixes) {
+        deleted += await deleteEventLogPrefix(env.GUEST_DOCS_R2, prefix);
+      }
+    }
+    const cleared = await org().deleteGuestDocumentRows(params.guestRef);
+    if (!cleared.ok) throw new HaltError(cleared.error);
+    replaceStore(stores, {
+      store: 'r2_guest_documents',
+      status: deleted > 0 ? 'reached' : 'skipped',
+      ...(deleted > 0 ? { deleted } : { reason: 'none' }),
     });
   });
 

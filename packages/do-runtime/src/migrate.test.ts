@@ -236,6 +236,7 @@ class MemorySql implements SqlStorageLike {
     }
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN no_post')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN dnd_flag')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN id_document_on_file')) return { toArray: () => [] };
     if (q.startsWith('INSERT INTO room_ooo')) return { toArray: () => [] };
     if (q.startsWith('UPDATE availability_day')) return { toArray: () => [] };
     if (
@@ -270,16 +271,16 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 44', () => {
+  it('applies property migrations through version 45', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(44);
+    expect(v1).toBe(45);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(44);
-    expect(sql.schemaVersion).toHaveLength(44);
+    expect(v2).toBe(45);
+    expect(sql.schemaVersion).toHaveLength(45);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
+      26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -718,9 +719,9 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(11);
-    expect(sql.schemaVersion).toHaveLength(11);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(12);
+    expect(sql.schemaVersion).toHaveLength(12);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -733,8 +734,8 @@ describe('freeAvailability', () => {
 
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(44);
-    expect(ORG_SCHEMA_HEAD).toBe(11);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(45);
+    expect(ORG_SCHEMA_HEAD).toBe(12);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
 

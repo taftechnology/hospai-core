@@ -8,6 +8,7 @@ function buildContentSecurityPolicy(): string {
   const clerk = CLERK_SCRIPT_ORIGINS.join(' ');
   return [
     "default-src 'self'",
+    "img-src 'self' blob:",
     "frame-ancestors 'none'",
     `connect-src 'self' ${clerk}`,
     `script-src 'self' ${clerk}`,

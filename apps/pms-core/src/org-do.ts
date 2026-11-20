@@ -43,6 +43,11 @@ import {
   type CommandError,
   type EventSource,
   type GuestSettings,
+  type GuestDocumentKind,
+  type GuestPreferences,
+  type ConsentPurpose,
+  type ConsentSource,
+  type ConsentStatus,
   type IdempotencyKey,
   type OrgRole,
   type OrgScopedPermission,
@@ -50,6 +55,9 @@ import {
   type PropertyScopedPermission,
   guestCrmExceedsCaps,
   normalizeGuestCrmFields,
+  parseGuestPreferences,
+  GUEST_DOCUMENT_KINDS,
+  ConsentWriteSchema,
   ROSTER_KINDS,
   ROSTER_OPS_SKILLS_MAX,
   normalizeRosterOpsSkills,
@@ -96,6 +104,21 @@ import type { PmsEnv } from './env.js';
 import { runOutboxAlarmStep, type OutboxAlarmContext } from './outbox-observability.js';
 import { SqlKeyStore } from './org-key-store.js';
 import { ORG_DO_TRANSPORT_BLOCKED_MESSAGE } from './org-do-transport.js';
+import {
+  addGuestDocument,
+  attachGuestDocumentScan,
+  deleteGuestDocumentRows,
+  identityGate,
+  listGuestDocumentPurgeKeys,
+  listGuestDocuments,
+  readGuestConsent,
+  readGuestDocument,
+  readGuestDocumentScan,
+  removeGuestDocument,
+  updateGuestConsent,
+  countDocumentAccess,
+  type GuestDocCommandHost,
+} from './guest-document-commands.js';
 
 type GuestProfileDirectory = Omit<GuestProfile, 'notes'>;
 
@@ -351,6 +374,9 @@ const ORG_PURGE_INVENTORY_TABLES = [
   'data_key',
   'guest',
   'guest_blind_index',
+  'guest_consent',
+  'guest_document',
+  'guest_document_access',
   'guest_property',
   'idempotency',
   'member',
@@ -373,6 +399,9 @@ function countOrgInventoryRows(sql: DurableObjectState['storage']['sql']): numbe
       (SELECT COUNT(*) FROM data_key) +
       (SELECT COUNT(*) FROM guest) +
       (SELECT COUNT(*) FROM guest_blind_index) +
+      (SELECT COUNT(*) FROM guest_consent) +
+      (SELECT COUNT(*) FROM guest_document) +
+      (SELECT COUNT(*) FROM guest_document_access) +
       (SELECT COUNT(*) FROM guest_property) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM member) +
@@ -2076,14 +2105,53 @@ export class OrgDO extends DurableObject<PmsEnv> {
     }
   }
 
+  private mergeGuestUpdate(
+    normalized: GuestProfile,
+    existing: GuestProfile,
+    input: {
+      preferencesUpdate?: GuestPreferences | null;
+      present?: { email?: boolean; phone?: boolean; tags?: boolean; vip?: boolean; notes?: boolean };
+    },
+  ): GuestProfile {
+    if (!('preferencesUpdate' in input)) {
+      return existing.preferences ? { ...normalized, preferences: existing.preferences } : normalized;
+    }
+    const present = input.present ?? {};
+    const next: GuestProfile = { displayName: normalized.displayName };
+    if (present.email) {
+      if (normalized.email) next.email = normalized.email;
+    } else if (existing.email) next.email = existing.email;
+    if (present.phone) {
+      if (normalized.phone) next.phone = normalized.phone;
+    } else if (existing.phone) next.phone = existing.phone;
+    if (present.tags) {
+      if (normalized.tags) next.tags = normalized.tags;
+    } else if (existing.tags) next.tags = existing.tags;
+    if (present.vip) {
+      if (normalized.vip) next.vip = true;
+    } else if (existing.vip) next.vip = true;
+    if (present.notes) {
+      if (normalized.notes) next.notes = normalized.notes;
+    } else if (existing.notes) next.notes = existing.notes;
+    if (normalized.preferences) next.preferences = normalized.preferences;
+    return next;
+  }
+
   async tryUpdateGuest(
     actor: ActorContext,
     propertyId: string,
-    input: { guestId: string; profile: GuestProfile },
+    input: {
+      guestId: string;
+      profile: GuestProfile;
+      /** Present only when the caller sent `preferences` (including null to clear). */
+      preferencesUpdate?: GuestPreferences | null;
+      /** CRM keys present on a preferences patch. Omitted keys stay as stored. */
+      present?: { email?: boolean; phone?: boolean; tags?: boolean; vip?: boolean; notes?: boolean };
+    },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; guestId: string; piiKeyId: string }
-    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED }
+    | { ok: false; error: typeof GUEST_NOT_FOUND | typeof GUEST_ALREADY_ERASED | typeof IDEM_KEY_REUSED | typeof LIMIT_EXCEEDED | typeof VALIDATION_ERROR | typeof DECRYPT_UNRESOLVED }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -2100,9 +2168,16 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
-    const profile = normalizeGuestCrmFields(input.profile) as GuestProfile;
-    if (guestCrmExceedsCaps(profile)) {
+    const normalized = normalizeGuestCrmFields(input.profile) as GuestProfile;
+    if (guestCrmExceedsCaps(normalized)) {
       return { ok: false, error: LIMIT_EXCEEDED };
+    }
+    if ('preferencesUpdate' in input && input.preferencesUpdate != null) {
+      const parsedPrefs = parseGuestPreferences(input.preferencesUpdate);
+      if (!parsedPrefs.ok) return parsedPrefs;
+      if (Object.keys(parsedPrefs.preferences).length > 0) {
+        normalized.preferences = parsedPrefs.preferences;
+      }
     }
 
     try {
@@ -2112,13 +2187,29 @@ export class OrgDO extends DurableObject<PmsEnv> {
       if (replay) return replay;
 
       const rows = this.ctx.storage.sql
-        .exec(`SELECT pii_key_id, erased_at FROM guest WHERE guest_id = ?`, input.guestId)
-        .toArray() as Array<{ pii_key_id: string; erased_at: number | null }>;
+        .exec(`SELECT pii_key_id, profile_cipher, profile_iv, erased_at FROM guest WHERE guest_id = ?`, input.guestId)
+        .toArray() as unknown as Array<{
+        pii_key_id: string;
+        profile_cipher: Uint8Array;
+        profile_iv: Uint8Array;
+        erased_at: number | null;
+      }>;
       const guest = rows[0];
       if (!guest) return { ok: false, error: GUEST_NOT_FOUND };
       if (guest.erased_at != null) return { ok: false, error: GUEST_ALREADY_ERASED };
 
       const vault = await this.vault();
+      let existing: GuestProfile;
+      try {
+        existing = await vault.decryptProfile<GuestProfile>(
+          guest.pii_key_id,
+          blobToBytes(guest.profile_cipher),
+          blobToBytes(guest.profile_iv),
+        );
+      } catch {
+        return { ok: false, error: DECRYPT_UNRESOLVED };
+      }
+      const profile = this.mergeGuestUpdate(normalized, existing, input);
       const sealed = await vault.prepareProfileSeal(guest.pii_key_id, profile);
       const indexRows = await blindIndexRows(await this.blindIndexKey(), profile);
 
@@ -3283,6 +3374,202 @@ export class OrgDO extends DurableObject<PmsEnv> {
       wrappedKeyByteLength: record.wrappedKey.byteLength,
       shredded: record.shredded,
       wrappedKeyIsUint8Array: record.wrappedKey instanceof Uint8Array,
+    };
+  }
+
+  private async guestDocHost(actor: ActorContext): Promise<GuestDocCommandHost | { ok: false; error: typeof ORG_ID_UNSET }> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    return {
+      sql: this.ctx.storage.sql,
+      transactionSync: (fn) => this.ctx.storage.transactionSync(fn),
+      vault: await this.vault(),
+      orgId,
+      actor,
+      r2: this.env.GUEST_DOCS_R2,
+      settings: this.readGuestSettingsSync(),
+      appendEvent: (eventType, payload) => {
+        this.appendOrgOutbox({ eventId: crypto.randomUUID(), eventType, payload });
+      },
+    };
+  }
+
+  private async gateGuestWrite(actor: ActorContext, propertyId: string) {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false as const, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:write');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    return null;
+  }
+
+  private async gateGuestRead(actor: ActorContext, propertyId: string) {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false as const, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, propertyId, 'guests:read');
+    if (permDenied) return permDenied;
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    return null;
+  }
+
+  async tryAddGuestDocument(
+    actor: ActorContext,
+    propertyId: string,
+    input: { guestRef: string; documentId: string; kind: string; fields: unknown },
+    idem: IdempotencyKey,
+  ) {
+    const denied = await this.gateGuestWrite(actor, propertyId);
+    if (denied) return denied;
+    if (!(GUEST_DOCUMENT_KINDS as readonly string[]).includes(input.kind)) {
+      return { ok: false as const, error: VALIDATION_ERROR };
+    }
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return addGuestDocument(
+      host,
+      propertyId,
+      { guestRef: input.guestRef, documentId: input.documentId, kind: input.kind as GuestDocumentKind, fields: input.fields },
+      idem,
+    );
+  }
+
+  async listPropertyGuestDocuments(actor: ActorContext, propertyId: string, guestRef: string) {
+    const denied = await this.gateGuestRead(actor, propertyId);
+    if (denied) return denied;
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return listGuestDocuments(host, propertyId, guestRef);
+  }
+
+  async readPropertyGuestDocument(actor: ActorContext, propertyId: string, guestRef: string, documentId: string) {
+    const denied = await this.gateGuestRead(actor, propertyId);
+    if (denied) return denied;
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return readGuestDocument(host, propertyId, guestRef, documentId);
+  }
+
+  async tryAttachGuestDocumentScan(
+    actor: ActorContext,
+    propertyId: string,
+    input: { guestRef: string; documentId: string; contentType: string; bytes: Uint8Array; sha256: string },
+    idem: IdempotencyKey,
+  ) {
+    const denied = await this.gateGuestWrite(actor, propertyId);
+    if (denied) return denied;
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return attachGuestDocumentScan(host, propertyId, input, idem);
+  }
+
+  async readPropertyGuestDocumentScan(actor: ActorContext, propertyId: string, guestRef: string, documentId: string) {
+    const denied = await this.gateGuestRead(actor, propertyId);
+    if (denied) return denied;
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return readGuestDocumentScan(host, propertyId, guestRef, documentId);
+  }
+
+  async tryRemoveGuestDocument(
+    actor: ActorContext,
+    propertyId: string,
+    input: { guestRef: string; documentId: string; reason: string },
+    idem: IdempotencyKey,
+  ) {
+    const denied = await this.gateGuestWrite(actor, propertyId);
+    if (denied) return denied;
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return removeGuestDocument(host, propertyId, input, idem);
+  }
+
+  async readPropertyGuestConsent(actor: ActorContext, propertyId: string, guestRef: string) {
+    const denied = await this.gateGuestRead(actor, propertyId);
+    if (denied) return denied;
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return readGuestConsent(host, propertyId, guestRef);
+  }
+
+  async tryUpdateGuestConsent(
+    actor: ActorContext,
+    propertyId: string,
+    input: { guestRef: string; purpose: ConsentPurpose; status: ConsentStatus; source: ConsentSource },
+    idem: IdempotencyKey,
+  ) {
+    const denied = await this.gateGuestWrite(actor, propertyId);
+    if (denied) return denied;
+    const parsed = ConsentWriteSchema.safeParse({
+      purpose: input.purpose,
+      status: input.status,
+      source: input.source,
+      idempotencyKey: idem.key,
+    });
+    if (!parsed.success) return { ok: false as const, error: VALIDATION_ERROR };
+    const host = await this.guestDocHost(actor);
+    if ('error' in host) return host;
+    return updateGuestConsent(
+      host,
+      propertyId,
+      { guestRef: input.guestRef, purpose: parsed.data.purpose, status: parsed.data.status, source: parsed.data.source },
+      idem,
+    );
+  }
+
+  /** Check-in policy. Unreachable callers fail closed; this method itself does not catch transport. */
+  async checkInIdentityGate(input: { guestRef: string; propertyId: string }): Promise<{ required: boolean; hasDocument: boolean }> {
+    this.assertRpcAvailable();
+    return identityGate(this.ctx.storage.sql, this.readGuestSettingsSync(), input);
+  }
+
+  async listGuestDocumentPurgeKeys(
+    guestRef: string,
+  ): Promise<
+    | { ok: true; scanKeys: string[]; computedKeys: string[]; prefixes: string[] }
+    | { ok: false; error: typeof BULK_NOT_ADMITTED | typeof ORG_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) return { ok: false, error: BULK_NOT_ADMITTED };
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    return { ok: true, ...listGuestDocumentPurgeKeys(this.ctx.storage.sql, orgId, guestRef) };
+  }
+
+  async deleteGuestDocumentRows(
+    guestRef: string,
+  ): Promise<
+    { ok: true; documents: number; consent: number } | { ok: false; error: typeof BULK_NOT_ADMITTED }
+  > {
+    this.assertRpcAvailable();
+    if (!this.lanes.admitBackground()) return { ok: false, error: BULK_NOT_ADMITTED };
+    const counts = this.ctx.storage.transactionSync(() => deleteGuestDocumentRows(this.ctx.storage.sql, guestRef));
+    return { ok: true, ...counts };
+  }
+
+  async countGuestDocumentAccessForTest(documentId: string): Promise<number> {
+    this.assertUnsafeLocal('countGuestDocumentAccessForTest');
+    return countDocumentAccess(this.ctx.storage.sql, documentId);
+  }
+
+  /** Test helper: document, consent, and access row counts for one guest. */
+  async countGuestDocumentResidueForTest(
+    guestRef: string,
+  ): Promise<{ documents: number; consent: number; access: number }> {
+    this.assertUnsafeLocal('countGuestDocumentResidueForTest');
+    const count = (sql: string) => {
+      const rows = this.ctx.storage.sql.exec(sql, guestRef).toArray() as Array<{ n: number }>;
+      return Number(rows[0]?.n ?? 0);
+    };
+    return {
+      documents: count(`SELECT COUNT(*) AS n FROM guest_document WHERE guest_ref = ?`),
+      consent: count(`SELECT COUNT(*) AS n FROM guest_consent WHERE guest_ref = ?`),
+      access: count(`SELECT COUNT(*) AS n FROM guest_document_access WHERE guest_ref = ?`),
     };
   }
 }

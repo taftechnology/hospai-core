@@ -1,6 +1,6 @@
 /** §4.8 purge certificate helpers — Platform D1 append-only evidence. */
 
-import { PURGE_CERTIFICATE_COLUMNS } from '@hospai/contracts';
+import { PURGE_CERTIFICATE_COLUMNS, type PurgeStoreName } from '@hospai/contracts';
 import { ORG_PURGE_RETENTION_MS } from '@hospai/do-runtime';
 import type { PmsEnv } from './env.js';
 import { hasEventLogR2 } from './event-log.js';
@@ -12,7 +12,7 @@ export { ORG_PURGE_RETENTION_MS, PURGE_CERTIFICATE_COLUMNS };
 export const PITR_LIMITATION = 'do_pitr_not_covered_phase0' as const;
 
 /** Declared columns — check scripts assert no PII-shaped names (canonical list in contracts). */
-export type PurgeStoreName = 'key_store' | 'property_do' | 'org_do' | 'r2' | 'iceberg';
+export type { PurgeStoreName };
 
 export type PurgeStoreRecord = {
   store: PurgeStoreName;
@@ -58,6 +58,7 @@ export function initialStores(env: PmsEnv): PurgeStoreRecord[] {
     { store: 'property_do', status: 'pending' },
     { store: 'org_do', status: 'pending' },
     r2,
+    { store: 'r2_guest_documents', status: 'pending' },
     { store: 'iceberg', status: 'skipped', reason: 'no_iceberg_binding' },
   ];
 }

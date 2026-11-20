@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 44. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 45. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1421,6 +1421,13 @@ export const EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS = [
 export const EVENT_CONSUMER_EXCEPTION_V44_SQL =
   EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS.join(';\n\n') + ';\n';
 
+export const ID_DOCUMENT_ON_FILE_V45_STATEMENTS = [
+  `ALTER TABLE reservation ADD COLUMN id_document_on_file INTEGER NOT NULL DEFAULT 0`,
+] as const;
+
+export const ID_DOCUMENT_ON_FILE_V45_SQL =
+  ID_DOCUMENT_ON_FILE_V45_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1641,5 +1648,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 44,
     name: 'event_consumer_exception',
     statements: EVENT_CONSUMER_EXCEPTION_V44_STATEMENTS,
+  },
+  {
+    version: 45,
+    name: 'id_document_on_file',
+    statements: ID_DOCUMENT_ON_FILE_V45_STATEMENTS,
   },
 ] as const;

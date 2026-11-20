@@ -161,7 +161,9 @@ describe('config register', () => {
       'cashier_shift_open',
       'dirty_room_assigned',
       'departed_with_balance',
+      'id_proof_missing',
     ]);
+    expect(NIGHT_AUDIT_CHECK_IDS).toHaveLength(6);
     expect(NIGHT_AUDIT_FIXED_CHECK_IDS).toEqual(['queued_commands', 'open_exceptions']);
     expect(NIGHT_AUDIT_CHECK_SEVERITIES).toEqual(['off', 'fail', 'warn', 'info']);
     expect(NightAuditChecksSchema.safeParse(NIGHT_AUDIT_CHECKS_DEFAULT).success).toBe(true);
@@ -931,10 +933,34 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[176]?.id).toBe('get_event_consumer_exceptions');
     expect(V1_HTTP_ROUTE_AUDIT[177]?.id).toBe('post_event_consumer_exception_retry');
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(179);
+    expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
+    expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('post_guest_consent');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(187);
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(81);
-    expect(COMMAND_CATALOG).toHaveLength(111);
+    expect(COMMAND_CATALOG).toHaveLength(115);
+    for (const id of [
+      'guests.add_document',
+      'guests.attach_document_scan',
+      'guests.remove_document',
+      'guests.update_consent',
+    ] as const) {
+      const cmd = COMMAND_CATALOG.find((c) => c.id === id);
+      expect(cmd?.lane).toBe('INTERACTIVE');
+      expect(cmd?.degraded).toBe('FAIL_CLOSED');
+      expect(cmd?.entitlement).toBe('pms.core');
+      expect(cmd?.permission).toBe('guests:write');
+      expect(cmd?.idempotent).toBe(true);
+      expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(false);
+      expect(AUDIT_WRITER_EXEMPTIONS.some((e) => e.id === id)).toBe(true);
+    }
+    expect(COMMAND_CATALOG.find((c) => c.id === 'guests.add_document')?.events).toEqual([
+      'guest.document_recorded',
+    ]);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'guests.remove_document')?.events).toEqual([
+      'guest.document_removed',
+    ]);
     const putGuestSettings = COMMAND_CATALOG.find((c) => c.id === 'config.put_guest_settings');
     expect(putGuestSettings?.lane).toBe('INTERACTIVE');
     expect(putGuestSettings?.degraded).toBe('FAIL_CLOSED');
@@ -970,9 +996,10 @@ describe('command catalog', () => {
       expect(AUDIT_WRITER_COMMAND_IDS.has(id)).toBe(true);
     }
     expect(PLATFORM_GAPS).toEqual([]);
-    for (const id of ['guests.search', 'guests.get_profile', 'guests.merge', 'guests.update_consent'] as const) {
+    for (const id of ['guests.search', 'guests.get_profile', 'guests.merge'] as const) {
       expect(COMMAND_CATALOG.find((c) => c.id === id)).toBeUndefined();
     }
+    expect(COMMAND_CATALOG.find((c) => c.id === 'guests.update_consent')).toBeDefined();
   });
 
   it('bulk array commands and night_audit.run declare INTERACTIVE lane (Q11)', () => {

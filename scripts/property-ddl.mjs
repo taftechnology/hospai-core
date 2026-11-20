@@ -89,6 +89,7 @@ if (process.argv.includes('--self-test')) {
   let TAX_ENGINE_V42_SQL;
   let RATE_PLAN_INCLUSIONS_V43_SQL;
   let EVENT_CONSUMER_EXCEPTION_V44_SQL;
+  let ID_DOCUMENT_ON_FILE_V45_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -100,6 +101,7 @@ if (process.argv.includes('--self-test')) {
   let ORG_DATA_KEY_VERSION_SQL;
   let ORG_OPERATIONAL_CONFIG_SQL;
   let ORG_ROSTER_OPS_V11_SQL;
+  let ORG_GUEST_DOCUMENTS_V12_SQL;
   let PLATFORM_REGISTRY_SQL;
   let PLATFORM_ENTITLEMENT_SQL;
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -151,6 +153,7 @@ if (process.argv.includes('--self-test')) {
       TAX_ENGINE_V42_SQL,
       RATE_PLAN_INCLUSIONS_V43_SQL,
       EVENT_CONSUMER_EXCEPTION_V44_SQL,
+      ID_DOCUMENT_ON_FILE_V45_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -162,6 +165,7 @@ if (process.argv.includes('--self-test')) {
       ORG_DATA_KEY_VERSION_SQL,
       ORG_OPERATIONAL_CONFIG_SQL,
       ORG_ROSTER_OPS_V11_SQL,
+      ORG_GUEST_DOCUMENTS_V12_SQL,
       PLATFORM_REGISTRY_SQL,
       PLATFORM_ENTITLEMENT_SQL,
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -590,6 +594,15 @@ const doPropertyTargets = [
 `,
     sql: EVENT_CONSUMER_EXCEPTION_V44_SQL,
   },
+  {
+    path: join(root, 'migrations/do-property/0045_id_document_on_file.sql'),
+    header: `-- PropertyDO reservation id_document_on_file — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ID_DOCUMENT_ON_FILE_V45_SQL,
+  },
 ];
 
 const targets = [
@@ -692,6 +705,15 @@ const targets = [
 
 `,
     sql: ORG_ROSTER_OPS_V11_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0012_guest_documents.sql'),
+    header: `-- OrgDO guest documents, access log and consent (R4.15) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_GUEST_DOCUMENTS_V12_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

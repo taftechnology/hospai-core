@@ -6,10 +6,12 @@ export function createQueryClient(): QueryClient {
   // Live room view (R4.27, D6): every mutation that succeeds here changes what the desk sees in a
   // room (check-in/out, undo checkout, assign or move room, room and bulk status, OOO set or
   // release, invoice generate or void, early depart), so each one marks the room board stale.
-  // Only a mounted board refetches; the prefix covers every property key.
+  // Only a mounted board refetches; the prefix covers every property key. The housekeeping
+  // supervisor dashboard (R4.31) reads the same room facts, so the same success marks it stale.
   const mutationCache = new MutationCache({
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['room-board'] });
+      void client.invalidateQueries({ queryKey: ['housekeeping-dashboard'] });
     },
   });
   const client: QueryClient = new QueryClient({

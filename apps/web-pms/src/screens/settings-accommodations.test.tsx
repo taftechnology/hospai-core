@@ -54,7 +54,7 @@ describe('Settings → Accommodations', () => {
     await screen.findByRole('link', { name: 'Open room types' });
     expect(linkIn('types')?.getAttribute('href')).toBe('/inventory');
     expect(linkIn('rooms')?.getAttribute('href')).toBe('/inventory/rooms');
-    expect(linkIn('ooo')?.getAttribute('href')).toBe('/housekeeping');
+    expect(linkIn('ooo')?.getAttribute('href')).toBe('/housekeeping/board');
     for (const link of screen.getAllByRole('link')) expect(link.className).toContain('ui-link-btn');
     // Not a second editor: no inputs, selects or buttons on the tab.
     const card = screen.getByTestId('settings-accommodations');

@@ -4,6 +4,8 @@ export { createTask, type CreateTaskInput } from './application/create-task.js';
 export { updateTask, type UpdateTaskInput } from './application/update-task.js';
 export { transitionTask, type TransitionTaskInput } from './application/transition-task.js';
 export { readHousekeepingTasks, type ReadTasksFilters } from './application/read-tasks.js';
+export { readHousekeepingDashboard, type ReadDashboardInput } from './application/read-dashboard.js';
+export { readRoomBoardRooms, readActiveOooRows } from './application/read-room-board.js';
 export { readRoomStatusHistory } from './application/read-room-status-history.js';
 export { createRequest, type CreateRequestInput } from './application/create-request.js';
 export { updateRequest, type UpdateRequestInput } from './application/update-request.js';

@@ -749,7 +749,16 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Locked:** **desktop capture first** — the supervisor records finds, damage, inspections and minibar pickups on the operator SPA. Attendant capture moves to the **R4.10** mobile app when it ships, on the same commands. No width breakpoints in `web-pms`. Minibar and amenity stock moves against the R1.9 operational list, using its issue-to-room leftover (spec §8 item 7) — **no stores inventory** (§16.6). Linen movements extend R1.9's receive, issue and count to carry a room and attendant. Post minibar straight to the folio; do not create a POS bill to do it.
   - **Scope out:** budgeting and productivity charts (still dropped; the supervisor's operational dashboard is **R4.31**, not this exclusion); stores inventory; productivity pay. Reports are **R4.14**.
 
-- [ ] **R4.31 Housekeeping supervisor dashboard**
+- [x] **R4.31 Housekeeping supervisor dashboard**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-20-housekeeping-supervisor-dashboard-design.md).
+    - **Read:** one composed read, `get_housekeeping_dashboard` (`housekeeping:read`, FAIL_CLOSED, `guestRef`s only).
+    - **Shared helpers:** its counts reuse helpers extracted from the source reads, so they cannot drift: `readRoomBoardRooms`, `countHousekeepingTasks`, `countHousekeepingRequests`, `countLostItemsInCustody`, `countOpenCases`, and the guest-audit `varianceCount`.
+    - **Readiness:** inspected, or clean when inspection is not required, over rooms not under a block. Shown for the hotel and per floor, as a table with no chart.
+    - **Attention queue:** in-house rooms under a block, in-house rooms the guest audit counted vacant (the "occupied marked vacant" conflict), arrival rooms not ready, overdue tasks, blocks, open requests and open cases. Each row links to its screen.
+    - **Lists and search:** arrivals and departures by room, and a room search with stay context.
+    - **SPA:** Housekeeping → Overview is now the default tab; the Board moved to `/housekeeping/board`.
+    - No occupancy %, trend or checkout-time alert (Q22).
+    - Pins: routes 245 (last `get_housekeeping_dashboard`).
   - **Depends:** **R4.11**, **R4.30**, **R4.27**.
   - **Pilot checklist:** *Supervisor dashboard*; *Priority / floor-by-floor workbench*. **Page:** [Housekeeping](https://www.bluepms.com/modules/housekeeping/), Command Center And Room Readiness, Room Status, Turnaround And Checkout. **Prototype:** `Housekeeping.tsx`.
   - **Live:** a status table with filters, a workload strip and the R1.9 priority queue.

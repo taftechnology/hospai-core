@@ -52,13 +52,18 @@ export function readHousekeepingCases(
       HK_REQUESTS_LIST_MAX + 1,
     )
     .toArray() as CaseDbRow[];
-  const open = sql
-    .exec(`SELECT COUNT(*) AS n FROM housekeeping_case WHERE status = 'open'`)
-    .toArray() as Array<{ n: number }>;
   return {
     ok: true,
     cases: rows.slice(0, HK_REQUESTS_LIST_MAX).map(mapCaseRow),
     truncated: rows.length > HK_REQUESTS_LIST_MAX,
-    counters: { open: Number(open[0]?.n ?? 0) },
+    counters: { open: countOpenCases(sql) },
   };
+}
+
+/** Open missing and damage cases (the counter of `get_housekeeping_cases`). */
+export function countOpenCases(sql: ModuleSql): number {
+  const open = sql
+    .exec(`SELECT COUNT(*) AS n FROM housekeeping_case WHERE status = 'open'`)
+    .toArray() as Array<{ n: number }>;
+  return Number(open[0]?.n ?? 0);
 }

@@ -16,6 +16,7 @@ import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { GuestRequestDialog } from './HousekeepingRequests.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { dashboardStubs } from './dashboard-stubs.fixture.js';
 import { depthCStubs } from './depth-c-stubs.fixture.js';
 import type { HousekeepingGuests } from './housekeeping-types.js';
 
@@ -166,6 +167,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     ...depthAStubs(),
     ...depthBStubs(),
     ...depthCStubs(),
+    ...dashboardStubs(),
     ...over,
   };
 }
@@ -234,7 +236,7 @@ describe('Housekeeping nav and board [R4.11]', () => {
 
   it('the Board shows the open-request count per room, from the open-status read', async () => {
     const getHousekeepingRequests = vi.fn(async () => ({ ...requestList([]), openByRoom: { rm_1: 2 } }));
-    renderTab('/housekeeping', stubApi({ getHousekeepingRequests }));
+    renderTab('/housekeeping/board', stubApi({ getHousekeepingRequests }));
     const badge = await screen.findByTestId('hk-room-requests');
     expect(badge.textContent).toMatch(/2 open/);
     expect(badge.getAttribute('href')).toBe('/housekeeping/requests');

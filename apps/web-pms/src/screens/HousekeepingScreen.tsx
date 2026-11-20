@@ -72,6 +72,7 @@ export function HousekeepingScreen() {
     [canReadGuests, propertyId],
   );
   const path = useLocation().pathname;
+  const board = path.endsWith('/board');
   const priority = path.endsWith('/priority');
   const inventory = path.endsWith('/inventory');
   const tasks = path.endsWith('/tasks');
@@ -106,7 +107,9 @@ export function HousekeepingScreen() {
                         ? 'Minibar pickups and reconciliation'
                         : amenities
                           ? 'Amenity dispatches and ledger'
-                          : 'Room status and assignments',
+                          : board
+                            ? 'Room status and assignments'
+                            : 'Today at a glance',
   );
 
   return (
@@ -156,7 +159,9 @@ export function HousekeepingScreen() {
                               ? 'Could not load the minibar'
                               : amenities
                                 ? 'Could not load amenities'
-                                : 'Could not load housekeeping',
+                                : board
+                                  ? 'Could not load housekeeping'
+                                  : 'Could not load the housekeeping overview',
         });
       }}
       isQueuedResult={isQueuedResult}

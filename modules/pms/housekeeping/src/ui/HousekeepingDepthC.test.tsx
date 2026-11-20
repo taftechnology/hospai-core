@@ -12,6 +12,7 @@ import type {
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { dashboardStubs } from './dashboard-stubs.fixture.js';
 import { depthCStubs } from './depth-c-stubs.fixture.js';
 import { roomsForWhen } from './HousekeepingAmenities.js';
 
@@ -63,6 +64,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     ...depthAStubs(),
     ...depthBStubs(),
     ...depthCStubs(),
+    ...dashboardStubs(),
     ...over,
   };
 }

@@ -250,3 +250,30 @@ export const AMENITY_STOCK_STATUS_LABEL: Record<AmenityStockStatus, string> = {
   posted: 'Stock reduced',
   not_linked: 'No stock item linked',
 };
+
+/** Dashboard (R4.31): the room board's one condition per room, in words. */
+export const ROOM_CONDITION_LABEL: Record<string, string> = {
+  available: 'Available',
+  reserved: 'Arrival expected',
+  occupied: 'Occupied',
+  billed: 'Occupied, bill issued',
+  dirty: 'Dirty',
+  maintenance: 'Under a block',
+  unavailable: 'Unavailable',
+};
+
+export function roomConditionLabel(condition: string | null | undefined): string {
+  if (!condition) return '—';
+  return ROOM_CONDITION_LABEL[condition] ?? humanise(condition);
+}
+
+/** Dashboard attention queue kinds, in words. */
+export const ATTENTION_KIND_LABEL: Record<string, string> = {
+  occupied_out_of_order: 'Occupied, out of order',
+  occupied_counted_vacant: 'Counted empty while occupied',
+  arrival_not_ready: 'Arrival, room not ready',
+  overdue_task: 'Overdue task',
+  active_block: 'Room blocked',
+  open_request: 'Open request',
+  open_case: 'Open case',
+};

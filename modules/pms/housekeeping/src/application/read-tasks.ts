@@ -74,10 +74,33 @@ export function readHousekeepingTasks(
     .slice(0, HK_TASKS_LIST_MAX)
     .map((r) => ({ ...mapTaskRow(r), roomCode: r.room_code }));
 
+  const counters = countHousekeepingTasks(sql, filters.businessDate, filters.today);
+
+  return {
+    ok: true,
+    businessDate: filters.businessDate,
+    tasks,
+    truncated,
+    counters,
+  };
+}
+
+/** SQL list of the task statuses that are still open (the R4.30 "open" and "overdue" counters). */
+export const OPEN_TASK_STATUSES_SQL = "('pending', 'in_progress', 'paused')";
+
+/**
+ * The R4.30 counters: tasks of one business date by status, plus tasks of an earlier date that
+ * are still open. `get_housekeeping_tasks` and the supervisor dashboard both read them here.
+ */
+export function countHousekeepingTasks(
+  sql: ModuleSql,
+  businessDate: string,
+  today: string | null,
+): HousekeepingTaskCounters {
   const day = sql
     .exec(
       `SELECT status, COUNT(*) AS n FROM housekeeping_task WHERE business_date = ? GROUP BY status`,
-      filters.businessDate,
+      businessDate,
     )
     .toArray() as Array<{ status: string; n: number }>;
   const byStatus = new Map(day.map((d) => [d.status, Number(d.n)]));
@@ -86,29 +109,23 @@ export function readHousekeepingTasks(
   const paused = byStatus.get('paused') ?? 0;
 
   let overdue = 0;
-  if (filters.today) {
+  if (today) {
     const o = sql
       .exec(
         `SELECT COUNT(*) AS n FROM housekeeping_task
          WHERE status IN ('pending', 'in_progress', 'paused') AND business_date < ?`,
-        filters.today,
+        today,
       )
       .toArray() as Array<{ n: number }>;
     overdue = Number(o[0]?.n ?? 0);
   }
 
   return {
-    ok: true,
-    businessDate: filters.businessDate,
-    tasks,
-    truncated,
-    counters: {
-      open: pending + inProgress + paused,
-      pending,
-      inProgress,
-      paused,
-      completed: (byStatus.get('completed') ?? 0) + (byStatus.get('reviewed') ?? 0),
-      overdue,
-    },
+    open: pending + inProgress + paused,
+    pending,
+    inProgress,
+    paused,
+    completed: (byStatus.get('completed') ?? 0) + (byStatus.get('reviewed') ?? 0),
+    overdue,
   };
 }

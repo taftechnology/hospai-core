@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HousekeepingApp, type HousekeepingApi } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { dashboardStubs } from './dashboard-stubs.fixture.js';
 import { depthCStubs } from './depth-c-stubs.fixture.js';
 
 const ROOMS = [
@@ -44,6 +45,7 @@ function stubApi(over: Partial<HousekeepingApi> = {}): HousekeepingApi {
     ...depthAStubs(),
     ...depthBStubs(),
     ...depthCStubs(),
+    ...dashboardStubs(),
     setOooRange: async () => ({ ok: true }),
     ...over,
   };
@@ -55,7 +57,7 @@ function renderBoard(api: HousekeepingApi, opts: { canSetOoo?: boolean } = {}) {
   });
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/housekeeping']}>
+      <MemoryRouter initialEntries={['/housekeeping/board']}>
         <HousekeepingApp
           propertyId="prop_1"
           defaultBusinessDate="2026-11-20"
@@ -499,7 +501,7 @@ describe('out-of-order blocks', () => {
 });
 
 describe('business date default, dates in words, blocks in history, success alerts', () => {
-  function mount(api: HousekeepingApi, date: string, path = '/housekeeping') {
+  function mount(api: HousekeepingApi, date: string, path = '/housekeeping/board') {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });

@@ -44,6 +44,15 @@ describe('housekeeping tasks and status history client methods', () => {
     expect(seen[0]!.path).toBe('/v1/properties/p/housekeeping/tasks?date=2026-11-20&status=pending&search=101');
   });
 
+  it('getHousekeepingDashboard sends the room search only when it is set', async () => {
+    const seen: Seen[] = [];
+    const client = testClient(seen);
+    await client.getHousekeepingDashboard('p');
+    await client.getHousekeepingDashboard('p', { room: '1 2' });
+    expect(seen[0]!.path).toBe('/v1/properties/p/housekeeping/dashboard');
+    expect(seen[1]!.path).toBe('/v1/properties/p/housekeeping/dashboard?room=1+2');
+  });
+
   it('create, update and transition carry the idempotency key in x-idempotency-key, not the body', async () => {
     const seen: Seen[] = [];
     const client = testClient(seen);

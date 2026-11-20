@@ -42,6 +42,7 @@ describe('App QueryClient defaults', () => {
     const client = createQueryClient();
     client.setQueryData(['room-board', 'prop_demo'], { ok: true, rooms: [] });
     client.setQueryData(['front-desk-tape', 'prop_demo', 'a', 'b'], { ok: true });
+    client.setQueryData(['housekeeping-dashboard', 'prop_demo', '2026-11-20', ''], { ok: true });
     await client
       .getMutationCache()
       .build(client, {
@@ -52,12 +53,19 @@ describe('App QueryClient defaults', () => {
       .execute(undefined)
       .catch(() => undefined);
     expect(client.getQueryState(['room-board', 'prop_demo'])?.isInvalidated).toBe(false);
+    expect(
+      client.getQueryState(['housekeeping-dashboard', 'prop_demo', '2026-11-20', ''])?.isInvalidated,
+    ).toBe(false);
 
     await client
       .getMutationCache()
       .build(client, { mutationFn: async () => 'ok' })
       .execute(undefined);
     expect(client.getQueryState(['room-board', 'prop_demo'])?.isInvalidated).toBe(true);
+    // R4.31: the housekeeping supervisor dashboard goes stale on the same success.
+    expect(
+      client.getQueryState(['housekeeping-dashboard', 'prop_demo', '2026-11-20', ''])?.isInvalidated,
+    ).toBe(true);
     expect(client.getQueryState(['front-desk-tape', 'prop_demo', 'a', 'b'])?.isInvalidated).toBe(false);
   });
 });

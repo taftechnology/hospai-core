@@ -33,6 +33,7 @@ export * from './guest-document.js';
 export * from './housekeeping-priority.js';
 export * from './housekeeping-inventory.js';
 export * from './housekeeping-tasks.js';
+export * from './housekeeping-dashboard.js';
 export * from './housekeeping-requests.js';
 export * from './housekeeping-inspections.js';
 export * from './housekeeping-stock.js';

@@ -22,6 +22,7 @@ const getLinenMovements = vi.fn();
 const getMinibarReconciliation = vi.fn();
 const getAmenities = vi.fn();
 const getAmenityDispatches = vi.fn();
+const getHousekeepingDashboard = vi.fn();
 
 vi.mock('../shell/PropertyFormat.js', async () => {
   const { propertyFormatTestModule } = await import('../shell/property-format-test-stub.js');
@@ -50,6 +51,7 @@ vi.mock('../client.js', () => ({
     getMinibarReconciliation: (...args: unknown[]) => getMinibarReconciliation(...args),
     getAmenities: (...args: unknown[]) => getAmenities(...args),
     getAmenityDispatches: (...args: unknown[]) => getAmenityDispatches(...args),
+    getHousekeepingDashboard: (...args: unknown[]) => getHousekeepingDashboard(...args),
   },
   asClassified: () => ({
     class: 'server_error' as const,
@@ -159,6 +161,31 @@ describe('HousekeepingScreen', () => {
     });
     getAmenities.mockResolvedValue({ ok: true, amenities: [], rules: [] });
     getAmenityDispatches.mockResolvedValue({ ok: true, dispatches: [], truncated: false });
+    getHousekeepingDashboard.mockResolvedValue({
+      ok: true,
+      businessDate: '2026-11-20',
+      asOf: 0,
+      requireInspection: false,
+      readiness: { rooms: 2, ready: 1, dirty: 1, underMaintenance: 0, occupiedRooms: 0, readinessPercent: 50 },
+      floors: [{ floor: '1', rooms: 2, ready: 1, dirty: 1, underMaintenance: 0, occupiedRooms: 0, readinessPercent: 50 }],
+      counts: {
+        dirtyRooms: 1,
+        openTasks: 0,
+        overdueTasks: 0,
+        activeBlocks: 0,
+        openRequests: 0,
+        unclaimedItems: 0,
+        openCases: 0,
+        auditVariance: null,
+      },
+      arrivals: [],
+      arrivalsTruncated: false,
+      departures: [],
+      departuresTruncated: false,
+      attention: [],
+      attentionTruncated: false,
+      roomSearch: null,
+    });
     listPropertyMembers.mockResolvedValue({
       ok: true,
       members: [{ userId: 'user_ana', displayName: 'Ana Front Desk', email: null }],
@@ -169,8 +196,19 @@ describe('HousekeepingScreen', () => {
     cleanup();
   });
 
-  it('board subtitle uses the live property name', async () => {
+  it('the overview is the default tab and its subtitle uses the live property name', async () => {
     renderScreen('/housekeeping');
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Housekeeping' })).toBeTruthy(),
+    );
+    await waitFor(() => expect(screen.getByText(/Today at a glance · Harbor Inn/)).toBeTruthy());
+    expect(await screen.findByTestId('hk-ov-readiness')).toBeTruthy();
+    expect(getHousekeepingDashboard).toHaveBeenCalledWith('prop_demo', undefined);
+    expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('board subtitle uses the live property name', async () => {
+    renderScreen('/housekeeping/board');
     await waitFor(() =>
       expect(screen.getByRole('heading', { level: 1, name: 'Housekeeping' })).toBeTruthy(),
     );
@@ -237,7 +275,7 @@ describe('HousekeepingScreen', () => {
       permissions: ['housekeeping:read', 'housekeeping:write', 'roster:read', 'staff:read'],
       orgPermissions: ['org:read'],
     });
-    renderScreen('/housekeeping');
+    renderScreen('/housekeeping/board');
     fireEvent.click(await screen.findByRole('button', { name: 'Status history for 101' }));
     const dialog = await screen.findByTestId('hk-status-history');
     await within(dialog).findByText('Spill');
@@ -265,7 +303,7 @@ describe('HousekeepingScreen', () => {
         },
       ],
     });
-    renderScreen('/housekeeping');
+    renderScreen('/housekeeping/board');
     fireEvent.click(await screen.findByRole('button', { name: 'Status history for 101' }));
     const dialog = await screen.findByTestId('hk-status-history');
     await within(dialog).findByText('Spill');

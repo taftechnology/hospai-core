@@ -35,6 +35,7 @@ import type {
   GuestAuditSessionList,
   GuestAuditCountInput,
   HousekeepingTaskAction,
+  HousekeepingDashboard,
   HousekeepingTaskList,
   HousekeepingTaskStageList,
   InspectionAnswerInput,
@@ -2313,6 +2314,18 @@ export function createClient(opts: {
         `/v1/properties/${enc(propertyId)}/rooms/${enc(roomId)}/ooo-history`,
       );
       return body as { ok: true; roomId: string; events: RoomOooEventRow[] };
+    },
+    async getHousekeepingDashboard(
+      propertyId: string,
+      query?: { room?: string },
+    ): Promise<HousekeepingDashboard> {
+      const qs = new URLSearchParams();
+      if (query?.room) qs.set('room', query.room);
+      const q = qs.toString();
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/housekeeping/dashboard${q ? `?${q}` : ''}`,
+      );
+      return body as HousekeepingDashboard;
     },
     async getHousekeepingTasks(
       propertyId: string,

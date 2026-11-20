@@ -42,6 +42,7 @@ import { HousekeepingLinen } from './HousekeepingLinen.js';
 import { HousekeepingMinibar } from './HousekeepingMinibar.js';
 import { HousekeepingTasks } from './HousekeepingTasks.js';
 import { HousekeepingNav } from './housekeeping-nav.js';
+import { HousekeepingOverview } from './HousekeepingOverview.js';
 import { blockTimes, blockTypeLabel } from './housekeeping-labels.js';
 import { OooBlockForm, OooReleaseDialog } from './OooBlockForms.js';
 import { RoomOooHistoryDialog, RoomStatusHistoryDialog } from './RoomHistoryDialogs.js';
@@ -996,5 +997,16 @@ export function HousekeepingApp(props: HousekeepingAppProps) {
       />
     );
   }
-  return <HousekeepingBoard {...props} />;
+  if (location.pathname.endsWith('/board')) return <HousekeepingBoard {...props} />;
+  return (
+    <HousekeepingOverview
+      propertyId={props.propertyId}
+      defaultBusinessDate={props.defaultBusinessDate}
+      api={props.api}
+      guests={props.guests}
+      subtitle={props.subtitle}
+      formatError={props.formatError}
+      format={props.format}
+    />
+  );
 }

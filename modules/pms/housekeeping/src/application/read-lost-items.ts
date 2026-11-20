@@ -72,11 +72,6 @@ export function readLostItems(
   const truncated = rows.length > HK_REQUESTS_LIST_MAX;
   const items = rows.slice(0, HK_REQUESTS_LIST_MAX).map(mapLostItemRow);
 
-  const custody = sql
-    .exec(
-      `SELECT COUNT(*) AS n FROM housekeeping_lost_item WHERE status IN ('found', 'handed_over')`,
-    )
-    .toArray() as Array<{ n: number }>;
   let claimedThisMonth = 0;
   if (filters.monthRangeMs) {
     // Claimed items (still claimed or since closed) whose claim time falls in the property's month.
@@ -96,7 +91,7 @@ export function readLostItems(
     ok: true,
     items,
     truncated,
-    counters: { inCustody: Number(custody[0]?.n ?? 0), claimedThisMonth },
+    counters: { inCustody: countLostItemsInCustody(sql), claimedThisMonth },
   };
 }
 
@@ -113,4 +108,14 @@ export function readLostItem(sql: ModuleSql, itemId: string): LostItemDetail {
     )
     .toArray() as Array<Parameters<typeof mapLostItemEvent>[0]>;
   return { ok: true, item: mapLostItemRow(row), events: events.map(mapLostItemEvent) };
+}
+
+/** Unclaimed items: found or handed over (the custody counter of `get_lost_items`). */
+export function countLostItemsInCustody(sql: ModuleSql): number {
+  const custody = sql
+    .exec(
+      `SELECT COUNT(*) AS n FROM housekeeping_lost_item WHERE status IN ('found', 'handed_over')`,
+    )
+    .toArray() as Array<{ n: number }>;
+  return Number(custody[0]?.n ?? 0);
 }

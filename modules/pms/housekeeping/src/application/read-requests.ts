@@ -82,24 +82,7 @@ export function readHousekeepingRequests(
     .slice(0, HK_REQUESTS_LIST_MAX)
     .map((r) => ({ ...mapRequestRow(r), roomCode: r.room_code }));
 
-  const byStatus = new Map(
-    (
-      sql
-        .exec(`SELECT status, COUNT(*) AS n FROM housekeeping_request GROUP BY status`)
-        .toArray() as Array<{ status: string; n: number }>
-    ).map((d) => [d.status, Number(d.n)]),
-  );
-  let resolvedToday = 0;
-  if (filters.today) {
-    const t = sql
-      .exec(
-        `SELECT COUNT(*) AS n FROM housekeeping_request
-         WHERE status = 'resolved' AND business_date = ?`,
-        filters.today,
-      )
-      .toArray() as Array<{ n: number }>;
-    resolvedToday = Number(t[0]?.n ?? 0);
-  }
+  const counters = countHousekeepingRequests(sql, filters.today);
   const openByRoom: Record<string, number> = {};
   for (const o of sql
     .exec(
@@ -114,11 +97,40 @@ export function readHousekeepingRequests(
     ok: true,
     requests,
     truncated,
-    counters: {
-      open: byStatus.get('open') ?? 0,
-      inProgress: byStatus.get('in_progress') ?? 0,
-      resolvedToday,
-    },
+    counters,
     openByRoom,
+  };
+}
+
+/** SQL list of the request statuses that are still open. */
+export const OPEN_REQUEST_STATUSES_SQL = "('open', 'in_progress')";
+
+/** The request counters: open, in progress (all departments, all dates) and resolved today. */
+export function countHousekeepingRequests(
+  sql: ModuleSql,
+  today: string | null,
+): HousekeepingRequestCounters {
+  const byStatus = new Map(
+    (
+      sql
+        .exec(`SELECT status, COUNT(*) AS n FROM housekeeping_request GROUP BY status`)
+        .toArray() as Array<{ status: string; n: number }>
+    ).map((d) => [d.status, Number(d.n)]),
+  );
+  let resolvedToday = 0;
+  if (today) {
+    const t = sql
+      .exec(
+        `SELECT COUNT(*) AS n FROM housekeeping_request
+         WHERE status = 'resolved' AND business_date = ?`,
+        today,
+      )
+      .toArray() as Array<{ n: number }>;
+    resolvedToday = Number(t[0]?.n ?? 0);
+  }
+  return {
+    open: byStatus.get('open') ?? 0,
+    inProgress: byStatus.get('in_progress') ?? 0,
+    resolvedToday,
   };
 }

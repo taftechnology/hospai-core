@@ -102,7 +102,8 @@ function mapLine(r: LineDbRow): GuestAuditLine {
   };
 }
 
-function loadLines(sql: ModuleSql, sessionId: string): GuestAuditLine[] {
+/** The lines of one session, ordered by floor and room code. */
+export function loadLines(sql: ModuleSql, sessionId: string): GuestAuditLine[] {
   const rows = sql
     .exec(
       `SELECT l.line_id, l.session_id, l.room_id, m.code AS room_code, m.floor AS floor,

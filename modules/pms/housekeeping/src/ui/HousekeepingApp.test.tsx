@@ -11,6 +11,7 @@ import {
 } from './HousekeepingApp.js';
 import { depthAStubs } from './depth-a-stubs.fixture.js';
 import { depthBStubs } from './depth-b-stubs.fixture.js';
+import { dashboardStubs } from './dashboard-stubs.fixture.js';
 import { depthCStubs } from './depth-c-stubs.fixture.js';
 
 const ROOM = { roomId: 'rm_1', code: '101', status: 'dirty' };
@@ -55,7 +56,7 @@ function renderApp(
   const path = 'path' in flags ? flags.path : undefined;
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path ?? '/housekeeping']}>
+      <MemoryRouter initialEntries={[path ?? '/housekeeping/board']}>
         <HousekeepingApp
           propertyId="prop_1"
           defaultBusinessDate={flags.defaultBusinessDate ?? '2026-08-12'}
@@ -102,6 +103,7 @@ function stubApi(overrides: Partial<HousekeepingApi> = {}): HousekeepingApi {
     ...depthAStubs(),
     ...depthBStubs(),
     ...depthCStubs(),
+    ...dashboardStubs(),
     ...overrides,
   };
 }

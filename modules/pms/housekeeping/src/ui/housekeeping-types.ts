@@ -12,6 +12,7 @@ import type {
   GuestAuditCountInput,
   GuestAuditDetail,
   GuestAuditSessionList,
+  HousekeepingDashboard,
   HousekeepingTaskStageList,
   InspectionAnswerInput,
   InspectionList,
@@ -133,6 +134,10 @@ export type HousekeepingApi = {
     propertyId: string,
     roomId: string,
   ) => Promise<{ ok: true; roomId: string; events: RoomOooEventRow[] }>;
+  getHousekeepingDashboard: (
+    propertyId: string,
+    query?: { room?: string },
+  ) => Promise<HousekeepingDashboard>;
   getHousekeepingTasks: (
     propertyId: string,
     query: { date: string; status?: string; assigneeRef?: string; roomId?: string; search?: string },

@@ -41,7 +41,7 @@ const DESTINATIONS: Destination[] = [
     id: 'ooo',
     title: 'Out of order',
     description: 'Take a room out of order for a date range, or release it early, on the Housekeeping board.',
-    to: '/housekeeping',
+    to: '/housekeeping/board',
     linkLabel: 'Open housekeeping',
     needs: ['housekeeping:read', 'inventory:write'],
   },

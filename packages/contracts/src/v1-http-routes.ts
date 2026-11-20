@@ -1542,6 +1542,12 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
+  },  {
+    id: 'get_housekeeping_dashboard',
+    scope: 'property',
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
   },
 ];
 

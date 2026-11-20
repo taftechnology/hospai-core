@@ -224,6 +224,7 @@ import {
   isHousekeepingTaskStatus,
   isOooBlockType,
   HK_TASK_SEARCH_MAX,
+  HK_DASHBOARD_ROOM_SEARCH_LEN_MAX,
   HK_REQUEST_SEARCH_MAX,
   LOST_ITEM_SEARCH_MAX,
   HK_AMENITY_DISPATCH_ROOMS_MAX,
@@ -9692,6 +9693,28 @@ async function handleGetRoomBoard(ctx: V1DispatchContext): Promise<Response> {
   }
 }
 
+async function handleGetHousekeepingDashboard(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const room = ctx.url.searchParams.get('room')?.trim() ?? '';
+  if (room.length > HK_DASHBOARD_ROOM_SEARCH_LEN_MAX) {
+    return json({ error: 'invalid_body', detail: 'room_too_long' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingDashboardView(room || undefined);
+    if (!result.ok) return json({ ok: false, error: result.error }, 422);
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -13871,6 +13894,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetAmenityDispatches,
+  },  {
+    id: 'get_housekeeping_dashboard',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/housekeeping\/dashboard$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingDashboard,
   },
 ];
 

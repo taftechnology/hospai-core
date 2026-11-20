@@ -3235,6 +3235,86 @@ async function handlePostReservationEarlyDepart(ctx: V1DispatchContext): Promise
   });
 }
 
+async function handlePostReservationInHouseChange(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<{
+    departureDate?: string;
+    roomTypeId?: string;
+    roomId?: string;
+    ratePlanId?: string;
+    adults?: number;
+    children?: number;
+    reason?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (typeof body.reason !== 'string') return json({ error: 'invalid_body' }, 400);
+  const reason = body.reason.trim();
+  if (reason.length === 0 || reason.length > 200) {
+    return json({ ok: false, error: REASON_REQUIRED }, commandErrorHttpStatus(REASON_REQUIRED));
+  }
+
+  const commandPayload: {
+    reservationId: string;
+    departureDate?: string;
+    roomTypeId?: string;
+    roomId?: string;
+    ratePlanId?: string;
+    adults?: number;
+    children?: number;
+    reason: string;
+  } = {
+    reservationId,
+    reason,
+  };
+  if (body.departureDate !== undefined) commandPayload.departureDate = body.departureDate;
+  if (body.roomTypeId !== undefined) commandPayload.roomTypeId = body.roomTypeId;
+  if (body.roomId !== undefined) commandPayload.roomId = body.roomId;
+  if (body.ratePlanId !== undefined) commandPayload.ratePlanId = body.ratePlanId;
+  if (body.adults !== undefined) commandPayload.adults = body.adults;
+  if (body.children !== undefined) commandPayload.children = body.children;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const fingerprint = await commandFingerprint('reservations.change_in_house_stay', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryChangeInHouseStay']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.change_in_house_stay',
+      routeId: 'post_reservation_in_house_change',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryChangeInHouseStay(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'reservations:change_in_house',
+    successStatus: 200,
+    onFailure: (result) => {
+      if (result.error === NO_AVAILABILITY) {
+        const fail = result as { ok: false; error: typeof NO_AVAILABILITY; date: string };
+        return json(
+          { ok: false, error: fail.error, date: fail.date },
+          commandErrorHttpStatus(fail.error),
+        );
+      }
+      return null;
+    },
+  });
+}
+
 async function handlePostReservationNoShow(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
   return handlePostReservationStatusAction(
@@ -10880,6 +10960,16 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:post',
     commandId: 'folio.record_upi_payment',
     handler: handlePostUpiPayment,
+  },
+  {
+    id: 'post_reservation_in_house_change',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/in-house-change$/,
+    permission: 'reservations:change_in_house',
+    commandId: 'reservations.change_in_house_stay',
+    entitlement: 'pms.core',
+    handler: handlePostReservationInHouseChange,
   },
 ];
 

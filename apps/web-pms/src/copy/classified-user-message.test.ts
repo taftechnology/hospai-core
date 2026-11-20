@@ -62,7 +62,10 @@ describe('domain code messages', () => {
     ['balance_due', { balanceMinor: 2500 }, /Guest owes 25\.00 — settle on the folio before checkout/],
     ['balance_due', {}, /Guest balance is due — settle on the folio before checkout/],
     ['folio_balance_due', { balanceMinor: 100 }, /before generating the invoice/],
-    ['room_already_assigned', {}, /already assigned — pick another room/],
+    ['room_already_assigned', {}, /already assigned — move the guest first/],
+    ['not_in_house', {}, /Only an in-house stay/],
+    ['use_early_depart', {}, /Early departure/],
+    ['room_id_required', {}, /Pick a room of the new type/],
     ['room_move_reason_required', {}, /Give a reason for the room move/],
     ['room_not_ready', {}, /not ready yet — pick a clean or inspected room/],
     [
@@ -90,6 +93,15 @@ describe('domain code messages', () => {
     expect(msg).toMatch(pattern);
     expect(msg).not.toMatch(/try again/i);
     expect(msg).not.toMatch(new RegExp(code, 'i'));
+  });
+
+  it('room_already_assigned on a type change names the occupied room', () => {
+    expect(
+      classifiedUserMessage(classifiedWithCode('room_already_assigned'), {
+        roomCode: '206',
+        fallback: 'X',
+      }),
+    ).toBe('Room 206 is still occupied or booked for these nights. Pick another room.');
   });
 
   it('guest profile rules name the missing field or the match', () => {

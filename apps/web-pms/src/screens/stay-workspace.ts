@@ -96,6 +96,64 @@ export function noShowBlockReason(arrivalDate: string, businessDate: string | nu
 export const IN_HOUSE_MODIFY_REASON =
   "Dates and room type of an in-house stay can't be changed here yet.";
 
+export type InHouseChangeDraft = {
+  departureDate: string;
+  roomTypeId: string;
+  roomId: string;
+  ratePlanId: string;
+  adults: number;
+  children: number;
+  reason: string;
+};
+
+/** One-line preview for the in-house change dialog. */
+export function inHouseChangePreview(
+  current: {
+    departureDate: string;
+    roomTypeId: string;
+    ratePlanId: string;
+    adults: number;
+    children: number;
+  },
+  draft: InHouseChangeDraft,
+  labels: {
+    roomTypeName?: string;
+    roomCode?: string;
+    ratePlanName?: string;
+    formatDate: (iso: string) => string;
+  },
+): string | null {
+  const parts: string[] = [];
+  if (draft.departureDate > current.departureDate) {
+    const nights = stayNights(current.departureDate, draft.departureDate);
+    parts.push(
+      `Adds ${nights} night${nights === 1 ? '' : 's'} · departs ${labels.formatDate(draft.departureDate)}`,
+    );
+  }
+  if (draft.roomTypeId !== current.roomTypeId) {
+    const name = labels.roomTypeName ?? draft.roomTypeId;
+    if (draft.roomId && labels.roomCode) {
+      parts.push(`Moves to ${name} ${labels.roomCode} from tonight`);
+    } else if (draft.roomId) {
+      parts.push(`Moves to ${name} from tonight`);
+    } else {
+      parts.push(`Moves to ${name} from tonight — pick a room`);
+    }
+  }
+  if (draft.ratePlanId !== current.ratePlanId) {
+    const plan = labels.ratePlanName ?? draft.ratePlanId;
+    parts.push(`Rate plan ${plan} applies from tonight`);
+  }
+  if (draft.adults !== current.adults || draft.children !== current.children) {
+    parts.push(`Party ${draft.adults} adults, ${draft.children} children`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+export function changeInHouseStayOpId(reservationId: string, attemptId: string): string {
+  return `in-house-change:${reservationId}:${attemptId}`;
+}
+
 function penaltyKind(cancellation: ReservationCancellation): string {
   switch (cancellation.penaltyType) {
     case 'first_night':

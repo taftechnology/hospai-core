@@ -105,6 +105,7 @@ describe('me authority helpers', () => {
         'inventory:read',
         'reservations:read',
         'reservations:write',
+        'reservations:change_in_house',
         'guests:read',
         'guests:write',
         'rates:read',

@@ -117,6 +117,20 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     entitlement: 'pms.core',
   },
   {
+    id: 'reservations.change_in_house_stay',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.modified', 'availability.changed'],
+    notes:
+      'R4.24: later departure, room type (+room move), rate plan, party on checked_in only. ' +
+      'Nights before effective night E are untouched. Kill-switch via pms.core. ' +
+      'Idempotency header x-idempotency-key; fingerprint {commandId, payload}.',
+    permission: 'reservations:change_in_house',
+    entitlement: 'pms.core',
+  },
+  {
     id: 'reservations.cancel',
     prototypeAction: null,
     lane: 'INTERACTIVE',

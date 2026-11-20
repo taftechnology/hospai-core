@@ -1176,6 +1176,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'folio:post',
     commandId: 'folio.record_upi_payment',
   },
+  {
+    id: 'post_reservation_in_house_change',
+    scope: 'property',
+    permission: 'reservations:change_in_house',
+    commandId: 'reservations.change_in_house_stay',
+    entitlement: 'pms.core',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

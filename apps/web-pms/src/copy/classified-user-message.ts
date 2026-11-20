@@ -52,6 +52,11 @@ type MessageContext = {
   /** Screen-specific overrides already painted before calling helper */
   knownCode?: string | null;
   fmt?: PropertyFormat;
+  /**
+   * When set, `room_already_assigned` is a type-change move into an occupied
+   * room (not the stay's own room booked on an extension).
+   */
+  roomCode?: string;
 };
 
 const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageContext) => string> = {
@@ -71,7 +76,12 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     }
     return 'Folio balance is due — settle before generating the invoice.';
   },
-  room_already_assigned: () => 'That room is already assigned — pick another room.',
+  room_already_assigned: (_body, context) => {
+    if (context.roomCode) {
+      return `Room ${context.roomCode} is still occupied or booked for these nights. Pick another room.`;
+    }
+    return 'That room is already assigned — move the guest first or pick another room.';
+  },
   room_move_reason_required: () => 'Give a reason for the room move.',
   room_not_ready: () => 'That room is not ready yet — pick a clean or inspected room.',
   prepayment_required: () =>
@@ -90,6 +100,9 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   invoice_number_invalid: () =>
     'That invoice number is not valid for this series. Shorten the prefix or suffix, or switch back to one continuous series.',
   not_modifiable: () => 'This reservation cannot be changed in its current status.',
+  not_in_house: () => 'Only an in-house stay can be changed this way.',
+  use_early_depart: () => 'To shorten the stay use Early departure on the folio.',
+  room_id_required: () => 'Pick a room of the new type when changing room type.',
   no_show_before_arrival: () =>
     'No-show is only allowed on or after the arrival business date.',
   already_cancelled: () => 'This reservation is already cancelled.',
@@ -126,7 +139,7 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   sku_taken: () => 'Another product already uses that SKU.',
   invalid_amount: () => 'Enter a price of zero or more, with at most two decimals.',
   invalid_request: () => 'Check the nights and try again.',
-  reason_required: () => 'Give a reason for the rate change.',
+  reason_required: () => 'Give a reason for this change.',
   rate_override_not_allowed: () =>
     'Nightly rates can be changed on a pending, confirmed, or in-house stay.',
   night_outside_stay: () => 'That date is outside this stay.',

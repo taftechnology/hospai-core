@@ -22,6 +22,8 @@ const listGuestDocuments = vi.fn();
 const getGuest = vi.fn();
 const getMe = vi.fn();
 const getReservationRateNights = vi.fn();
+const changeInHouseStay = vi.fn();
+const getAvailableRooms = vi.fn();
 
 const businessDate = { current: '2026-11-09' };
 
@@ -54,6 +56,8 @@ vi.mock('../client.js', () => ({
     getGuest: (...args: unknown[]) => getGuest(...args),
     getMe: (...args: unknown[]) => getMe(...args),
     getReservationRateNights: (...args: unknown[]) => getReservationRateNights(...args),
+    changeInHouseStay: (...args: unknown[]) => changeInHouseStay(...args),
+    getAvailableRooms: (...args: unknown[]) => getAvailableRooms(...args),
   },
 }));
 
@@ -214,19 +218,143 @@ describe('ReservationStayScreen', () => {
     expect((screen.getByTestId('stay-no-show') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('checked-in disables modify with the in-house reason and offers cancel check-in', async () => {
+  it('checked-in without change_in_house hides Modify and Change stay; offers cancel check-in', async () => {
     getReservation.mockResolvedValue(stay('checked_in'));
     renderStay();
     await waitFor(() => expect(screen.getByTestId('stay-cancel-check-in')).toBeTruthy());
-    expect((screen.getByTestId('stay-modify') as HTMLButtonElement).disabled).toBe(true);
-    expect(
-      screen.getByText("Dates and room type of an in-house stay can't be changed here yet."),
-    ).toBeTruthy();
+    expect(screen.queryByTestId('stay-modify')).toBeNull();
+    expect(screen.queryByTestId('stay-change-stay')).toBeNull();
     expect(screen.queryByTestId('stay-confirm')).toBeNull();
     fireEvent.click(screen.getByTestId('stay-cancel-check-in'));
     expect(
       screen.getByText('The guest goes back to Confirmed. The room stays assigned and the folio is kept.'),
     ).toBeTruthy();
+  });
+
+  it('checked-in with reservations:change_in_house shows Change stay dialog, preview, room select, early-depart link, and invalidates keys', async () => {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:read', 'reservations:change_in_house'],
+      orgPermissions: [],
+    });
+    listRatePlans.mockResolvedValue({
+      ok: true,
+      plans: [
+        { ratePlanId: 'BAR', code: 'BAR', name: 'Best available' },
+        { ratePlanId: 'RACK', code: 'RACK', name: 'Rack' },
+      ],
+    });
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-11-09',
+      toDate: '2026-11-16',
+      asOf: 1,
+      rooms: [
+        { roomId: 'rm_1', roomTypeId: 'rt2', code: '101', status: 'clean', floor: '1' },
+        { roomId: 'rm_2', roomTypeId: 'rt2', code: '202', status: 'clean', floor: '2' },
+        { roomId: 'rm_dirty', roomTypeId: 'rt2', code: '203', status: 'dirty', floor: '2' },
+        { roomId: 'rm_ooo', roomTypeId: 'rt2', code: '204', status: 'out_of_order', floor: '2' },
+        { roomId: 'rm_insp', roomTypeId: 'rt2', code: '205', status: 'inspected', floor: '2' },
+      ],
+    });
+    changeInHouseStay.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    getReservation.mockResolvedValue(stay('checked_in', { departureDate: '2026-11-14' }));
+    const { invalidateSpy } = renderStay();
+    await waitFor(() => expect(screen.getByTestId('stay-change-stay')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('stay-change-stay'));
+
+    fireEvent.change(screen.getByTestId('change-departure'), { target: { value: '2026-11-13' } });
+    expect(screen.getByTestId('change-stay-early-depart').textContent).toMatch(/Early departure/);
+    expect(screen.getByRole('link', { name: 'Open folio' }).getAttribute('href')).toBe('/folio/res_1');
+
+    fireEvent.change(screen.getByTestId('change-departure'), { target: { value: '2026-11-16' } });
+    expect(screen.getByTestId('change-stay-preview').textContent).toBe(
+      'Adds 2 nights · departs 16/11/2026',
+    );
+
+    fireEvent.change(screen.getByTestId('change-room-type'), { target: { value: 'rt2' } });
+    await waitFor(() => expect(screen.getByTestId('change-room')).toBeTruthy());
+    await waitFor(() => expect(getAvailableRooms).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole('option', { name: '202' })).toBeTruthy());
+    expect(screen.queryByRole('option', { name: '101' })).toBeNull();
+    expect(screen.queryByRole('option', { name: '203' })).toBeNull();
+    expect(screen.queryByRole('option', { name: '204' })).toBeNull();
+    expect(screen.getByRole('option', { name: '205' })).toBeTruthy();
+    expect(screen.getByTestId('change-stay-preview').textContent).toMatch(
+      /Moves to Twin from tonight — pick a room/,
+    );
+
+    fireEvent.change(screen.getByTestId('change-room'), { target: { value: 'rm_2' } });
+    expect((screen.getByTestId('change-room') as HTMLSelectElement).value).toBe('rm_2');
+    fireEvent.change(screen.getByTestId('change-rate-plan'), { target: { value: 'RACK' } });
+    fireEvent.change(screen.getByTestId('change-reason'), { target: { value: 'Upgrade' } });
+    expect(screen.getByTestId('change-stay-preview').textContent).toBe(
+      'Adds 2 nights · departs 16/11/2026 · Moves to Twin 202 from tonight · Rate plan Rack applies from tonight',
+    );
+
+    fireEvent.click(screen.getByTestId('change-stay-save'));
+    await waitFor(() => expect(changeInHouseStay).toHaveBeenCalled());
+    expect(changeInHouseStay.mock.calls[0]![0]).toBe('prop_demo');
+    expect(changeInHouseStay.mock.calls[0]![1]).toBe('res_1');
+    expect(String(changeInHouseStay.mock.calls[0]![2])).toMatch(/^in-house-change:res_1:/);
+    expect(changeInHouseStay.mock.calls[0]![3]).toMatchObject({
+      departureDate: '2026-11-16',
+      roomTypeId: 'rt2',
+      roomId: 'rm_2',
+      ratePlanId: 'RACK',
+      reason: 'Upgrade',
+    });
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((call) => (call[0] as { queryKey: unknown }).queryKey);
+      expect(keys).toContainEqual(['reservation-rate-nights', 'prop_demo', 'res_1']);
+      expect(keys).toContainEqual(['reservation', 'prop_demo', 'res_1']);
+      expect(keys).toContainEqual(['board']);
+    });
+  });
+
+  it('type-change room_already_assigned names the occupied room', async () => {
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:read', 'reservations:change_in_house'],
+      orgPermissions: [],
+    });
+    getAvailableRooms.mockResolvedValue({
+      ok: true,
+      fromDate: '2026-11-09',
+      toDate: '2026-11-14',
+      asOf: 1,
+      rooms: [{ roomId: 'rm_2', roomTypeId: 'rt2', code: '206', status: 'clean', floor: '2' }],
+    });
+    changeInHouseStay.mockRejectedValue(
+      new ClassifiedError({
+        class: 'client_error',
+        status: 422,
+        body: { error: 'room_already_assigned' },
+        retryAfterMs: null,
+      }),
+    );
+    getReservation.mockResolvedValue(stay('checked_in'));
+    renderStay();
+    await waitFor(() => expect(screen.getByTestId('stay-change-stay')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('stay-change-stay'));
+    fireEvent.change(screen.getByTestId('change-room-type'), { target: { value: 'rt2' } });
+    await waitFor(() => expect(screen.getByRole('option', { name: '206' })).toBeTruthy());
+    fireEvent.change(screen.getByTestId('change-room'), { target: { value: 'rm_2' } });
+    fireEvent.change(screen.getByTestId('change-reason'), { target: { value: 'Upgrade' } });
+    fireEvent.click(screen.getByTestId('change-stay-save'));
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        'Room 206 is still occupied or booked for these nights. Pick another room.',
+      ),
+    );
   });
 
   it('cancelled is read-only', async () => {

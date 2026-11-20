@@ -332,7 +332,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(83);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(84);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -935,8 +935,8 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('post_upi_payment');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(191);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('post_reservation_in_house_change');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(192);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -944,9 +944,26 @@ describe('command catalog', () => {
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
+    expect(V1_HTTP_ROUTE_AUDIT[191]).toMatchObject({
+      id: 'post_reservation_in_house_change',
+      scope: 'property',
+      permission: 'reservations:change_in_house',
+      commandId: 'reservations.change_in_house_stay',
+      entitlement: 'pms.core',
+    });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(83);
-    expect(COMMAND_CATALOG).toHaveLength(117);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(84);
+    expect(COMMAND_CATALOG).toHaveLength(118);
+    const inHouse = COMMAND_CATALOG.find((c) => c.id === 'reservations.change_in_house_stay');
+    expect(inHouse).toMatchObject({
+      lane: 'INTERACTIVE',
+      degraded: 'FAIL_CLOSED',
+      idempotent: true,
+      entitlement: 'pms.core',
+      permission: 'reservations:change_in_house',
+      events: ['reservation.modified', 'availability.changed'],
+    });
+    expect(AUDIT_WRITER_COMMAND_IDS.has('reservations.change_in_house_stay')).toBe(true);
     for (const id of [
       'guests.add_document',
       'guests.attach_document_scan',

@@ -1364,6 +1364,35 @@ export function createClient(opts: {
       );
     },
 
+    async changeInHouseStay(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      body: {
+        departureDate?: string;
+        roomTypeId?: string;
+        roomId?: string;
+        ratePlanId?: string;
+        adults?: number;
+        children?: number;
+        reason: string;
+      },
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/in-house-change`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify(body),
+        },
+        { reservationId },
+      );
+    },
+
     /**
      * Deliberately no roomTypeId — booking quotes must use DO ariVersion (Branch 2), not KV min.
      * HTTP accepts roomTypeId; this client method does not expose it.

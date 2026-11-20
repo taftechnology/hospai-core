@@ -603,7 +603,8 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** a picked room is assigned and shows on arrivals; a room taken in between returns `ROOM_ALREADY_ASSIGNED`, and the booking remains; `sold` moves once.
   - **Scope out (client Q16):** a waitlist status; booker and guest-type fields. The status vocabulary stays §7.4's.
 
-- [ ] **R4.24 In-house stay changes**
+- [x] **R4.24 In-house stay changes**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-19-in-house-stay-changes-design.md). New command `reservations.change_in_house_stay` (`post_reservation_in_house_change`, header `x-idempotency-key`) with its own permission `reservations:change_in_house` (admin, staff; owner by grant). On a `checked_in` stay it extends the departure, changes room type (always with a room, as an in-house move), changes the rate plan and changes party size, in one transaction. Posted nights before the effective night are never touched: `sold`, folio lines and rate nights stay as they are; new and unconsumed nights are committed or re-snapshotted, overridden nights keep their amount. A shorter stay answers `use_early_depart`. Auto-extend and a clerk extension never double count (both orders tested). Stay card: **Change stay** replaces the disabled Modify for in-house stays, with a preview line, a Room list of ready rooms of the new type, and the early-depart link. Known gap shared with the R1.19 move dialog: the available-rooms read does not know a due-out guest is still in a clean room, so such a room can be listed and the server refuses the move with "still occupied" copy. Pins: catalog 118, routes 192 (last `post_reservation_in_house_change`), audit writers 84; no migration.
   - **Depends:** **R1.15**, **R1.19**, **R4.20** (nightly amounts), R0.14 (early depart, shipped).
   - **Pilot checklist:** *Edit reservation and guest preferences*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Check-In, Stay And Checkout (edit check-in). **Prototype:** none.
   - **Live:** `tryModifyReservation` accepts only `inquiry`, `pending` and `confirmed` (`NOT_MODIFIABLE` otherwise), so **no desk command can extend an in-house guest**. `reservations.early_depart` shortens. Auto-extend is a night-audit setting, not a clerk action. R1.19 moves a guest within one type.
@@ -1041,12 +1042,12 @@ If you hit one of these, **stop and tell the human** — do not pick a silent al
 
 ## Catalog pins (refresh each session)
 
-After **R4.18** (2026-11-20):
+After **R4.24** (2026-11-20):
 
 | Pin | Value |
 |---|---|
-| `COMMAND_CATALOG` | length **117** |
-| `V1_HTTP_ROUTE_AUDIT` | **191** routes, last `post_upi_payment` |
+| `COMMAND_CATALOG` | length **118** |
+| `V1_HTTP_ROUTE_AUDIT` | **192** routes, last `post_reservation_in_house_change` |
 | `PROPERTY_SCHEMA_HEAD` | **48** |
 | `ORG_SCHEMA_HEAD` | **13** |
 | `NIGHT_AUDIT_STEPS` | length **8**, `[3] === 'AUTO_TRANSFER'` |

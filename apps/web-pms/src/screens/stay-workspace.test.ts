@@ -4,6 +4,8 @@ import {
   cancelChargeSentence,
   cancelCheckInOpId,
   cancellationPolicySentence,
+  changeInHouseStayOpId,
+  inHouseChangePreview,
   invalidateStayMutations,
   modifyReservationOpId,
   stayMutationQueryKeys,
@@ -62,6 +64,67 @@ describe('stay operation ids', () => {
     expect(modifyReservationOpId('res_1', { ...base, roomTypeId: 'rt2' })).not.toBe(first);
     expect(modifyReservationOpId('res_1', { ...base, ratePlanId: 'NRF' })).not.toBe(first);
     expect(cancelCheckInOpId('res_1', 10)).not.toBe(cancelCheckInOpId('res_1', 11));
+    expect(changeInHouseStayOpId('res_1', 'a')).not.toBe(changeInHouseStayOpId('res_1', 'b'));
+  });
+});
+
+describe('in-house change preview', () => {
+  const fmtDate = (iso: string) => {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
+  it('names added nights, type move with room, and rate plan', () => {
+    const line = inHouseChangePreview(
+      {
+        departureDate: '2026-11-24',
+        roomTypeId: 'rt',
+        ratePlanId: 'BAR',
+        adults: 2,
+        children: 0,
+      },
+      {
+        departureDate: '2026-11-26',
+        roomTypeId: 'rt_suite',
+        roomId: 'rm_3',
+        ratePlanId: 'RACK',
+        adults: 2,
+        children: 0,
+        reason: 'Upgrade',
+      },
+      {
+        roomTypeName: 'Suite',
+        roomCode: '304',
+        ratePlanName: 'Rack',
+        formatDate: fmtDate,
+      },
+    );
+    expect(line).toBe(
+      'Adds 2 nights · departs 26/11/2026 · Moves to Suite 304 from tonight · Rate plan Rack applies from tonight',
+    );
+  });
+
+  it('asks for a room before one is picked on a type change', () => {
+    const line = inHouseChangePreview(
+      {
+        departureDate: '2026-11-24',
+        roomTypeId: 'rt',
+        ratePlanId: 'BAR',
+        adults: 2,
+        children: 0,
+      },
+      {
+        departureDate: '2026-11-24',
+        roomTypeId: 'rt_twin',
+        roomId: '',
+        ratePlanId: 'BAR',
+        adults: 2,
+        children: 0,
+        reason: 'Move',
+      },
+      { roomTypeName: 'Twin', formatDate: fmtDate },
+    );
+    expect(line).toBe('Moves to Twin from tonight — pick a room');
   });
 });
 

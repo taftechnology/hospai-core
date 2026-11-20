@@ -219,12 +219,12 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.18 (UPI tender, 2026-11-20) — update this table when you bump them:
+After roadmap R4.24 (in-house stay changes, 2026-11-20) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **117** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **191** routes, last id **`post_upi_payment`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `COMMAND_CATALOG` length | **118** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **192** routes, last id **`post_reservation_in_house_change`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `PROPERTY_SCHEMA_HEAD` | **48** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |

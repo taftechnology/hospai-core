@@ -96,6 +96,9 @@ import {
   NOT_MEMBER,
   NOT_MODIFIABLE,
   NOT_EARLY_DEPARTABLE,
+  NOT_IN_HOUSE,
+  USE_EARLY_DEPART,
+  ROOM_ID_REQUIRED,
   NOTE_LIMIT,
   NOTE_TOO_LONG,
   OCCUPANCY_EXCEEDED,
@@ -309,6 +312,9 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case RESTRICTION_VIOLATED:
     case NOT_MODIFIABLE:
     case NOT_EARLY_DEPARTABLE:
+    case NOT_IN_HOUSE:
+    case USE_EARLY_DEPART:
+    case ROOM_ID_REQUIRED:
     case INVALID_STATUS_TRANSITION:
     case NO_SHOW_BEFORE_ARRIVAL:
     case CURRENCY_UNSET:

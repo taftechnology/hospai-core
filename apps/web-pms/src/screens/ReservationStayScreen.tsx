@@ -2,7 +2,7 @@ import type { FolioPaymentRow, GuestRowState, ReservationRead } from '@hospai/cl
 import type { GuestPreferences } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -21,6 +21,7 @@ import {
   isReservationStatus,
   type AlertIntent,
 } from '@hospai/ui-kit';
+import { hasPropertyPermission } from '../auth/me.js';
 import { api, asClassified, tenant } from '../client.js';
 import { NightlyRatesEditor } from './NightlyRatesEditor.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
@@ -34,14 +35,15 @@ import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { GuestNameLink } from './guest-row.js';
 import {
-  IN_HOUSE_MODIFY_REASON,
   cancelChargeSentence,
   cancelCheckInOpId,
   cancelReservationOpId,
   cancellationPolicySentence,
+  changeInHouseStayOpId,
   checkInBlockReason,
   confirmReservationOpId,
   damageHoldWord,
+  inHouseChangePreview,
   invalidateStayMutations,
   isTerminalStay,
   modifyReservationOpId,
@@ -49,6 +51,7 @@ import {
   noShowChargeSentence,
   noShowReservationOpId,
   stayNights,
+  type InHouseChangeDraft,
   type StayModifyBody,
 } from './stay-workspace.js';
 
@@ -74,22 +77,34 @@ export function ReservationStayScreen() {
   const { reservationId = '' } = useParams();
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
-  const { money, dateRange, dateTime, fmt } = useFormat();
+  const { money, date, dateRange, dateTime, fmt } = useFormat();
   const timeZone = usePropertyTimeZone();
   const businessDate = timeZone ? propertyLocalToday(timeZone) : null;
   const [message, setMessage] = useState<StayMessage | null>(null);
   const [modifyOpen, setModifyOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [noShowOpen, setNoShowOpen] = useState(false);
   const [cancelCheckInOpen, setCancelCheckInOpen] = useState(false);
   const [draft, setDraft] = useState<StayModifyBody | null>(null);
+  const [changeDraft, setChangeDraft] = useState<InHouseChangeDraft | null>(null);
   const [modifyError, setModifyError] = useState<string | null>(null);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const changeAttemptRef = useRef<string | null>(null);
 
   const reservationQ = useQuery({
     queryKey: ['reservation', propertyId, reservationId],
     queryFn: () => api.getReservation(propertyId, reservationId),
     enabled: Boolean(reservationId),
   });
+  const meQ = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+    retry: false,
+  });
+  const canChangeInHouse = Boolean(
+    meQ.data && hasPropertyPermission(meQ.data, 'reservations:change_in_house'),
+  );
   const propertyQ = useQuery({
     queryKey: ['property', propertyId],
     queryFn: () => api.getProperty(propertyId),
@@ -123,6 +138,27 @@ export function ReservationStayScreen() {
   });
 
   const res = reservationQ.data;
+  const changeTypeDiffers =
+    Boolean(changeDraft && res && changeDraft.roomTypeId !== res.roomTypeId);
+  const availableRoomsQ = useQuery({
+    queryKey: [
+      'front-desk-available',
+      propertyId,
+      businessDate,
+      changeDraft?.roomTypeId,
+      changeDraft?.departureDate,
+    ],
+    queryFn: () =>
+      api.getAvailableRooms(propertyId, {
+        fromDate: businessDate!,
+        toDate: changeDraft!.departureDate,
+        roomTypeId: changeDraft!.roomTypeId,
+      }),
+    enabled: Boolean(
+      changeOpen && changeTypeDiffers && businessDate && changeDraft && changeDraft.departureDate > businessDate,
+    ),
+    retry: false,
+  });
   const propertyName = propertyQ.data?.property?.name;
   const guestState = guestRef ? guestsQ.data?.states[guestRef] : undefined;
   const preferences = useGuestPreferences(propertyId, guestRef, guestsQ.data, guestsQ.isFetched);
@@ -183,6 +219,63 @@ export function ReservationStayScreen() {
     },
     onError: (err) => {
       setModifyError(classifiedUserMessage(asClassified(err), { fallback: 'Modify failed', fmt }));
+    },
+  });
+
+  const changeStay = useMutation({
+    mutationFn: (body: InHouseChangeDraft) => {
+      if (!changeAttemptRef.current) {
+        changeAttemptRef.current = crypto.randomUUID();
+      }
+      const payload: {
+        departureDate?: string;
+        roomTypeId?: string;
+        roomId?: string;
+        ratePlanId?: string;
+        adults?: number;
+        children?: number;
+        reason: string;
+      } = { reason: body.reason.trim() };
+      if (res && body.departureDate !== res.departureDate) payload.departureDate = body.departureDate;
+      if (res && body.roomTypeId !== res.roomTypeId) {
+        payload.roomTypeId = body.roomTypeId;
+        payload.roomId = body.roomId;
+      }
+      if (res && body.ratePlanId !== res.ratePlanId) payload.ratePlanId = body.ratePlanId;
+      if (res && body.adults !== (res.adults ?? 1)) payload.adults = body.adults;
+      if (res && body.children !== (res.children ?? 0)) payload.children = body.children;
+      return api.changeInHouseStay(
+        propertyId,
+        reservationId,
+        changeInHouseStayOpId(reservationId, changeAttemptRef.current),
+        payload,
+      );
+    },
+    onSuccess: () => {
+      changeAttemptRef.current = null;
+      setChangeOpen(false);
+      setChangeError(null);
+      setMessage({ intent: 'settled', text: 'Stay updated.' });
+      refresh();
+    },
+    onError: (err) => {
+      const classified = asClassified(err);
+      const typeChange =
+        Boolean(res && changeDraft && changeDraft.roomTypeId !== res.roomTypeId);
+      const pickedCode =
+        typeChange && changeDraft?.roomId
+          ? (availableRoomsQ.data?.rooms ?? []).find((r) => r.roomId === changeDraft.roomId)?.code ??
+            changeDraft.roomId
+          : undefined;
+      setChangeError(
+        classifiedUserMessage(classified, {
+          fallback: 'Could not change the stay',
+          fmt,
+          ...(typeChange && bodyErrorCode(classified.body) === 'room_already_assigned'
+            ? { roomCode: pickedCode ?? changeDraft?.roomId ?? 'that room' }
+            : {}),
+        }),
+      );
     },
   });
 
@@ -295,7 +388,15 @@ export function ReservationStayScreen() {
         res={res}
         businessDate={businessDate}
         message={message}
-        pending={confirm.isPending || modify.isPending || cancel.isPending || noShow.isPending || cancelCheckIn.isPending}
+        pending={
+          confirm.isPending ||
+          modify.isPending ||
+          changeStay.isPending ||
+          cancel.isPending ||
+          noShow.isPending ||
+          cancelCheckIn.isPending
+        }
+        canChangeInHouse={canChangeInHouse}
         onConfirm={() => confirm.mutate()}
         onModify={() => {
           setDraft({
@@ -308,6 +409,20 @@ export function ReservationStayScreen() {
           });
           setModifyError(null);
           setModifyOpen(true);
+        }}
+        onChangeStay={() => {
+          changeAttemptRef.current = null;
+          setChangeDraft({
+            departureDate: res.departureDate,
+            roomTypeId: res.roomTypeId,
+            roomId: res.roomId ?? '',
+            ratePlanId: res.ratePlanId ?? '',
+            adults: res.adults ?? 1,
+            children: res.children ?? 0,
+            reason: '',
+          });
+          setChangeError(null);
+          setChangeOpen(true);
         }}
         onCancel={() => setCancelOpen(true)}
         onNoShow={() => setNoShowOpen(true)}
@@ -459,6 +574,171 @@ export function ReservationStayScreen() {
           {modifyError ? <Alert>{modifyError}</Alert> : null}
         </FormDialog>
       ) : null}
+      {changeOpen && changeDraft && res ? (
+        <FormDialog
+          title="Change stay"
+          onClose={() => setChangeOpen(false)}
+          actions={
+            <>
+              <Button type="button" onClick={() => setChangeOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="primary"
+                data-testid="change-stay-save"
+                disabled={changeStay.isPending || !changeDraft.reason.trim()}
+                onClick={() => changeStay.mutate(changeDraft)}
+              >
+                Save
+              </Button>
+            </>
+          }
+        >
+          {changeDraft.departureDate < res.departureDate ? (
+            <Alert intent="informational" data-testid="change-stay-early-depart">
+              To shorten the stay use Early departure.{' '}
+              <Link to={`/folio/${encodeURIComponent(res.reservationId)}`}>Open folio</Link>
+            </Alert>
+          ) : null}
+          <Field
+            label="Departure"
+            control={
+              <Input
+                type="date"
+                data-testid="change-departure"
+                min={res.departureDate}
+                value={changeDraft.departureDate}
+                onChange={(e) => setChangeDraft({ ...changeDraft, departureDate: e.target.value })}
+              />
+            }
+          />
+          <Field
+            label="Room type"
+            control={
+              <NativeSelect
+                data-testid="change-room-type"
+                value={changeDraft.roomTypeId}
+                onChange={(e) =>
+                  setChangeDraft({
+                    ...changeDraft,
+                    roomTypeId: e.target.value,
+                    roomId: e.target.value === res.roomTypeId ? (res.roomId ?? '') : '',
+                  })
+                }
+              >
+                {roomTypes.map((t) => (
+                  <option key={t.roomTypeId} value={t.roomTypeId}>
+                    {t.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          {changeDraft.roomTypeId !== res.roomTypeId ? (
+            <Field
+              label="Room"
+              control={
+                <NativeSelect
+                  data-testid="change-room"
+                  value={changeDraft.roomId}
+                  onChange={(e) => setChangeDraft({ ...changeDraft, roomId: e.target.value })}
+                >
+                  <option value="">Select a room</option>
+                  {(availableRoomsQ.data?.rooms ?? [])
+                    .filter(
+                      (room) =>
+                        room.roomId !== res.roomId &&
+                        (room.status === 'clean' || room.status === 'inspected'),
+                    )
+                    .map((room) => (
+                      <option key={room.roomId} value={room.roomId}>
+                        {room.code}
+                      </option>
+                    ))}
+                </NativeSelect>
+              }
+            />
+          ) : null}
+          <Field
+            label="Rate plan"
+            control={
+              <NativeSelect
+                data-testid="change-rate-plan"
+                value={changeDraft.ratePlanId}
+                onChange={(e) => setChangeDraft({ ...changeDraft, ratePlanId: e.target.value })}
+              >
+                {plans.map((p) => (
+                  <option key={p.ratePlanId} value={p.ratePlanId}>
+                    {p.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+          />
+          <Field
+            label="Adults"
+            control={
+              <Input
+                type="number"
+                data-testid="change-adults"
+                value={String(changeDraft.adults)}
+                onChange={(e) => setChangeDraft({ ...changeDraft, adults: Number(e.target.value) })}
+              />
+            }
+          />
+          <Field
+            label="Children"
+            control={
+              <Input
+                type="number"
+                data-testid="change-children"
+                value={String(changeDraft.children)}
+                onChange={(e) => setChangeDraft({ ...changeDraft, children: Number(e.target.value) })}
+              />
+            }
+          />
+          <Field
+            label="Reason"
+            control={
+              <Input
+                data-testid="change-reason"
+                value={changeDraft.reason}
+                onChange={(e) => setChangeDraft({ ...changeDraft, reason: e.target.value })}
+              />
+            }
+          />
+          {(() => {
+            const readyRooms = (availableRoomsQ.data?.rooms ?? []).filter(
+              (room) =>
+                room.roomId !== res.roomId &&
+                (room.status === 'clean' || room.status === 'inspected'),
+            );
+            const preview = inHouseChangePreview(
+              {
+                departureDate: res.departureDate,
+                roomTypeId: res.roomTypeId,
+                ratePlanId: res.ratePlanId ?? '',
+                adults: res.adults ?? 1,
+                children: res.children ?? 0,
+              },
+              changeDraft,
+              {
+                roomTypeName: roomTypes.find((t) => t.roomTypeId === changeDraft.roomTypeId)?.name,
+                roomCode: readyRooms.find((r) => r.roomId === changeDraft.roomId)?.code,
+                ratePlanName: plans.find((p) => p.ratePlanId === changeDraft.ratePlanId)?.name,
+                formatDate: date,
+              },
+            );
+            return preview ? (
+              <p className="muted" data-testid="change-stay-preview">
+                {preview}
+              </p>
+            ) : null;
+          })()}
+          {changeError ? <Alert>{changeError}</Alert> : null}
+        </FormDialog>
+      ) : null}
       {cancelOpen ? (
         <ConfirmDialog
           title="Cancel this reservation?"
@@ -608,8 +888,10 @@ function StayActions({
   businessDate,
   message,
   pending,
+  canChangeInHouse,
   onConfirm,
   onModify,
+  onChangeStay,
   onCancel,
   onNoShow,
   onCancelCheckIn,
@@ -618,8 +900,10 @@ function StayActions({
   businessDate: string | null;
   message: StayMessage | null;
   pending: boolean;
+  canChangeInHouse: boolean;
   onConfirm: () => void;
   onModify: () => void;
+  onChangeStay: () => void;
   onCancel: () => void;
   onNoShow: () => void;
   onCancelCheckIn: () => void;
@@ -629,12 +913,12 @@ function StayActions({
   const checkInReason = checkInBlockReason(status);
   const noShowReason = noShowBlockReason(res.arrivalDate, businessDate);
   const showConfirm = status === 'inquiry' || status === 'pending';
-  const showModify = showConfirm || status === 'confirmed' || status === 'checked_in';
+  const showModify = showConfirm || status === 'confirmed';
+  const showChangeStay = status === 'checked_in' && canChangeInHouse;
   const showCancel = showConfirm || status === 'confirmed';
   const showNoShow = status === 'confirmed';
   const showCheckIn = showConfirm || status === 'confirmed';
   const showCancelCheckIn = status === 'checked_in';
-  const modifyReason = status === 'checked_in' ? IN_HOUSE_MODIFY_REASON : null;
 
   return (
     <Card>
@@ -682,22 +966,25 @@ function StayActions({
               </Button>
             ) : null}
             {showModify ? (
-              <>
-                <Button
-                  type="button"
-                  data-testid="stay-modify"
-                  disabled={pending || modifyReason != null}
-                  aria-describedby={modifyReason ? 'stay-modify-reason' : undefined}
-                  onClick={onModify}
-                >
-                  Modify
-                </Button>
-                {modifyReason ? (
-                  <p className="muted" id="stay-modify-reason">
-                    {modifyReason}
-                  </p>
-                ) : null}
-              </>
+              <Button
+                type="button"
+                data-testid="stay-modify"
+                disabled={pending}
+                onClick={onModify}
+              >
+                Modify
+              </Button>
+            ) : null}
+            {showChangeStay ? (
+              <Button
+                type="button"
+                intent="primary"
+                data-testid="stay-change-stay"
+                disabled={pending}
+                onClick={onChangeStay}
+              >
+                Change stay
+              </Button>
             ) : null}
             {showCancel ? (
               <Button

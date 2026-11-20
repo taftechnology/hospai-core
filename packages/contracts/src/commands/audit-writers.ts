@@ -7,6 +7,7 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'reservations.modify',
   'reservations.override_night_rate',
   'reservations.early_depart',
+  'reservations.change_in_house_stay',
   'reservations.confirm',
   'reservations.hold',
   'rooms.create',

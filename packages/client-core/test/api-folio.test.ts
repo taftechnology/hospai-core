@@ -87,6 +87,25 @@ describe('folio API', () => {
     expect(headers?.has('x-idempotency-key')).toBe(true);
   });
 
+  it('changeInHouseStay sends x-idempotency-key and body fields', async () => {
+    let path = '';
+    let headers: Headers | undefined;
+    let body = '';
+    const { client } = clientWith(async (p, init) => {
+      path = p;
+      headers = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers);
+      body = typeof init?.body === 'string' ? init.body : '';
+      return new Response(JSON.stringify({ ok: true, reservationId: 'res_9' }), { status: 200 });
+    });
+    await client.changeInHouseStay('p', 'res_9', 'op-ihc', {
+      departureDate: '2026-11-22',
+      reason: 'Guest asked',
+    });
+    expect(path).toBe('/v1/properties/p/reservations/res_9/in-house-change');
+    expect(headers?.get('x-idempotency-key')).toBeTruthy();
+    expect(JSON.parse(body)).toEqual({ departureDate: '2026-11-22', reason: 'Guest asked' });
+  });
+
   it('authorizePayment 501 psp_unavailable is not_configured', async () => {
     const { client } = clientWith(
       () =>

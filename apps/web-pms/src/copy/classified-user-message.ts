@@ -205,6 +205,8 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
   no_active_hold: () => 'There is no active open-folio hold on this stay.',
   checked_out_requires_hold: () =>
     'Place an open-folio hold to post charges after checkout.',
+  check_out_not_today: () =>
+    'This stay checked out on an earlier business date and cannot be reopened.',
 };
 
 export function classifiedUserMessage(

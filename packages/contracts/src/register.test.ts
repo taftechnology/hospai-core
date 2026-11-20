@@ -31,6 +31,7 @@ import {
   PROPERTY_SCOPED_PERMISSIONS,
   ROLE_GRANTS,
   GRANTABLE_PERMISSIONS,
+  FOLIO_TRANSFER_BULK_MAX,
   requiredPermissionForKey,
 } from './index.js';
 
@@ -376,7 +377,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(91);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(93);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -836,7 +837,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[138]?.id).toBe('post_invoice_void');
     expect(V1_HTTP_ROUTE_AUDIT[138]).toMatchObject({
       scope: 'property',
-      permission: 'folio:adjust',
+      permission: 'folio:reverse',
       commandId: 'invoice.void',
       entitlement: 'pms.core',
     });
@@ -979,12 +980,15 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_open_folios');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_folio_hold');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('post_folio_hold_release');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_reservation_registration_card');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(204);
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_reservation_draft_bill');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('post_reservation_undo_check_out');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('post_folio_transfer_bulk');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('get_open_folios');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_folio_hold');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('post_folio_hold_release');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-9)?.id).toBe('get_reservation_registration_card');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-10)?.id).toBe('get_reservation_proforma');
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(207);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1046,8 +1050,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(91);
-    expect(COMMAND_CATALOG).toHaveLength(125);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(93);
+    expect(COMMAND_CATALOG).toHaveLength(127);
     expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
       id: 'post_folio_hold',
       scope: 'property',
@@ -1085,6 +1089,40 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[203] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[204]).toMatchObject({
+      id: 'post_folio_transfer_bulk',
+      scope: 'property',
+      permission: 'folio:adjust',
+      commandId: 'folio.transfer_charges',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[205]).toMatchObject({
+      id: 'post_reservation_undo_check_out',
+      scope: 'property',
+      permission: 'folio:reverse',
+      commandId: 'reservations.undo_check_out',
+      entitlement: 'pms.core',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT[206]).toMatchObject({
+      id: 'get_reservation_draft_bill',
+      scope: 'property',
+      permission: 'folio:read',
+      entitlement: 'pms.core',
+      degradedRead: 'FAIL_CLOSED',
+    });
+    expect('commandId' in (V1_HTTP_ROUTE_AUDIT[206] ?? {})).toBe(false);
+    expect(COMMAND_CATALOG.find((c) => c.id === 'invoice.void')?.permission).toBe('folio:reverse');
+    expect(COMMAND_CATALOG.find((c) => c.id === 'folio.transfer_charges')).toMatchObject({
+      lane: 'INTERACTIVE',
+      permission: 'folio:adjust',
+      entitlement: 'pms.core',
+    });
+    expect(COMMAND_CATALOG.find((c) => c.id === 'reservations.undo_check_out')).toMatchObject({
+      lane: 'INTERACTIVE',
+      permission: 'folio:reverse',
+      entitlement: 'pms.core',
+    });
+    expect(FOLIO_TRANSFER_BULK_MAX).toBe(50);
     for (const id of ['folio.place_hold', 'folio.extend_hold', 'folio.release_hold'] as const) {
       const c = COMMAND_CATALOG.find((x) => x.id === id);
       expect(c).toMatchObject({
@@ -1562,6 +1600,13 @@ describe('command catalog', () => {
     expect(ROLE_GRANTS.admin).toContain('folio:hold');
     expect(ROLE_GRANTS.staff).not.toContain('folio:hold');
     expect(GRANTABLE_PERMISSIONS).toContain('folio:hold');
+  });
+
+  it('folio:reverse is property-scoped; admin + owner grantable; not staff', () => {
+    expect(PROPERTY_SCOPED_PERMISSIONS).toContain('folio:reverse');
+    expect(ROLE_GRANTS.admin).toContain('folio:reverse');
+    expect(ROLE_GRANTS.staff).not.toContain('folio:reverse');
+    expect(GRANTABLE_PERMISSIONS).toContain('folio:reverse');
   });
 
   it('pms.folio.open_folio is DOMAIN with D3 defaults and consumersExempt', () => {

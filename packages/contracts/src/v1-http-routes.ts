@@ -827,7 +827,7 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   {
     id: 'post_invoice_void',
     scope: 'property',
-    permission: 'folio:adjust',
+    permission: 'folio:reverse',
     commandId: 'invoice.void',
     entitlement: 'pms.core',
   },
@@ -1259,6 +1259,27 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   },
   {
     id: 'get_open_folios',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_folio_transfer_bulk',
+    scope: 'property',
+    permission: 'folio:adjust',
+    commandId: 'folio.transfer_charges',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'post_reservation_undo_check_out',
+    scope: 'property',
+    permission: 'folio:reverse',
+    commandId: 'reservations.undo_check_out',
+    entitlement: 'pms.core',
+  },
+  {
+    id: 'get_reservation_draft_bill',
     scope: 'property',
     permission: 'folio:read',
     entitlement: 'pms.core',

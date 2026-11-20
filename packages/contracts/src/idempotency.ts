@@ -156,6 +156,8 @@ export const INVALID_PROMO_KIND_FIELD = 'invalid_promo_kind_field' as const;
 export const PROMO_ID_EXISTS = 'promo_id_exists' as const;
 
 export const INVOICE_ALREADY_EXISTS = 'invoice_already_exists' as const;
+/** Undo checkout only for same-business-date checkouts (R4.29). */
+export const CHECK_OUT_NOT_TODAY = 'check_out_not_today' as const;
 export const INVOICE_NOT_FOUND = 'invoice_not_found' as const;
 export const INVOICE_VOIDED = 'invoice_voided' as const;
 export const INVOICE_R2_UNBOUND = 'invoice_r2_unbound' as const;

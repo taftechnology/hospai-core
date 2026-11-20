@@ -155,8 +155,8 @@ describe('buyer GST', () => {
 
     await stub.tryVoidInvoice(
       TEST_OWNER_ACTOR,
-      { invoiceId: created.invoiceId },
-      await idemFor('void-gst', { invoiceId: created.invoiceId }),
+      { invoiceId: created.invoiceId, reason: 'test-void' },
+      await idemFor('void-gst', { invoiceId: created.invoiceId, reason: 'test-void' }),
     );
     const individual = await postInvoice(propertyId, {
       reservationId: 'res_gst',

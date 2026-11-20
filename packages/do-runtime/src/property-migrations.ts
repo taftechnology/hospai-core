@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 50. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 51. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -1702,6 +1702,29 @@ export const FOLIO_HOLD_V50_STATEMENTS: string[] = [
 
 export const FOLIO_HOLD_V50_SQL = FOLIO_HOLD_V50_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v51 — R4.29: folio_hold_event.kind allows reactivated (table rebuild + copy). */
+export const FOLIO_HOLD_EVENT_REACTIVATED_V51_STATEMENTS: string[] = [
+  `CREATE TABLE folio_hold_event_v51 (
+  event_id TEXT PRIMARY KEY,
+  hold_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('placed','extended','released','closed','reactivated')),
+  reason TEXT,
+  before_json TEXT,
+  after_json TEXT,
+  actor TEXT NOT NULL,
+  at INTEGER NOT NULL
+)`,
+  `INSERT INTO folio_hold_event_v51 (
+     event_id, hold_id, kind, reason, before_json, after_json, actor, at)
+   SELECT event_id, hold_id, kind, reason, before_json, after_json, actor, at
+   FROM folio_hold_event`,
+  `DROP TABLE folio_hold_event`,
+  `ALTER TABLE folio_hold_event_v51 RENAME TO folio_hold_event`,
+];
+
+export const FOLIO_HOLD_EVENT_REACTIVATED_V51_SQL =
+  FOLIO_HOLD_EVENT_REACTIVATED_V51_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -1952,5 +1975,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 50,
     name: 'folio_hold',
     statements: FOLIO_HOLD_V50_STATEMENTS,
+  },
+  {
+    version: 51,
+    name: 'folio_hold_event_reactivated',
+    statements: FOLIO_HOLD_EVENT_REACTIVATED_V51_STATEMENTS,
   },
 ] as const;

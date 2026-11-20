@@ -235,8 +235,8 @@ describe('invoice generation DO engine', () => {
     expect(replay).toMatchObject({ ok: true, invoiceId: first.invoiceId, invoiceNumber: first.invoiceNumber });
     await stub.tryVoidInvoice(
       TEST_OWNER_ACTOR,
-      { invoiceId: first.invoiceId },
-      await idemFor('void3', { invoiceId: first.invoiceId }),
+      { invoiceId: first.invoiceId, reason: 'test-void' },
+      await idemFor('void3', { invoiceId: first.invoiceId, reason: 'test-void' }),
     );
     const afterVoid = await stub.tryGenerateInvoice(
       TEST_OWNER_ACTOR,
@@ -286,16 +286,16 @@ describe('invoice generation DO engine', () => {
     if (!gen.ok) return;
     const voided = await stub.tryVoidInvoice(
       TEST_OWNER_ACTOR,
-      { invoiceId: gen.invoiceId },
-      await idemFor('void5', { invoiceId: gen.invoiceId }),
+      { invoiceId: gen.invoiceId, reason: 'test-void' },
+      await idemFor('void5', { invoiceId: gen.invoiceId, reason: 'test-void' }),
     );
     expect(voided).toMatchObject({ ok: true });
     const rows = await stub.readInvoicesForReservation(reservationId);
     expect(rows.find((r) => r.invoiceId === gen.invoiceId)?.voidedAt).not.toBeNull();
     const again = await stub.tryVoidInvoice(
       TEST_OWNER_ACTOR,
-      { invoiceId: gen.invoiceId },
-      await idemFor('void5b', { invoiceId: gen.invoiceId }),
+      { invoiceId: gen.invoiceId, reason: 'test-void' },
+      await idemFor('void5b', { invoiceId: gen.invoiceId, reason: 'test-void' }),
     );
     expect(again).toMatchObject({ ok: false, error: INVOICE_VOIDED });
   });
@@ -317,8 +317,8 @@ describe('invoice generation DO engine', () => {
     if (!first.ok) return;
     await stub.tryVoidInvoice(
       TEST_OWNER_ACTOR,
-      { invoiceId: first.invoiceId },
-      await idemFor('void6', { invoiceId: first.invoiceId }),
+      { invoiceId: first.invoiceId, reason: 'test-void' },
+      await idemFor('void6', { invoiceId: first.invoiceId, reason: 'test-void' }),
     );
     const second = await stub.tryGenerateInvoice(
       TEST_OWNER_ACTOR,
@@ -426,12 +426,16 @@ describe('invoice generation HTTP wire', () => {
     const genRes = await postInvoice(propertyId, HTTP_ACTOR, { reservationId });
     expect(genRes.status).toBe(201);
     const gen = (await genRes.json()) as { ok: true; invoiceId: string };
-    const voidRes = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId);
+    const voidRes = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId, {
+      reason: 'test-void',
+    });
     expect(voidRes.status).toBe(200);
     expect(await voidRes.json()).toMatchObject({ ok: true, invoiceId: gen.invoiceId });
     const rows = await stub.readInvoicesForReservation(reservationId);
     expect(rows.find((r) => r.invoiceId === gen.invoiceId)?.voidedAt).not.toBeNull();
-    const again = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId);
+    const again = await postInvoiceVoid(propertyId, HTTP_ACTOR, gen.invoiceId, {
+      reason: 'test-void',
+    });
     expect(again.status).toBe(409);
     expect(await again.json()).toMatchObject({ ok: false, error: INVOICE_VOIDED });
   });

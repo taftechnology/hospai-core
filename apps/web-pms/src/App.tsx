@@ -21,6 +21,7 @@ import {
   ProformaPrintView,
   RegistrationCardPrintView,
 } from './screens/document-print-views.js';
+import { DraftBillPrintView } from './screens/draft-bill-document.js';
 import { CheckInScreen } from './screens/CheckInScreen.js';
 import { FolioScreen } from './screens/FolioScreen.js';
 import { FoliosDirectoryScreen } from './screens/FoliosDirectoryScreen.js';
@@ -86,6 +87,10 @@ export const router = createBrowserRouter(
             <Route
               path="reservations/:reservationId/registration-card"
               element={<RegistrationCardPrintView />}
+            />
+            <Route
+              path="reservations/:reservationId/draft-bill"
+              element={<DraftBillPrintView />}
             />
             <Route path="guests" element={<GuestsDirectoryScreen />} />
             <Route path="guests/:guestRef" element={<GuestProfileScreen />} />

@@ -249,6 +249,24 @@ describe('me authority helpers', () => {
     expect(hasPropertyPermission(adminMe, 'folio:hold')).toBe(true);
   });
 
+  it('hasPropertyPermission: staff-shaped lacks folio:reverse; admin-shaped includes it', () => {
+    const staffMe: PropertyMe = {
+      ...baseMe,
+      role: 'staff',
+      permissions: ['folio:post', 'folio:read', 'folio:adjust'],
+    };
+    expect(staffMe.permissions).not.toContain('folio:reverse');
+    expect(hasPropertyPermission(staffMe, 'folio:reverse')).toBe(false);
+
+    const adminMe: PropertyMe = {
+      ...baseMe,
+      role: 'admin',
+      permissions: ['folio:read', 'folio:post', 'folio:adjust', 'folio:hold', 'folio:reverse'],
+    };
+    expect(adminMe.permissions).toContain('folio:reverse');
+    expect(hasPropertyPermission(adminMe, 'folio:reverse')).toBe(true);
+  });
+
   it('filterNavEntries: live with housekeeping:read includes housekeeping from ALL_NAV', () => {
     const me: PropertyMe = {
       ...baseMe,

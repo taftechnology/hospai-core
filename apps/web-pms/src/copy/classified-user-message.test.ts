@@ -167,4 +167,14 @@ describe('domain code messages', () => {
     expect(invoice).toContain('\u2212₹1.00');
     expect(invoice).toMatch(/before generating the invoice/);
   });
+
+  it('check_out_not_today explains same-day reopen only', () => {
+    const msg = classifiedUserMessage(classifiedWithCode('check_out_not_today'), {
+      fallback: 'Undo failed',
+    });
+    expect(msg).toBe(
+      'This stay checked out on an earlier business date and cannot be reopened.',
+    );
+    expect(msg).not.toMatch(/check_out_not_today/);
+  });
 });

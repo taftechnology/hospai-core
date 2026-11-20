@@ -170,6 +170,12 @@ export type FolioTransferResult = {
   cityLedgerSynced?: boolean;
 };
 
+/** POST post_folio_transfer_bulk success body. */
+export type FolioTransferBulkResult = {
+  ok: true;
+  results: Array<{ reverseFolioLineId: string; destFolioLineId: string }>;
+};
+
 export type FxRateRow = {
   quoteId: string;
   fromCurrency: string;
@@ -232,6 +238,8 @@ export type ReservationRead = {
   allocatedRoomTypeId?: string;
   /** Set when `reservations.apply_package` succeeded (R4.13). */
   packageId?: string | null;
+  /** Business date stamped at checkout; null when not checked out (R4.29 undo). */
+  checkedOutBusinessDate?: string | null;
   createdAt: number;
   updatedAt: number;
   cancellation?: ReservationCancellation;
@@ -964,6 +972,12 @@ export function createClient(opts: {
       );
       return body;
     },
+    async getReservationDraftBill(propertyId: string, reservationId: string) {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/draft-bill`,
+      );
+      return body;
+    },
     async getReservationRegistrationCard(propertyId: string, reservationId: string) {
       const { body } = await getJson(
         `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/registration-card`,
@@ -1410,6 +1424,24 @@ export function createClient(opts: {
       );
       return body as FolioTransferResult;
     },
+    async transferFolioLines(
+      propertyId: string,
+      input: { folioLineIds: string[]; destinationFolioWindowId: string },
+      opId: string,
+    ): Promise<FolioTransferBulkResult> {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      const folioLineIds = [...input.folioLineIds].sort();
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/folio/transfer`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          folioLineIds,
+          destinationFolioWindowId: input.destinationFolioWindowId,
+          idempotencyKey,
+        }),
+      });
+      return body as FolioTransferBulkResult;
+    },
     async voidPayment(propertyId: string, paymentId: string, opId: string) {
       const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
       return getJson(
@@ -1531,6 +1563,26 @@ export function createClient(opts: {
           body: JSON.stringify({
             ...(extra?.overrideBalance !== undefined ? { overrideBalance: extra.overrideBalance } : {}),
           }),
+        },
+        { reservationId },
+      );
+    },
+    async undoCheckOut(
+      propertyId: string,
+      reservationId: string,
+      opId: string,
+      input: { reason: string },
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/undo-check-out`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-idempotency-key': idempotencyKey,
+          },
+          body: JSON.stringify({ reason: input.reason }),
         },
         { reservationId },
       );
@@ -2893,14 +2945,14 @@ export function createClient(opts: {
     async voidInvoice(
       propertyId: string,
       invoiceId: string,
-      input?: { reason?: string; idempotencyKey?: string },
+      input: { reason: string; idempotencyKey?: string },
     ) {
       const idempotencyKey =
-        input?.idempotencyKey ?? stableKeyForOperation(`invoice:void:${invoiceId}`, opts.keyStore);
+        input.idempotencyKey ?? stableKeyForOperation(`invoice:void:${invoiceId}`, opts.keyStore);
       return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}/void`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ idempotencyKey, ...(input?.reason ? { reason: input.reason } : {}) }),
+        body: JSON.stringify({ idempotencyKey, reason: input.reason }),
       });
     },
     async createCityLedgerAccount(

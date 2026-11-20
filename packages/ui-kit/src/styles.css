@@ -572,7 +572,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-inline-size: 100%;
 }
 
 /* Quieter than a page title — headings inside a page must not outweigh it. */

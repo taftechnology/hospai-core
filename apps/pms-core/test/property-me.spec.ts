@@ -88,6 +88,7 @@ describe('GET /v1/properties/:propertyId/me', () => {
     expect(result.role).toBe('staff');
     expect(result.permissions).toContain('folio:post');
     expect(result.permissions).not.toContain('folio:adjust');
+    expect(result.permissions).not.toContain('folio:reverse');
     expect(result.orgPermissions).toContain('org:read');
     expect(result.orgPermissions).not.toContain('org:manage');
     expect(result.permissions).not.toContain('shell:internal');

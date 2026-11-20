@@ -3,6 +3,8 @@ export const RATES_BULK_UPDATE_MAX = 500 as const;
 export const RATE_PLAN_INCLUSION_MAX = 8 as const;
 export const ROOMS_BULK_STATUS_MAX = 200 as const;
 export const FOLIO_SPLIT_MAX = 20 as const;
+/** Line ids on `folio.transfer_charges`, at HTTP and in the try* RPC. */
+export const FOLIO_TRANSFER_BULK_MAX = 50 as const;
 export const ROSTER_KINDS_MAX = 16 as const;
 /** Nights accepted by `reservations.override_night_rate`, at HTTP and in the RPC. */
 export const RATE_OVERRIDE_NIGHTS_MAX = 90 as const;

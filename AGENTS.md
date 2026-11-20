@@ -223,10 +223,10 @@ After roadmap R4.23 (open folio — bill on hold, 2026-11-19) — update this ta
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **125** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **204** routes, last id **`get_open_folios`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `AUDIT_WRITER_COMMAND_IDS` | **91** | `packages/contracts/src/register.test.ts` |
-| `PROPERTY_SCHEMA_HEAD` | **50** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **127** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **207** routes, last id **`get_reservation_draft_bill`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `AUDIT_WRITER_COMMAND_IDS` | **93** | `packages/contracts/src/register.test.ts` |
+| `PROPERTY_SCHEMA_HEAD` | **51** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length **10**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, and **`arrival_deposit_missing`** | `packages/contracts/src/register.test.ts` |

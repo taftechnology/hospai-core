@@ -207,6 +207,7 @@ import {
   HOLD_ALREADY_ACTIVE,
   NO_ACTIVE_HOLD,
   CHECKED_OUT_REQUIRES_HOLD,
+  CHECK_OUT_NOT_TODAY,
   REASON_REQUIRED,
   RATE_OVERRIDE_NOT_ALLOWED,
   NIGHT_OUTSIDE_STAY,
@@ -246,6 +247,7 @@ import {
   inclusionUnits,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
+  FOLIO_TRANSFER_BULK_MAX,
   RESERVATION_SEARCH_GUEST_REF_CAP,
   RESERVATION_SEARCH_ROW_LIMIT,
   configUndeclared,
@@ -3392,6 +3394,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    *
    * Room OOO audit writer (method lands in a later task):
    * 'rooms.set_ooo_range'
+   *
+   * R4.29 draft-bill / reversals audit writers (methods land in later tasks):
+   * 'folio.transfer_charges' 'reservations.undo_check_out'
    */
   private appendAuditLogSync(input: {
     at?: number;
@@ -13057,6 +13062,159 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
   }
 
+  /**
+   * R4.29 D6 — same-day undo checkout. No availability_day write; room HK status untouched.
+   * Reopens CLOSED GUEST via reopen writer and applies D7 hold reactivation.
+   */
+  async tryUndoCheckOut(
+    actor: ActorContext,
+    input: { reservationId: string; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof CHECK_OUT_NOT_TODAY }
+    | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+    | { ok: false; error: typeof INVALID_REQUEST }
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET }
+    | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
+    | { ok: false; error: typeof ROOM_NOT_FOUND }
+    | { ok: false; error: typeof ROOM_OUT_OF_ORDER }
+    | { ok: false; error: typeof ROOM_TYPE_MISMATCH }
+    | { ok: false; error: typeof ROOM_NOT_ASSIGNABLE }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof ORG_ID_UNSET | typeof PROPERTY_ID_UNSET }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:reverse');
+    if (permDenied) return permDenied;
+
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 1 || reason.length > 500) {
+      return { ok: false, error: INVALID_REQUEST };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const businessDate = this.readBusinessDateSync();
+          if (!businessDate) return { ok: false as const, error: BUSINESS_DATE_UNSET };
+
+          const resRows = this.ctx.storage.sql
+            .exec(
+              `SELECT guest_ref, pii_key_id, status, room_id, allocated_room_type_id, room_type_id,
+                      arrival_date, departure_date, checked_out_business_date
+               FROM reservation WHERE reservation_id = ?`,
+              input.reservationId,
+            )
+            .toArray() as Array<{
+            guest_ref: string;
+            pii_key_id: string;
+            status: string;
+            room_id: string | null;
+            allocated_room_type_id: string | null;
+            room_type_id: string;
+            arrival_date: string;
+            departure_date: string;
+            checked_out_business_date: string | null;
+          }>;
+          const reservation = resRows[0];
+          if (!reservation) return { ok: false as const, error: NOT_FOUND };
+          if (
+            reservation.status !== 'checked_out' ||
+            reservation.checked_out_business_date !== businessDate
+          ) {
+            return { ok: false as const, error: CHECK_OUT_NOT_TODAY };
+          }
+
+          const guestWindowId = this.guestFolioWindowId(input.reservationId);
+          if (this.hasActiveInvoiceForWindowSync(input.reservationId, guestWindowId)) {
+            throw new InvoiceAlreadyExistsError();
+          }
+
+          if (reservation.room_id) {
+            this.assertRoomVacantNowSync(reservation.room_id, input.reservationId);
+            this.assertRoomAssignableSync(
+              reservation.room_id,
+              {
+                reservationId: input.reservationId,
+                allocatedRoomTypeId: reservation.allocated_room_type_id || reservation.room_type_id,
+                arrivalDate: reservation.arrival_date,
+                departureDate: reservation.departure_date,
+              },
+              { from: businessDate, to: reservation.departure_date },
+            );
+          }
+
+          const now = Date.now();
+          this.ctx.storage.sql.exec(
+            `UPDATE reservation
+             SET status = 'checked_in', checked_out_business_date = NULL, updated_at = ?
+             WHERE reservation_id = ?`,
+            now,
+            input.reservationId,
+          );
+
+          const guestWindow = this.readFolioWindowRowSync(guestWindowId);
+          if (guestWindow?.status === 'CLOSED') {
+            this.reopenFolioWindowSync(guestWindowId, propertyId, input.reservationId, actor);
+          } else if (guestWindow?.status === 'OPEN') {
+            this.reactivateHoldOnWindowReopenSync(guestWindowId, actor);
+          }
+
+          this.appendPropertyOutbox({
+            eventId: crypto.randomUUID(),
+            eventType: 'reservation.status_changed',
+            payload: {
+              propertyId,
+              reservationId: input.reservationId,
+              guestRef: reservation.guest_ref,
+              piiKeyId: reservation.pii_key_id,
+              fromStatus: 'checked_out',
+              toStatus: 'checked_in',
+            },
+          });
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'reservations.undo_check_out',
+            entityType: 'reservation',
+            entityId: input.reservationId,
+            beforeJson: {
+              status: 'checked_out',
+              checkedOutBusinessDate: reservation.checked_out_business_date,
+              roomId: reservation.room_id,
+            },
+            afterJson: {
+              status: 'checked_in',
+              checkedOutBusinessDate: null,
+              roomId: reservation.room_id,
+              reason,
+            },
+            reservationId: input.reservationId,
+          });
+
+          return { ok: true as const };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
   private async resolveCheckOutAutoCapture(input: {
     cacheHit: boolean;
     provisional: boolean;
@@ -13581,6 +13739,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           sourceCode: string | null;
           marketSegmentCode: string | null;
           packageId: string | null;
+          checkedOutBusinessDate: string | null;
           createdAt: number;
           updatedAt: number;
           cancellation: {
@@ -13603,7 +13762,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                 adults, children, front_office_comment, vip_flag, dnd_flag, rate_plan_id, promo_id, cancel_penalty_type,
                 cancel_grace_hours, cancel_penalty_nights, cancel_penalty_bps,
                 confirm_by, expires_at, allocated_room_type_id, source_code, market_segment_code, package_id,
-                created_at, updated_at
+                checked_out_business_date, created_at, updated_at
          FROM reservation WHERE reservation_id = ?`,
         reservationId,
       )
@@ -13633,6 +13792,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       source_code: string | null;
       market_segment_code: string | null;
       package_id: string | null;
+      checked_out_business_date: string | null;
       created_at: number;
       updated_at: number;
     }>;
@@ -13663,6 +13823,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         sourceCode: row.source_code,
         marketSegmentCode: row.market_segment_code,
         packageId: row.package_id ?? null,
+        checkedOutBusinessDate: row.checked_out_business_date ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         cancellation: this.cancellationPreviewSync(row),
@@ -19913,7 +20074,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   private insertHoldEventSync(args: {
     holdId: string;
-    kind: 'placed' | 'extended' | 'released' | 'closed';
+    kind: 'placed' | 'extended' | 'released' | 'closed' | 'reactivated';
     reason: string | null;
     beforeJson: unknown;
     afterJson: unknown;
@@ -19933,6 +20094,83 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       args.actor,
       args.at,
     );
+  }
+
+  /**
+   * D7: on GUEST window reopen, reactivate the latest hold when it was closed by
+   * window_closed. RELEASED holds are never reactivated. Dates/reason/approver stay.
+   */
+  private reactivateHoldOnWindowReopenSync(folioWindowId: string, actor: ActorContext): void {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT hold_id, status, ended_reason, reason, notes, follow_up_date, close_by_date,
+                expected_settlement, approved_by, placed_at
+         FROM folio_hold
+         WHERE folio_window_id = ?
+         ORDER BY placed_at DESC
+         LIMIT 1`,
+        folioWindowId,
+      )
+      .toArray() as Array<{
+      hold_id: string;
+      status: string;
+      ended_reason: string | null;
+      reason: string;
+      notes: string | null;
+      follow_up_date: string;
+      close_by_date: string;
+      expected_settlement: string | null;
+      approved_by: string;
+      placed_at: number;
+    }>;
+    const hold = rows[0];
+    if (!hold) return;
+    if (hold.status === 'RELEASED') return;
+    if (hold.status !== 'CLOSED' || hold.ended_reason !== 'window_closed') return;
+
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      `UPDATE folio_hold
+       SET status = 'ACTIVE', ended_at = NULL, ended_reason = NULL
+       WHERE hold_id = ? AND status = 'CLOSED' AND ended_reason = 'window_closed'`,
+      hold.hold_id,
+    );
+    this.insertHoldEventSync({
+      holdId: hold.hold_id,
+      kind: 'reactivated',
+      reason: null,
+      beforeJson: { status: 'CLOSED', endedReason: 'window_closed' },
+      afterJson: {
+        status: 'ACTIVE',
+        reason: hold.reason,
+        notes: hold.notes,
+        followUpDate: hold.follow_up_date,
+        closeByDate: hold.close_by_date,
+        expectedSettlement: hold.expected_settlement,
+        approvedBy: hold.approved_by,
+      },
+      actor: this.auditActorSync(actor),
+      at: now,
+    });
+  }
+
+  /** Shared reopen writer for folio.reopen_window and reservations.undo_check_out (no nested idempotency). */
+  private reopenFolioWindowSync(
+    folioWindowId: string,
+    propertyId: string,
+    reservationId: string,
+    actor: ActorContext,
+  ): void {
+    this.ctx.storage.sql.exec(
+      `UPDATE folio_window SET status = 'OPEN', closed_at = NULL WHERE folio_window_id = ?`,
+      folioWindowId,
+    );
+    this.appendPropertyOutbox({
+      eventId: crypto.randomUUID(),
+      eventType: 'folio.window_reopened',
+      payload: { propertyId, reservationId, folioWindowId },
+    });
+    this.reactivateHoldOnWindowReopenSync(folioWindowId, actor);
   }
 
   private placeHoldSync(args: {
@@ -20718,15 +20956,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           if (window.status === 'OPEN') return { ok: true as const, alreadyOpen: true as const };
           if (window.status !== 'CLOSED') throw new FolioWindowError(WINDOW_NOT_REOPENABLE);
 
-          this.ctx.storage.sql.exec(
-            `UPDATE folio_window SET status = 'OPEN', closed_at = NULL WHERE folio_window_id = ?`,
-            input.folioWindowId,
-          );
-          this.appendPropertyOutbox({
-            eventId: crypto.randomUUID(),
-            eventType: 'folio.window_reopened',
-            payload: { propertyId, reservationId: window.reservationId, folioWindowId: input.folioWindowId },
-          });
+          this.reopenFolioWindowSync(input.folioWindowId, propertyId, window.reservationId, actor);
           this.appendAuditLogSync({
             actor: this.auditActorSync(actor),
             commandId: 'folio.reopen_window',
@@ -21719,6 +21949,551 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       },
       taxSummary,
       warnings,
+    };
+  }
+
+  /**
+   * `get_reservation_draft_bill` — read-only charge review + tariff check (R4.29 D1/D2).
+   * Writes nothing; reuses proforma helpers (`buildNightChargeLines`, `rateNightAmountSync(..., { persist: false })`,
+   * `nightConsumedSync`, GUEST advance ledger math).
+   */
+  async readReservationDraftBill(reservationId: string): Promise<
+    | {
+        ok: true;
+        reservationId: string;
+        status: string;
+        currency: string;
+        confirmationToken: string;
+        arrivalDate: string;
+        departureDate: string;
+        nights: number;
+        adults: number;
+        children: number;
+        roomTypeName: string | null;
+        roomCode: string | null;
+        ratePlanName: string | null;
+        packageName: string | null;
+        guestRef: string;
+        chargeReview: Array<{
+          folioWindowId: string;
+          windowKind: string;
+          billedParty: string | null;
+          chargeCode: string;
+          label: string;
+          lineCount: number;
+          baseMinor: number;
+          taxMinor: number;
+          totalMinor: number;
+        }>;
+        tariffCheck: Array<{
+          stayDate: string;
+          state: 'posted' | 'unposted' | 'future';
+          expectedRoomMinor: number;
+          postedRoomNetMinor: number;
+          mismatch: boolean;
+        }>;
+        totals: {
+          postedChargesMinor: number;
+          futureEstimateMinor: number;
+          advancePaidMinor: number;
+          balanceNowMinor: number;
+          projectedBalanceMinor: number;
+        };
+        invoice: { invoiceNumber: string; generatedAt: number } | null;
+      }
+    | { ok: false; error: typeof NOT_FOUND | typeof INVALID_STATUS | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    return this.readReservationDraftBillSync(reservationId);
+  }
+
+  private readReservationDraftBillSync(reservationId: string):
+    | {
+        ok: true;
+        reservationId: string;
+        status: string;
+        currency: string;
+        confirmationToken: string;
+        arrivalDate: string;
+        departureDate: string;
+        nights: number;
+        adults: number;
+        children: number;
+        roomTypeName: string | null;
+        roomCode: string | null;
+        ratePlanName: string | null;
+        packageName: string | null;
+        guestRef: string;
+        chargeReview: Array<{
+          folioWindowId: string;
+          windowKind: string;
+          billedParty: string | null;
+          chargeCode: string;
+          label: string;
+          lineCount: number;
+          baseMinor: number;
+          taxMinor: number;
+          totalMinor: number;
+        }>;
+        tariffCheck: Array<{
+          stayDate: string;
+          state: 'posted' | 'unposted' | 'future';
+          expectedRoomMinor: number;
+          postedRoomNetMinor: number;
+          mismatch: boolean;
+        }>;
+        totals: {
+          postedChargesMinor: number;
+          futureEstimateMinor: number;
+          advancePaidMinor: number;
+          balanceNowMinor: number;
+          projectedBalanceMinor: number;
+        };
+        invoice: { invoiceNumber: string; generatedAt: number } | null;
+      }
+    | { ok: false; error: typeof NOT_FOUND | typeof INVALID_STATUS | typeof CURRENCY_UNSET } {
+    const resRows = this.ctx.storage.sql
+      .exec(
+        `SELECT r.reservation_id, r.guest_ref, r.status, r.room_type_id, r.rate_plan_id,
+                r.arrival_date, r.departure_date, r.adults, r.children,
+                rm.code AS room_code,
+                COALESCE(rt_alloc.name, rt_book.name) AS room_type_name,
+                rp.name AS rate_plan_name,
+                pkg.name AS package_name
+         FROM reservation r
+         LEFT JOIN room rm ON rm.room_id = r.room_id
+         LEFT JOIN room_type rt_alloc ON rt_alloc.room_type_id = r.allocated_room_type_id
+         LEFT JOIN room_type rt_book ON rt_book.room_type_id = r.room_type_id
+         LEFT JOIN rate_plan rp ON rp.rate_plan_id = r.rate_plan_id
+         LEFT JOIN package pkg ON pkg.package_id = r.package_id
+         WHERE r.reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      reservation_id: string;
+      guest_ref: string;
+      status: string;
+      room_type_id: string;
+      rate_plan_id: string;
+      arrival_date: string;
+      departure_date: string;
+      adults: number;
+      children: number;
+      room_code: string | null;
+      room_type_name: string | null;
+      rate_plan_name: string | null;
+      package_name: string | null;
+    }>;
+    const reservation = resRows[0];
+    if (!reservation) return { ok: false, error: NOT_FOUND };
+    if (reservation.status !== 'checked_in' && reservation.status !== 'checked_out') {
+      return { ok: false, error: INVALID_STATUS };
+    }
+
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+
+    let stayDates: string[];
+    try {
+      stayDates = enumerateStayDates(reservation.arrival_date, reservation.departure_date);
+    } catch {
+      return { ok: false, error: NOT_FOUND };
+    }
+
+    const allLines = this.ctx.storage.sql
+      .exec(
+        `SELECT fl.folio_line_id, fl.folio_window_id, fl.charge_code, fl.amount_minor, fl.ledger_amount_minor,
+                fl.source, fl.business_date, fl.tax_of, fl.split_of
+         FROM folio_line fl
+         WHERE fl.reservation_id = ?`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      folio_line_id: string;
+      folio_window_id: string;
+      charge_code: string;
+      amount_minor: number;
+      ledger_amount_minor: number;
+      source: string | null;
+      business_date: string | null;
+      tax_of: string | null;
+      split_of: string | null;
+    }>;
+
+    const windowRows = this.ctx.storage.sql
+      .exec(`SELECT folio_window_id, kind, billed_party FROM folio_window WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ folio_window_id: string; kind: string; billed_party: string | null }>;
+    const windowById = new Map(windowRows.map((w) => [w.folio_window_id, w]));
+
+    const chargeCodeLabel = (code: string): string => {
+      const rows = this.ctx.storage.sql
+        .exec(`SELECT name FROM charge_code WHERE code = ?`, code)
+        .toArray() as Array<{ name: string }>;
+      return rows[0]?.name ?? code;
+    };
+    const labelCache = new Map<string, string>();
+    const labelFor = (code: string): string => {
+      const cached = labelCache.get(code);
+      if (cached !== undefined) return cached;
+      const label = chargeCodeLabel(code);
+      labelCache.set(code, label);
+      return label;
+    };
+
+    // Net every non-payment line (including reversal lines and their tax) into
+    // window + base charge code, so each group totals what the ledger holds.
+    const NON_CHARGE_SOURCES = new Set([
+      'PAYMENT_REFUND',
+      'CHARGEBACK',
+      'FX_GAIN',
+      'FX_LOSS',
+      'CHARGEBACK_FEE',
+    ]);
+    const REVERSAL_SOURCES = new Set(['SPLIT_REVERSAL', 'TRANSFER_REVERSAL']);
+    const lineById = new Map(allLines.map((row) => [row.folio_line_id, row]));
+    const reversed = new Set<string>();
+    for (const row of allLines) {
+      if (row.source != null && REVERSAL_SOURCES.has(row.source) && row.split_of) {
+        reversed.add(row.split_of);
+      }
+    }
+    /** The base (non-tax) line a line belongs to, and whether this line is tax. */
+    const resolveBase = (row: (typeof allLines)[number]): { code: string; isTax: boolean } => {
+      if (row.tax_of) {
+        const parent = lineById.get(row.tax_of);
+        return { code: parent ? parent.charge_code : row.charge_code, isTax: true };
+      }
+      if (row.source != null && REVERSAL_SOURCES.has(row.source) && row.split_of) {
+        const orig = lineById.get(row.split_of);
+        if (orig?.tax_of) {
+          const parent = lineById.get(orig.tax_of);
+          return { code: parent ? parent.charge_code : orig.charge_code, isTax: true };
+        }
+        if (orig?.source === 'TAX') return { code: orig.charge_code, isTax: true };
+        return { code: row.charge_code, isTax: false };
+      }
+      return { code: row.charge_code, isTax: row.source === 'TAX' };
+    };
+
+    type ReviewBucket = {
+      folioWindowId: string;
+      chargeCode: string;
+      label: string;
+      lineCount: number;
+      baseMinor: number;
+      taxMinor: number;
+    };
+    const reviewMap = new Map<string, ReviewBucket>();
+    for (const row of allLines) {
+      if (row.charge_code === 'PAYMENT' && row.tax_of == null) continue;
+      if (row.source != null && NON_CHARGE_SOURCES.has(row.source)) continue;
+      const { code, isTax } = resolveBase(row);
+      const key = `${row.folio_window_id}\0${code}`;
+      let bucket = reviewMap.get(key);
+      if (!bucket) {
+        bucket = {
+          folioWindowId: row.folio_window_id,
+          chargeCode: code,
+          label: labelFor(code),
+          lineCount: 0,
+          baseMinor: 0,
+          taxMinor: 0,
+        };
+        reviewMap.set(key, bucket);
+      }
+      if (isTax) {
+        bucket.taxMinor += row.ledger_amount_minor;
+      } else {
+        bucket.baseMinor += row.ledger_amount_minor;
+        const isReversalLine = row.source != null && REVERSAL_SOURCES.has(row.source);
+        if (!isReversalLine && !reversed.has(row.folio_line_id)) bucket.lineCount += 1;
+      }
+    }
+    const chargeReview = [...reviewMap.values()]
+      .filter((g) => g.baseMinor + g.taxMinor !== 0)
+      .sort((a, b) => {
+        const wa = windowById.get(a.folioWindowId);
+        const wb = windowById.get(b.folioWindowId);
+        const rank = (k: string | undefined) => (k === 'GUEST' ? 0 : 1);
+        const r = rank(wa?.kind) - rank(wb?.kind);
+        if (r !== 0) return r;
+        const w = a.folioWindowId.localeCompare(b.folioWindowId);
+        return w !== 0 ? w : a.chargeCode.localeCompare(b.chargeCode);
+      })
+      .map((g) => ({
+        folioWindowId: g.folioWindowId,
+        windowKind: windowById.get(g.folioWindowId)?.kind ?? 'GUEST',
+        billedParty: windowById.get(g.folioWindowId)?.billed_party ?? null,
+        chargeCode: g.chargeCode,
+        label: g.label,
+        lineCount: g.lineCount,
+        baseMinor: g.baseMinor,
+        taxMinor: g.taxMinor,
+        totalMinor: g.baseMinor + g.taxMinor,
+      }));
+    const postedChargesMinor = chargeReview.reduce((sum, g) => sum + g.totalMinor, 0);
+
+    const businessDate = this.readBusinessDateSync() ?? reservation.arrival_date;
+    const postedRoomNetByDate = new Map<string, number>();
+    for (const row of allLines) {
+      if (row.tax_of != null) continue;
+      if (row.charge_code !== 'ROOM' && row.charge_code !== 'NO_SHOW') continue;
+      if (!row.business_date) continue;
+      postedRoomNetByDate.set(
+        row.business_date,
+        (postedRoomNetByDate.get(row.business_date) ?? 0) + row.amount_minor,
+      );
+    }
+
+    const guestWindowId = this.guestFolioWindowId(reservationId);
+    const guestLines = allLines.filter((row) => row.folio_window_id === guestWindowId);
+    const existingFolioLineIds = new Set(guestLines.map((row) => row.folio_line_id));
+
+    const chargeCodeActive = (code: string): boolean => {
+      try {
+        this.assertChargeCodeSync(code, { requireActive: true });
+        return true;
+      } catch (e) {
+        if (e instanceof ChargeCodeNotFoundError) return false;
+        throw e;
+      }
+    };
+
+    const schedules = this.ctx.storage.sql
+      .exec(
+        `SELECT recurring_charge_id, charge_code, unit_amount_minor, quantity, pattern, days_mask,
+                tax_charge_code, start_date, end_date
+         FROM recurring_charge
+         WHERE reservation_id = ? AND status = 'active'
+         ORDER BY recurring_charge_id`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      recurring_charge_id: string;
+      charge_code: string;
+      unit_amount_minor: number;
+      quantity: number;
+      pattern: string;
+      days_mask: number | null;
+      tax_charge_code: string | null;
+      start_date: string;
+      end_date: string | null;
+    }>;
+
+    const datesBySchedule = new Map<string, string[]>();
+    for (const schedule of schedules) {
+      if (schedule.pattern === 'DATES') {
+        datesBySchedule.set(
+          schedule.recurring_charge_id,
+          this.loadRecurringChargeDatesSync(schedule.recurring_charge_id),
+        );
+      }
+    }
+
+    const stay = {
+      arrivalDate: reservation.arrival_date,
+      departureDate: reservation.departure_date,
+    };
+
+    let futureEstimateMinor = 0;
+    const expectedRoomByDate = new Map<string, number>();
+    for (const stayDate of stayDates) {
+      const nightConsumed = this.nightConsumedSync(reservationId, stayDate);
+
+      const resolveNightTax = (args: {
+        chargeCode: string;
+        taxChargeCode: string;
+        amountMinor: number;
+        source: string;
+        bandBaseMinor?: number;
+      }) => {
+        const prepared = this.prepareChargeTaxSync({
+          parentSource: args.source,
+          chargeCode: args.chargeCode,
+          taxChargeCode: args.taxChargeCode,
+          postingDate: stayDate,
+          posted: {
+            amountMinor: args.amountMinor,
+            txnCurrency: currency,
+            ledgerAmountMinor: args.amountMinor,
+            fxRate: '1',
+            fxRateAt: 0,
+          },
+          ...(args.bandBaseMinor !== undefined ? { bandBaseMinor: args.bandBaseMinor } : {}),
+        });
+        if (!prepared) return { netLedgerMinor: args.amountMinor, lines: [] as NightChargeTaxLine[] };
+        return { netLedgerMinor: prepared.netLedgerMinor, lines: prepared.lines };
+      };
+
+      let rateMinor: number | null = null;
+      try {
+        rateMinor = this.rateNightAmountSync(
+          reservationId,
+          reservation.room_type_id,
+          reservation.rate_plan_id,
+          stayDate,
+          { persist: false },
+        );
+      } catch (e) {
+        if (e instanceof RateMissingError) {
+          rateMinor = null;
+        } else {
+          throw e;
+        }
+      }
+
+      const inclusionRows = this.ctx.storage.sql
+        .exec(
+          `SELECT inclusion_no, charge_code, amount_minor, basis, price_mode, inclusion_tax, band_join
+           FROM reservation_inclusion_night
+           WHERE reservation_id = ? AND stay_date = ?
+           ORDER BY inclusion_no`,
+          reservationId,
+          stayDate,
+        )
+        .toArray() as Array<{
+        inclusion_no: number;
+        charge_code: string;
+        amount_minor: number;
+        basis: string;
+        price_mode: string;
+        inclusion_tax: string;
+        band_join: number;
+      }>;
+
+      const pushEstimateFromDrafts = (drafts: NightChargeLineDraft[]) => {
+        for (const line of drafts) {
+          if (existingFolioLineIds.has(line.folioLineId)) continue;
+          const taxMinor = line.taxLines.reduce((s, t) => s + t.amountMinor, 0);
+          futureEstimateMinor += line.netLedgerMinor + taxMinor;
+        }
+      };
+
+      const roomBuilt = buildNightChargeLines({
+        reservationId,
+        stayDate,
+        rateMinor,
+        adults: reservation.adults,
+        children: reservation.children,
+        stay,
+        inclusions: inclusionRows.map((row) => ({
+          inclusionNo: row.inclusion_no,
+          chargeCode: row.charge_code,
+          amountMinor: row.amount_minor,
+          basis: row.basis,
+          priceMode: row.price_mode,
+          inclusionTax: row.inclusion_tax,
+          bandJoin: row.band_join === 1,
+        })),
+        recurring: [],
+        resolveTax: resolveNightTax,
+        chargeCodeActive,
+      });
+      expectedRoomByDate.set(stayDate, roomBuilt.ok ? roomBuilt.roomAmountMinor : 0);
+      if (nightConsumed) continue;
+      if (roomBuilt.ok) pushEstimateFromDrafts(roomBuilt.lines);
+
+      const recurringBuilt = buildNightChargeLines({
+        reservationId,
+        stayDate,
+        rateMinor: 0,
+        adults: 0,
+        children: 0,
+        stay,
+        inclusions: [],
+        recurring: schedules.map((schedule) => ({
+          recurringChargeId: schedule.recurring_charge_id,
+          chargeCode: schedule.charge_code,
+          unitAmountMinor: schedule.unit_amount_minor,
+          quantity: schedule.quantity,
+          pattern: schedule.pattern as RecurringChargePattern,
+          daysMask: schedule.days_mask,
+          taxChargeCode: schedule.tax_charge_code,
+          startDate: schedule.start_date,
+          endDate: schedule.end_date,
+          dates: datesBySchedule.get(schedule.recurring_charge_id),
+        })),
+        resolveTax: resolveNightTax,
+        chargeCodeActive,
+        includeRoomLine: false,
+      });
+      if (recurringBuilt.ok) pushEstimateFromDrafts(recurringBuilt.lines);
+    }
+
+    const tariffCheck: Array<{
+      stayDate: string;
+      state: 'posted' | 'unposted' | 'future';
+      expectedRoomMinor: number;
+      postedRoomNetMinor: number;
+      mismatch: boolean;
+    }> = [];
+    for (const stayDate of stayDates) {
+      const consumed = this.nightConsumedSync(reservationId, stayDate);
+      let state: 'posted' | 'unposted' | 'future';
+      if (consumed) state = 'posted';
+      else if (stayDate < businessDate) state = 'unposted';
+      else state = 'future';
+      const expectedRoomMinor = expectedRoomByDate.get(stayDate) ?? 0;
+      const postedRoomNetMinor = postedRoomNetByDate.get(stayDate) ?? 0;
+      const mismatch = state === 'posted' && postedRoomNetMinor !== expectedRoomMinor;
+      tariffCheck.push({ stayDate, state, expectedRoomMinor, postedRoomNetMinor, mismatch });
+    }
+
+    let advancePaidMinor = 0;
+    for (const row of guestLines) {
+      if (row.charge_code === 'PAYMENT' && row.tax_of == null) {
+        advancePaidMinor += -row.ledger_amount_minor;
+      }
+    }
+    if (advancePaidMinor < 0) advancePaidMinor = 0;
+
+    const balanceNowMinor = this.windowBalanceMinorSync(guestWindowId);
+    const projectedBalanceMinor = balanceNowMinor + futureEstimateMinor;
+
+    const invoiceRows = this.ctx.storage.sql
+      .exec(
+        `SELECT invoice_number, generated_at FROM invoice
+         WHERE reservation_id = ? AND folio_window_id = ? AND voided_at IS NULL
+         ORDER BY generated_at DESC LIMIT 1`,
+        reservationId,
+        guestWindowId,
+      )
+      .toArray() as Array<{ invoice_number: string; generated_at: number }>;
+    const invoice = invoiceRows[0]
+      ? { invoiceNumber: invoiceRows[0].invoice_number, generatedAt: invoiceRows[0].generated_at }
+      : null;
+
+    const confirmationToken =
+      reservation.reservation_id.length <= 8
+        ? reservation.reservation_id
+        : reservation.reservation_id.slice(-8);
+
+    return {
+      ok: true,
+      reservationId,
+      status: reservation.status,
+      currency,
+      confirmationToken,
+      arrivalDate: reservation.arrival_date,
+      departureDate: reservation.departure_date,
+      nights: stayDates.length,
+      adults: reservation.adults,
+      children: reservation.children,
+      roomTypeName: reservation.room_type_name || null,
+      roomCode: reservation.room_code ?? null,
+      ratePlanName: reservation.rate_plan_name ?? null,
+      packageName: reservation.package_name ?? null,
+      guestRef: reservation.guest_ref,
+      chargeReview,
+      tariffCheck,
+      totals: {
+        postedChargesMinor,
+        futureEstimateMinor,
+        advancePaidMinor,
+        balanceNowMinor,
+        projectedBalanceMinor,
+      },
+      invoice,
     };
   }
 
@@ -23021,6 +23796,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     destinationFolioWindowId: string;
     auditContext?: { automated: true; ruleId: string; businessDate: string };
     deskActor?: ActorContext;
+    /** Bulk `folio.transfer_charges` writes one command audit; skip per-line desk audit. */
+    omitDeskAudit?: boolean;
   }): { reverseFolioLineId: string; destFolioLineId: string; cityLedgerSynced?: boolean } {
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) throw new Error(PROPERTY_ID_UNSET);
@@ -23164,33 +23941,34 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       },
     });
 
-    const auditActor = input.auditContext
-      ? this.auditActorSync({ kind: 'system', reason: 'night_audit.auto_transfer' })
-      : this.auditActorSync(input.deskActor!);
-    const afterJson = input.auditContext
-      ? {
-          destWindowId: input.destinationFolioWindowId,
-          destFolioLineId,
-          reverseFolioLineId,
-          automated: true as const,
-          ruleId: input.auditContext.ruleId,
-          businessDate: input.auditContext.businessDate,
-        }
-      : {
-          destWindowId: input.destinationFolioWindowId,
-          destFolioLineId,
-          reverseFolioLineId,
-        };
-
-    this.appendAuditLogSync({
-      actor: auditActor,
-      commandId: 'folio.transfer_charge',
-      entityType: 'folio_line',
-      entityId: source.folio_line_id,
-      beforeJson: { folioWindowId: source.folio_window_id },
-      afterJson,
-      reservationId: source.reservation_id,
-    });
+    if (!input.omitDeskAudit) {
+      const auditActor = input.auditContext
+        ? this.auditActorSync({ kind: 'system', reason: 'night_audit.auto_transfer' })
+        : this.auditActorSync(input.deskActor!);
+      const afterJson = input.auditContext
+        ? {
+            destWindowId: input.destinationFolioWindowId,
+            destFolioLineId,
+            reverseFolioLineId,
+            automated: true as const,
+            ruleId: input.auditContext.ruleId,
+            businessDate: input.auditContext.businessDate,
+          }
+        : {
+            destWindowId: input.destinationFolioWindowId,
+            destFolioLineId,
+            reverseFolioLineId,
+          };
+      this.appendAuditLogSync({
+        actor: auditActor,
+        commandId: 'folio.transfer_charge',
+        entityType: 'folio_line',
+        entityId: source.folio_line_id,
+        beforeJson: { folioWindowId: source.folio_window_id },
+        afterJson,
+        reservationId: source.reservation_id,
+      });
+    }
 
     const destWindow = this.readFolioWindowRowSync(input.destinationFolioWindowId);
     let cityLedgerSynced = false;
@@ -23322,6 +24100,158 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             destFolioLineId: xfer.destFolioLineId,
             cityLedgerSynced: xfer.cityLedgerSynced,
           };
+        }, actor),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      if (e instanceof WindowClosedError) return { ok: false, error: WINDOW_CLOSED };
+      if (e instanceof FolioWindowError) return { ok: false, error: e.code };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  async tryTransferCharges(
+    actor: ActorContext,
+    input: { folioLineIds: string[]; destinationFolioWindowId: string },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true; results: Array<{ reverseFolioLineId: string; destFolioLineId: string }> }
+    | { ok: false; error: typeof NOT_FOUND }
+    | { ok: false; error: typeof WINDOW_CLOSED }
+    | { ok: false; error: typeof TRANSFER_CROSS_RESERVATION }
+    | { ok: false; error: typeof TRANSFER_SAME_WINDOW }
+    | { ok: false; error: typeof LINE_NOT_TRANSFERABLE }
+    | { ok: false; error: typeof LINE_ALREADY_TRANSFERRED }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof LIMIT_EXCEEDED }
+    | NonNullable<ReturnType<typeof mapPropertyCommandError>>
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    if (permDenied) return permDenied;
+
+    if (input.folioLineIds.length > FOLIO_TRANSFER_BULK_MAX) {
+      return { ok: false, error: LIMIT_EXCEEDED };
+    }
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(this.ctx.storage.sql, idem, () => {
+          const results: Array<{ reverseFolioLineId: string; destFolioLineId: string }> = [];
+          let reservationId: string | null = null;
+
+          for (const sourceFolioLineId of input.folioLineIds) {
+            const sourceRows = this.ctx.storage.sql
+              .exec(
+                `SELECT folio_line_id, folio_window_id, reservation_id, charge_code, amount_minor,
+                        txn_currency, ledger_amount_minor, fx_rate, fx_rate_at, source
+                 FROM folio_line WHERE folio_line_id = ?`,
+                sourceFolioLineId,
+              )
+              .toArray() as Array<{
+              folio_line_id: string;
+              folio_window_id: string;
+              reservation_id: string;
+              charge_code: string;
+              amount_minor: number;
+              txn_currency: string;
+              ledger_amount_minor: number;
+              fx_rate: string;
+              fx_rate_at: number;
+              source: string | null;
+            }>;
+            const source = sourceRows[0];
+            if (!source) throw new FolioWindowError(NOT_FOUND);
+            if (
+              source.source === 'TAX' ||
+              source.source === 'SPLIT_REVERSAL' ||
+              source.source === 'TRANSFER_REVERSAL' ||
+              source.source === 'CHARGEBACK' ||
+              source.charge_code === 'FX_GAIN' ||
+              source.charge_code === 'FX_LOSS' ||
+              source.charge_code === 'CHARGEBACK_FEE'
+            ) {
+              throw new FolioWindowError(LINE_NOT_TRANSFERABLE);
+            }
+            if (source.folio_window_id === input.destinationFolioWindowId) {
+              throw new FolioWindowError(TRANSFER_SAME_WINDOW);
+            }
+
+            this.assertFolioWindowOpenSync(source.folio_window_id);
+            const destWindow = this.assertFolioWindowOpenSync(input.destinationFolioWindowId);
+            if (destWindow.reservationId !== source.reservation_id) {
+              throw new FolioWindowError(TRANSFER_CROSS_RESERVATION);
+            }
+            reservationId = source.reservation_id;
+
+            const destFolioLineId = `${sourceFolioLineId}:xfer:${input.destinationFolioWindowId}`;
+            const existingDest = this.ctx.storage.sql
+              .exec(`SELECT 1 AS one FROM folio_line WHERE folio_line_id = ?`, destFolioLineId)
+              .toArray();
+            if (existingDest.length === 0) {
+              const priorReverse = this.ctx.storage.sql
+                .exec(
+                  `SELECT 1 AS one FROM folio_line
+                   WHERE split_of = ? AND source = 'TRANSFER_REVERSAL' LIMIT 1`,
+                  sourceFolioLineId,
+                )
+                .toArray();
+              if (priorReverse.length > 0) {
+                throw new FolioWindowError(LINE_ALREADY_TRANSFERRED);
+              }
+
+              const otherDest = this.ctx.storage.sql
+                .exec(
+                  `SELECT folio_window_id FROM folio_line
+                   WHERE split_of = ? AND source = 'TRANSFER'
+                     AND folio_window_id != ?
+                   LIMIT 1`,
+                  sourceFolioLineId,
+                  input.destinationFolioWindowId,
+                )
+                .toArray() as Array<{ folio_window_id: string }>;
+              if (otherDest.length > 0) {
+                throw new FolioWindowError(LINE_ALREADY_TRANSFERRED);
+              }
+            }
+
+            const xfer = this.transferFolioLineSync({
+              sourceFolioLineId,
+              destinationFolioWindowId: input.destinationFolioWindowId,
+              deskActor: actor,
+              omitDeskAudit: true,
+            });
+            results.push({
+              reverseFolioLineId: xfer.reverseFolioLineId,
+              destFolioLineId: xfer.destFolioLineId,
+            });
+          }
+
+          this.appendAuditLogSync({
+            actor: this.auditActorSync(actor),
+            commandId: 'folio.transfer_charges',
+            entityType: 'folio_window',
+            entityId: input.destinationFolioWindowId,
+            beforeJson: { folioLineIds: input.folioLineIds },
+            afterJson: {
+              destinationFolioWindowId: input.destinationFolioWindowId,
+              results,
+            },
+            reservationId: reservationId ?? undefined,
+          });
+
+          return { ok: true as const, results };
         }, actor),
       );
     } catch (e) {
@@ -26774,7 +27704,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   async tryVoidInvoice(
     actor: ActorContext,
-    input: { invoiceId: string; reason?: string },
+    input: { invoiceId: string; reason: string },
     idem: IdempotencyKey,
   ): Promise<
     | { ok: true; invoiceId: string; voidedAt: number }
@@ -26792,18 +27722,16 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.lanes.touchInteractive();
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: ORG_ID_UNSET };
-    const permDenied = await this.gatePermission(actor, 'folio:adjust');
+    const permDenied = await this.gatePermission(actor, 'folio:reverse');
     if (permDenied) return permDenied;
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
     const propertyId = this.getPropertyIdSync();
     if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
 
-    if (input.reason !== undefined) {
-      const trimmed = input.reason.trim();
-      if (trimmed.length < 1 || trimmed.length > 500) {
-        return { ok: false, error: INVALID_VOID_REASON };
-      }
+    const trimmed = (input.reason ?? '').trim();
+    if (trimmed.length < 1 || trimmed.length > 500) {
+      return { ok: false, error: INVALID_VOID_REASON };
     }
 
     try {
@@ -26845,7 +27773,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               reservationId: row.reservation_id,
               folioWindowId: row.folio_window_id,
               voidedAt,
-              ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+              reason: trimmed,
             },
           });
           this.appendAuditLogSync({
@@ -26856,7 +27784,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
             beforeJson: { voidedAt: null },
             afterJson: {
               voidedAt,
-              ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+              reason: trimmed,
             },
             reservationId: row.reservation_id,
           });

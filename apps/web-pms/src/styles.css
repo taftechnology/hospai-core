@@ -1260,7 +1260,8 @@ details.side-panel summary {
 /* R2.4 / R4.13 B4: registration card + shared print-doc isolation. */
 .reg-card,
 .print-doc,
-.proforma-doc {
+.proforma-doc,
+.draft-bill-doc {
   display: grid;
   gap: var(--space-4);
 }
@@ -1278,7 +1279,8 @@ details.side-panel summary {
 }
 
 .reg-card__head,
-.proforma-doc__head {
+.proforma-doc__head,
+.draft-bill-doc__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1288,7 +1290,8 @@ details.side-panel summary {
 }
 
 .reg-card__property,
-.proforma-doc__property {
+.proforma-doc__property,
+.draft-bill-doc__property {
   margin: 0;
   font-weight: 600;
 }
@@ -1299,6 +1302,23 @@ details.side-panel summary {
 .proforma-doc__footer-text {
   margin: 0;
   color: var(--muted);
+}
+
+.draft-bill-doc__banner {
+  margin: 0;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.draft-bill-doc__window {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.draft-bill-doc__section {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .reg-card__compact-grid {

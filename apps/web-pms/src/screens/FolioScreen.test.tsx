@@ -22,6 +22,7 @@ const getReservationProforma = vi.fn();
 const splitFolioLine = vi.fn();
 const closeFolioWindow = vi.fn();
 const transferFolioLine = vi.fn();
+const transferFolioLines = vi.fn();
 const voidPayment = vi.fn();
 const reconcilePayment = vi.fn();
 const refundPayment = vi.fn();
@@ -47,6 +48,7 @@ const generateInvoice = vi.fn();
 const getInvoice = vi.fn();
 const getInvoiceBuyer = vi.fn();
 const voidInvoice = vi.fn();
+const undoCheckOut = vi.fn();
 const listDomainConfig = vi.fn();
 const listOperationalConfig = vi.fn();
 const fetchCityLedgerAccounts = vi.fn();
@@ -108,6 +110,7 @@ vi.mock('../client.js', () => ({
     reopenFolioWindow: vi.fn(),
     openFolioWindow: (...args: unknown[]) => openFolioWindowMock(...args),
     transferFolioLine: (...args: unknown[]) => transferFolioLine(...args),
+    transferFolioLines: (...args: unknown[]) => transferFolioLines(...args),
     voidPayment: (...args: unknown[]) => voidPayment(...args),
     reconcilePayment: (...args: unknown[]) => reconcilePayment(...args),
     refundPayment: (...args: unknown[]) => refundPayment(...args),
@@ -130,6 +133,7 @@ vi.mock('../client.js', () => ({
     getInvoice: (...args: unknown[]) => getInvoice(...args),
     getInvoiceBuyer: (...args: unknown[]) => getInvoiceBuyer(...args),
     voidInvoice: (...args: unknown[]) => voidInvoice(...args),
+    undoCheckOut: (...args: unknown[]) => undoCheckOut(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
     fetchCityLedgerAccounts: (...args: unknown[]) => fetchCityLedgerAccounts(...args),
@@ -142,6 +146,7 @@ vi.mock('../client.js', () => ({
 }));
 
 import { formatDate, propertyFormat } from '@hospai/client-core';
+import { allocate } from '@hospai/money';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { PropertyFormatProvider } from '../shell/PropertyFormat.js';
 import { FolioScreen } from './FolioScreen.js';
@@ -247,6 +252,7 @@ const ownerMe = {
     'folio:post',
     'folio:adjust',
     'folio:hold',
+    'folio:reverse',
     'reservations:read',
     'reservations:write',
     'settings:configure',
@@ -512,7 +518,7 @@ describe('FolioScreen wiring', () => {
     );
   });
 
-  it('T16: void invoice uses ConfirmDialog not window.confirm', async () => {
+  it('T16: void invoice uses FormDialog with reason, not window.confirm', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     getMe.mockResolvedValue(ownerMe);
     getFolio.mockResolvedValue({
@@ -539,6 +545,7 @@ describe('FolioScreen wiring', () => {
       },
       classified: { class: 'live' },
     });
+    voidInvoice.mockResolvedValue({ ok: true });
 
     renderFolio();
     fireEvent.click(await screen.findByTestId('invoice-generate'));
@@ -547,6 +554,13 @@ describe('FolioScreen wiring', () => {
     fireEvent.click(screen.getByTestId('invoice-void'));
     expect(await screen.findByRole('dialog', { name: /Void this invoice/i })).toBeTruthy();
     expect(confirmSpy).not.toHaveBeenCalled();
+    expect((screen.getByTestId('invoice-void-confirm') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('invoice-void-reason'), {
+      target: { value: 'Wrong buyer' },
+    });
+    fireEvent.click(screen.getByTestId('invoice-void-confirm'));
+    await waitFor(() => expect(voidInvoice).toHaveBeenCalled());
+    expect(voidInvoice.mock.calls[0]?.[2]).toMatchObject({ reason: 'Wrong buyer' });
     confirmSpy.mockRestore();
   });
 
@@ -1820,16 +1834,23 @@ describe('FolioScreen wiring', () => {
 
     renderFolio();
     await waitFor(() => {
-      const destA = screen.getByLabelText('split-dest-a') as HTMLSelectElement;
+      const destA = screen.getByLabelText('split-dest-0') as HTMLSelectElement;
       expect([...destA.options].map((o) => o.value)).toEqual([
         'res_1:GUEST',
         'res_1:COMPANY',
       ]);
     });
 
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('split-line-id') as HTMLSelectElement).querySelector(
+          'option[value="line_room"]',
+        ),
+      ).toBeTruthy(),
+    );
     fireEvent.change(screen.getByLabelText('split-line-id'), { target: { value: 'line_room' } });
-    fireEvent.change(screen.getByLabelText('split-a'), { target: { value: '30.00' } });
-    fireEvent.change(screen.getByLabelText('split-b'), { target: { value: '20.00' } });
+    fireEvent.change(screen.getByLabelText('split-amount-0'), { target: { value: '30.00' } });
+    fireEvent.change(screen.getByLabelText('split-amount-1'), { target: { value: '20.00' } });
     screen.getByTestId('split-charge').click();
     await waitFor(() => expect(splitFolioLine).toHaveBeenCalled());
     expect(splitFolioLine.mock.calls[0]![2].splits[0]).toMatchObject({
@@ -1866,12 +1887,289 @@ describe('FolioScreen wiring', () => {
     renderFolio();
     await waitFor(() => expect(screen.getByTestId('split-payment')).toBeTruthy());
 
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('split-line-id') as HTMLSelectElement).querySelector(
+          'option[value="line_room"]',
+        ),
+      ).toBeTruthy(),
+    );
     fireEvent.change(screen.getByLabelText('split-line-id'), { target: { value: 'line_room' } });
-    fireEvent.change(screen.getByLabelText('split-a'), { target: { value: '30.00' } });
-    fireEvent.change(screen.getByLabelText('split-b'), { target: { value: '20.00' } });
+    fireEvent.change(screen.getByLabelText('split-amount-0'), { target: { value: '30.00' } });
+    fireEvent.change(screen.getByLabelText('split-amount-1'), { target: { value: '20.00' } });
     screen.getByTestId('split-payment').click();
     await waitFor(() => expect(splitFolioLine).toHaveBeenCalled());
     expect(String(splitFolioLine.mock.calls[0]![3])).toMatch(/^splitpay:res_1:line_room:/);
+  });
+
+  it('equal split posts allocate parts that foot the source amount', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 1000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'OPEN',
+          billedParty: 'Acme',
+          closedAt: null,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 1000,
+      lines: [{ ...miscLine, amountMinor: 1000, ledgerAmountMinor: 1000 }],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    splitFolioLine.mockResolvedValue({
+      classified: { class: 'live', status: 200, body: {}, retryAfterMs: null },
+      body: { ok: true },
+    });
+
+    const { invalidateSpy } = renderFolio();
+    await waitFor(() => expect(screen.getByTestId('split-charge')).toBeTruthy());
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('split-line-id') as HTMLSelectElement).querySelector(
+          'option[value="line_room"]',
+        ),
+      ).toBeTruthy(),
+    );
+    fireEvent.change(screen.getByLabelText('split-line-id'), { target: { value: 'line_room' } });
+    fireEvent.click(screen.getByLabelText('split-mode-equal'));
+    fireEvent.change(screen.getByLabelText('split-part-count'), { target: { value: '3' } });
+    screen.getByTestId('split-charge').click();
+
+    const expected = allocate(1000, [1, 1, 1], { policy: 'LAST' });
+    expect(expected.reduce((a, b) => a + b, 0)).toBe(1000);
+
+    await waitFor(() => expect(splitFolioLine).toHaveBeenCalled());
+    const splits = splitFolioLine.mock.calls[0]![2].splits as Array<{ amountMinor: number }>;
+    expect(splits.map((s) => s.amountMinor)).toEqual(expected);
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys.some((k) => k.includes('"folio"') && k.includes('prop_demo') && k.includes('res_1'))).toBe(
+        true,
+      );
+      expect(
+        keys.some((k) => k.includes('folio-payments') && k.includes('prop_demo') && k.includes('res_1')),
+      ).toBe(true);
+      expect(
+        keys.some(
+          (k) => k.includes('reservation-proforma') && k.includes('prop_demo') && k.includes('res_1'),
+        ),
+      ).toBe(true);
+      expect(keys.some((k) => k.includes('draft-bill') && k.includes('prop_demo') && k.includes('res_1'))).toBe(
+        true,
+      );
+      expect(keys.some((k) => k.includes('folio-hold') && k.includes('prop_demo') && k.includes('res_1'))).toBe(
+        true,
+      );
+      expect(keys.some((k) => k.includes('open-folios') && k.includes('prop_demo'))).toBe(true);
+    });
+  });
+
+  it('bulk move posts sorted folioLineIds to transferFolioLines', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 15000,
+        },
+        {
+          folioWindowId: 'res_1:COMPANY',
+          kind: 'COMPANY',
+          status: 'OPEN',
+          billedParty: 'Acme',
+          closedAt: null,
+          balanceMinor: 0,
+        },
+      ],
+      balanceMinor: 15000,
+      lines: [
+        { ...miscLine, folioLineId: 'line_c', chargeCode: 'MISC', amountMinor: 5000, ledgerAmountMinor: 5000 },
+        { ...miscLine, folioLineId: 'line_a', chargeCode: 'MISC', amountMinor: 4000, ledgerAmountMinor: 4000 },
+        {
+          ...miscLine,
+          folioLineId: 'line_b',
+          chargeCode: 'ROOM',
+          source: 'NIGHT_AUDIT',
+          amountMinor: 6000,
+          ledgerAmountMinor: 6000,
+        },
+      ],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    transferFolioLines.mockResolvedValue({
+      ok: true,
+      results: [
+        { reverseFolioLineId: 'r1', destFolioLineId: 'd1' },
+        { reverseFolioLineId: 'r2', destFolioLineId: 'd2' },
+      ],
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('move-charges')).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText('move-select-charge-code'));
+    await waitFor(() => {
+      const sel = screen.getByLabelText('move-charge-code') as HTMLSelectElement;
+      expect([...sel.options].map((o) => o.value)).toContain('MISC');
+    });
+    fireEvent.change(screen.getByLabelText('move-charge-code'), { target: { value: 'MISC' } });
+    await waitFor(() => {
+      expect(screen.getByLabelText('move-line-line_a')).toBeTruthy();
+      expect(screen.getByLabelText('move-line-line_c')).toBeTruthy();
+      expect((screen.getByTestId('move-charges') as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.change(screen.getByLabelText('move-dest'), { target: { value: 'res_1:COMPANY' } });
+    await act(async () => {
+      invokeReactClick(screen.getByTestId('move-charges'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(transferFolioLines).toHaveBeenCalled());
+    expect(transferFolioLines.mock.calls[0]![1]).toMatchObject({
+      folioLineIds: ['line_a', 'line_c'],
+      destinationFolioWindowId: 'res_1:COMPANY',
+    });
+    expect(String(transferFolioLines.mock.calls[0]![2])).toMatch(/^xfer-bulk:res_1:/);
+  });
+
+  it('move and split use words: charge names, window labels, tax-inclusive total, no source window', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN', billedParty: null, closedAt: null, balanceMinor: 0 },
+        { folioWindowId: 'res_1:COMPANY', kind: 'COMPANY', status: 'OPEN', billedParty: 'Acme Ltd', closedAt: null, balanceMinor: 0 },
+      ],
+      balanceMinor: 0,
+      lines: [
+        { ...miscLine, folioLineId: 'line_f', chargeCode: 'FNB', amountMinor: 35000, ledgerAmountMinor: 35000 },
+        { ...miscLine, folioLineId: 'line_f:tax', chargeCode: 'GST', source: 'TAX', taxOf: 'line_f', amountMinor: 1750, ledgerAmountMinor: 1750 },
+        { ...miscLine, folioLineId: 'line_rev', chargeCode: 'ROOM', source: 'TRANSFER_REVERSAL', splitOf: 'line_old', amountMinor: -9000, ledgerAmountMinor: -9000 },
+      ],
+    });
+    listChargeCodes.mockResolvedValue({ ok: true, codes: [{ code: 'FNB', name: 'Restaurant' }, { code: 'ROOM', name: 'Room' }, { code: 'GST', name: 'GST' }] });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('move-charges')).toBeTruthy());
+    const adv = screen.getByTestId('folio-advanced') as HTMLDetailsElement;
+    adv.open = true;
+    fireEvent(adv, new Event('toggle'));
+    fireEvent.click(screen.getByLabelText('move-select-charge-code'));
+    await waitFor(() => {
+      const sel = screen.getByLabelText('move-charge-code') as HTMLSelectElement;
+      expect([...sel.options].map((o) => o.textContent)).toContain('Restaurant');
+    });
+    fireEvent.change(screen.getByLabelText('move-charge-code'), { target: { value: 'FNB' } });
+    await waitFor(() => expect(screen.getByTestId('move-charges-total').textContent).toMatch(/incl\. tax/));
+    expect(screen.getByTestId('move-charges-total').textContent).toContain('367.50');
+    const dest = screen.getByLabelText('move-dest') as HTMLSelectElement;
+    expect([...dest.options].map((o) => o.textContent)).toEqual(['Company · Acme Ltd']);
+    const split = screen.getByLabelText('split-line-id') as HTMLSelectElement;
+    const values = [...split.options].map((o) => o.value);
+    expect(values).toContain('line_f');
+    expect(values).not.toContain('line_rev');
+    expect(values).not.toContain('line_f:tax');
+    expect(split.textContent).toContain('Restaurant');
+    expect(split.textContent).toContain('Guest');
+    const winOpts = [...(screen.getByLabelText('split-dest-0') as HTMLSelectElement).options].map((o) => o.textContent);
+    expect(winOpts).toEqual(['Guest', 'Company · Acme Ltd']);
+  });
+
+  it('cancel settlement is not offered on an in-house stay that only has an advance', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_adv',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'captured',
+          capturedAmountMinor: 5000,
+          refundedAmountMinor: 0,
+          tenderType: 'CASH',
+          gatewayReference: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-advanced')).toBeTruthy());
+    expect(screen.queryByTestId('cancel-settlement')).toBeNull();
+  });
+
+  it('split N>20 disabled / refused client-side', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [
+        {
+          folioWindowId: 'res_1:GUEST',
+          kind: 'GUEST',
+          status: 'OPEN',
+          billedParty: null,
+          closedAt: null,
+          balanceMinor: 5000,
+        },
+      ],
+      balanceMinor: 5000,
+      lines: [miscLine],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByLabelText('split-part-count')).toBeTruthy());
+
+    const countSelect = screen.getByLabelText('split-part-count') as HTMLSelectElement;
+    expect([...countSelect.options].map((o) => o.value)).not.toContain('21');
+    expect([...countSelect.options].map((o) => Number(o.value)).every((n) => n >= 2 && n <= 20)).toBe(
+      true,
+    );
+
+    fireEvent.click(screen.getByLabelText('split-mode-custom'));
+    for (let i = 2; i < 20; i++) {
+      fireEvent.click(screen.getByTestId('split-add-part'));
+    }
+    expect((screen.getByTestId('split-add-part') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByLabelText(/^split-amount-/)).toHaveLength(20);
   });
 
   it('check-out autoCapture failed shows capture-due retry and does not infer from payments', async () => {
@@ -3578,5 +3876,358 @@ describe('FolioScreen wiring', () => {
       );
     });
     expect((screen.getByTestId('add-charge') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('R4.29: Draft bill link for checked_in with folio:read', async () => {
+    getMe.mockResolvedValue(staffMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_in' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    const link = await screen.findByTestId('draft-bill');
+    expect(link.getAttribute('href')).toBe('/reservations/res_1/draft-bill');
+    expect(link.textContent).toMatch(/Draft bill/);
+  });
+
+  it('R4.29: Draft bill link for checked_out with folio:read', async () => {
+    getMe.mockResolvedValue(staffMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'CLOSED' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    getFolioHold.mockResolvedValue(activeHoldBody);
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('draft-bill')).toBeTruthy());
+  });
+
+  it('R4.29: Draft bill hidden without folio:read or when not in-house/departed', async () => {
+    getMe.mockResolvedValue({
+      ...staffMe,
+      permissions: ['reservations:read', 'reservations:write'],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_in' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    renderFolio();
+    await waitFor(() => expect(getReservation).toHaveBeenCalled());
+    expect(screen.queryByTestId('draft-bill')).toBeNull();
+
+    cleanup();
+    getMe.mockResolvedValue(staffMe);
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'confirmed' });
+    renderFolio();
+    await waitFor(() => expect(getReservation).toHaveBeenCalled());
+    expect(screen.queryByTestId('draft-bill')).toBeNull();
+  });
+
+  it('void invoice hidden without folio:reverse; requires reason before send', async () => {
+    const adjustOnlyMe = {
+      ...ownerMe,
+      permissions: ownerMe.permissions.filter((p) => p !== 'folio:reverse'),
+    };
+    getMe.mockResolvedValue(adjustOnlyMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_no_reverse' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_no_reverse',
+        snapshot: {
+          totals: { chargesMinor: 10000, balanceMinor: 0 },
+          lines: [{ chargeName: 'Room', amountMinor: 10000 }],
+        },
+        presentation: { showTaxfee: true },
+      },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() => expect(screen.getByTestId('invoice-view')).toBeTruthy());
+    expect(screen.queryByTestId('invoice-void')).toBeNull();
+    expect(screen.queryByTestId('cancel-settlement')).toBeNull();
+
+    cleanup();
+    getMe.mockResolvedValue(ownerMe);
+    voidInvoice.mockResolvedValue({ ok: true });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() => expect(screen.getByTestId('invoice-void')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('invoice-void'));
+    expect((screen.getByTestId('invoice-void-confirm') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('invoice-void-reason'), { target: { value: '   ' } });
+    expect((screen.getByTestId('invoice-void-confirm') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('invoice-void-reason'), {
+      target: { value: 'Duplicate bill' },
+    });
+    fireEvent.click(screen.getByTestId('invoice-void-confirm'));
+    await waitFor(() => expect(voidInvoice).toHaveBeenCalled());
+    expect(voidInvoice.mock.calls[0]?.[2]).toMatchObject({ reason: 'Duplicate bill' });
+  });
+
+  it('cancel settlement retries only failed steps with same op ids', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({
+      ...liveReservation,
+      status: 'checked_out',
+      checkedOutBusinessDate: '2026-08-12',
+    });
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_cash',
+          reservationId: 'res_1',
+          amountMinor: 5000,
+          currency: 'USD',
+          status: 'captured',
+          capturedAmountMinor: 5000,
+          refundedAmountMinor: 0,
+          tenderType: 'CASH',
+          gatewayReference: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          paymentId: 'pay_card',
+          reservationId: 'res_1',
+          amountMinor: 3000,
+          currency: 'USD',
+          status: 'captured',
+          capturedAmountMinor: 3000,
+          refundedAmountMinor: 0,
+          tenderType: 'CARD',
+          gatewayReference: 'gw',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_settle' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_settle',
+        snapshot: {
+          totals: { chargesMinor: 8000, balanceMinor: 0 },
+          lines: [{ chargeName: 'Room', amountMinor: 8000 }],
+        },
+        presentation: { showTaxfee: true },
+      },
+      classified: { class: 'live' },
+    });
+    voidInvoice.mockResolvedValue({ ok: true });
+    refundPayment
+      .mockRejectedValueOnce(
+        new ClassifiedError({
+          class: 'server_error',
+          status: 500,
+          body: { error: 'gateway_timeout' },
+          retryAfterMs: null,
+        }),
+      )
+      .mockResolvedValue({ ok: true });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() => expect(screen.getByTestId('cancel-settlement')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('cancel-settlement'));
+    expect(await screen.findByTestId('cancel-settlement-reason')).toBeTruthy();
+    expect(
+      (screen.getByTestId('cancel-settlement-pay-pay_cash') as HTMLInputElement).closest('label')
+        ?.textContent,
+    ).toMatch(/^Refund .+ · /);
+    expect(
+      (screen.getByTestId('cancel-settlement-pay-pay_cash') as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId('cancel-settlement-pay-pay_card') as HTMLInputElement).checked,
+    ).toBe(false);
+    fireEvent.change(screen.getByTestId('cancel-settlement-reason'), {
+      target: { value: 'Guest disputed' },
+    });
+    fireEvent.click(screen.getByTestId('cancel-settlement-continue'));
+    fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => expect(voidInvoice).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(refundPayment).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('cancel-settlement-retry')).toBeTruthy();
+
+    const voidKey = (voidInvoice.mock.calls[0]?.[2] as { idempotencyKey?: string })?.idempotencyKey;
+    const refundOpId = refundPayment.mock.calls[0]?.[3] as string;
+    expect(voidKey).toMatch(/^settlement-cancel:res_1:void:/);
+    expect(refundOpId).toMatch(/^settlement-cancel:res_1:refund:pay_cash:/);
+
+    fireEvent.click(screen.getByTestId('cancel-settlement-retry'));
+    await waitFor(() => expect(refundPayment).toHaveBeenCalledTimes(2));
+    expect(voidInvoice).toHaveBeenCalledTimes(1);
+    expect(refundPayment.mock.calls[1]?.[3]).toBe(refundOpId);
+    await waitFor(() =>
+      expect(screen.getByTestId('folio-message').textContent).toMatch(/Settlement cancelled/),
+    );
+  });
+
+  it('undo checkout offered only when checked_out_business_date is today', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'CLOSED' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    getReservation.mockResolvedValue({
+      ...liveReservation,
+      status: 'checked_out',
+      checkedOutBusinessDate: '2026-08-10',
+    });
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('cancel-settlement')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('cancel-settlement'));
+    await waitFor(() => expect(screen.getByTestId('cancel-settlement-reason')).toBeTruthy());
+    expect(screen.queryByTestId('cancel-settlement-reopen')).toBeNull();
+
+    cleanup();
+    getReservation.mockResolvedValue({
+      ...liveReservation,
+      status: 'checked_out',
+      checkedOutBusinessDate: '2026-08-12',
+    });
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('cancel-settlement'));
+    expect(await screen.findByTestId('cancel-settlement-reopen')).toBeTruthy();
+  });
+
+  it('after mutations invalidates draft-bill, folio, payments, proforma, folio-hold, open-folios', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'CLOSED' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({
+      ...liveReservation,
+      status: 'checked_out',
+      checkedOutBusinessDate: '2026-08-12',
+    });
+    getFolioPayments.mockResolvedValue({
+      ok: true,
+      payments: [
+        {
+          paymentId: 'pay_cash2',
+          reservationId: 'res_1',
+          amountMinor: 2000,
+          currency: 'USD',
+          status: 'captured',
+          capturedAmountMinor: 2000,
+          refundedAmountMinor: 0,
+          tenderType: 'CASH',
+          gatewayReference: null,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_cache' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_cache',
+        snapshot: {
+          totals: { chargesMinor: 2000, balanceMinor: 0 },
+          lines: [{ chargeName: 'Room', amountMinor: 2000 }],
+        },
+        presentation: { showTaxfee: true },
+      },
+      classified: { class: 'live' },
+    });
+    voidInvoice.mockResolvedValue({ ok: true });
+    refundPayment.mockResolvedValue({ ok: true });
+    undoCheckOut.mockResolvedValue({ ok: true });
+
+    const { invalidateSpy } = renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() => expect(screen.getByTestId('cancel-settlement')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('cancel-settlement'));
+    fireEvent.change(await screen.findByTestId('cancel-settlement-reason'), {
+      target: { value: 'Redo settlement' },
+    });
+    fireEvent.click(screen.getByTestId('cancel-settlement-reopen'));
+    fireEvent.click(screen.getByTestId('cancel-settlement-continue'));
+    fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => expect(undoCheckOut).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByTestId('folio-message').textContent).toMatch(
+        /Settlement cancelled\. Stay reopened\./,
+      ),
+    );
+
+    const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['folio', 'prop_demo', 'res_1'] }),
+    );
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['folio-payments', 'prop_demo', 'res_1'] }),
+    );
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['reservation-proforma', 'prop_demo', 'res_1'] }),
+    );
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['draft-bill', 'prop_demo', 'res_1'] }),
+    );
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['folio-hold', 'prop_demo', 'res_1'] }),
+    );
+    expect(keys).toContainEqual(JSON.stringify({ queryKey: ['open-folios', 'prop_demo'] }));
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['reservation', 'prop_demo', 'res_1'] }),
+    );
+    expect(keys).toContainEqual(JSON.stringify({ queryKey: ['board'] }));
+    expect(keys).toContainEqual(
+      JSON.stringify({ queryKey: ['front-desk-tape', 'prop_demo'] }),
+    );
   });
 });

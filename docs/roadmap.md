@@ -634,7 +634,23 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Scope out:** source-module bypass controls; a generic document-hold layer; POS bill hold (vendor, R4.21); the open-folio register report (**R4.14**, if the client names it in Q10).
   - **Client Q12:** sets who approves and the default dates. It does not remove the slice: the tick is a must-have.
 
-- [ ] **R4.29 Billing depth — draft bill and reversals**
+- [x] **R4.29 Billing depth — draft bill and reversals**
+  - **Done (2026-11-20):** [spec](superpowers/specs/2026-11-20-draft-bill-reversals-design.md).
+    - **Draft bill:** `get_reservation_draft_bill` is a read for in-house and checked-out stays and writes nothing. It shows:
+      - a charge review netted by window and charge code (transfer and split reversals included);
+      - a tariff check (posted / unposted / future; the expected room amount comes from `buildNightChargeLines`, so inclusion plans match);
+      - totals, where balance now is the guest window ledger;
+      - the invoice state.
+      The SPA page prints "Draft — not a tax invoice".
+    - **Splits:** Custom grows to 2–20 parts, and Equal computes `allocate` parts on the SPA through the existing `folio.split_charge`. A line picker replaces the raw line-id box.
+    - **Move charges:** the new `folio.transfer_charges` moves up to 50 lines (`FOLIO_TRANSFER_BULK_MAX`), all or nothing, by charge code or source group.
+    - **New permission `folio:reverse`** (admin, owner). `invoice.void` moves to it and needs a reason. It also guards the new `reservations.undo_check_out`, which works on the checkout business date only (else `check_out_not_today`), refuses while an invoice is active, checks the room is still free, writes no `availability_day` and reopens a closed guest window.
+    - **Hold reactivation:** migration 51 lets `folio_hold_event` record `reactivated`. A hold closed at zero becomes active again when its window reopens.
+    - **Cancel settlement:** an SPA flow (reason → void invoice → refunds through `folio.refund` → optional undo checkout), with per-step keys and Retry from the failed step. It shows only after checkout or with an active invoice.
+    - Built by Cursor (Auto) up to its usage limit, then finished by a Claude Sonnet subagent.
+    - **Found in review:** the first draft-bill build double-counted moved and split lines (posted ₹15,855 against a ledger of ₹10,447.50). It was fixed with a ledger-footing test.
+    - Out: penalty void, credit notes (advisor), email and PDF files, undoing an earlier-day checkout, line transfer to another room (F1).
+    - Pins: catalog 127, routes 207 (last `get_reservation_draft_bill`), audit writers 93, `PROPERTY_SCHEMA_HEAD` 51.
   - **Depends:** **R4.23**, **R4.13**, **R1.12**. The IRN guard takes effect once **R5.5** lands.
   - **Pilot checklist:** *Front-office billing and open folio*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), FO Billing And Cashiering, Reversals, Cancellations And Audit Controls. **Prototype:** `FoliosBilling.tsx`.
   - **Live:** line split, same-stay window transfer, invoice generate and void, payment void and refund. No draft step and no settlement-cancel path.

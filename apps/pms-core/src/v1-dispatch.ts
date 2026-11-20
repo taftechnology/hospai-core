@@ -183,6 +183,7 @@ import {
   type PackageComponentInput,
   ROOMS_BULK_STATUS_MAX,
   FOLIO_SPLIT_MAX,
+  FOLIO_TRANSFER_BULK_MAX,
   ROSTER_KINDS_MAX,
   RESERVATION_SEARCH_GUEST_REF_CAP,
   RESERVATION_SEARCH_ROW_LIMIT,
@@ -3202,6 +3203,48 @@ async function handlePostReservationCheckOut(ctx: V1DispatchContext): Promise<Re
   });
 }
 
+async function handlePostReservationUndoCheckOut(ctx: V1DispatchContext): Promise<Response> {
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const idempotencyKey = requireIdempotencyHeader(ctx.request);
+  if (idempotencyKey instanceof Response) return idempotencyKey;
+
+  const bodyParsed = await parseJsonBody<{ reason?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const reason = typeof bodyParsed?.reason === 'string' ? bodyParsed.reason.trim() : '';
+  if (reason.length < 1 || reason.length > 500) {
+    return json({ ok: false, error: INVALID_REQUEST }, commandErrorHttpStatus(INVALID_REQUEST));
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const commandPayload = { reservationId, reason };
+  const fingerprint = await commandFingerprint('reservations.undo_check_out', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryUndoCheckOut']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'reservations.undo_check_out',
+      routeId: 'post_reservation_undo_check_out',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryUndoCheckOut(actor, commandPayload, idem),
+  });
+
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:reverse',
+    successStatus: 200,
+    onFailure: () => null,
+  });
+}
+
 async function handlePostReservationEarlyDepart(ctx: V1DispatchContext): Promise<Response> {
   const reservationId = decodeURIComponent(ctx.match[2]!);
   const propertyId = decodeURIComponent(ctx.match[1]!);
@@ -4201,6 +4244,70 @@ async function handleGetReservationProforma(ctx: V1DispatchContext): Promise<Res
     }
 
     return json({ ...publicProforma, guestDisplayName }, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
+    if (isPropertyDoTransportFailure(e, ctx.env)) {
+      return degradedFailClosedReadResponse();
+    }
+    throw e;
+  }
+}
+
+async function handleGetReservationDraftBill(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservationDraftBill(reservationId);
+    if (!result.ok) {
+      if (result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      return json({ ok: false, error: result.error }, 422);
+    }
+    // Workers RPC may collapse large success arms on the stub; reassert the DO return shape.
+    const draft = result as unknown as {
+      ok: true;
+      reservationId: string;
+      status: string;
+      currency: string;
+      confirmationToken: string;
+      arrivalDate: string;
+      departureDate: string;
+      nights: number;
+      adults: number;
+      children: number;
+      roomTypeName: string | null;
+      roomCode: string | null;
+      ratePlanName: string | null;
+      packageName: string | null;
+      guestRef: string;
+      chargeReview: unknown;
+      tariffCheck: unknown;
+      totals: unknown;
+      invoice: unknown;
+    };
+    const { guestRef, ...publicDraft } = draft;
+
+    const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: resolvedCtx.property.orgId }) as DurableObjectStub<OrgDO>;
+    const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+    await org.ensureMetaOrgId(resolvedCtx.property.orgId);
+
+    const hydrated = await org.readGuests(actor, propertyId, [guestRef]);
+    let guestDisplayName: string | null = null;
+    if (!hydrated.ok) {
+      if (hydrated.error !== FORBIDDEN) {
+        return guestDirectoryErrorResponse(hydrated.error);
+      }
+    } else {
+      const entry = hydrated.guests[guestRef];
+      guestDisplayName =
+        entry && entry.ok && !entry.erased ? (entry.profile.displayName ?? null) : null;
+    }
+
+    return json({ ...publicDraft, guestDisplayName }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     if (isPropertyDoTransportFailure(e, ctx.env)) {
@@ -7444,17 +7551,18 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
   const propertyId = decodeURIComponent(ctx.match[1]!);
   const invoiceId = decodeURIComponent(ctx.match[2]!);
   ctx.observability.propertyId = propertyId;
-    const bodyParsed = await parseJsonBody<{ idempotencyKey: string; reason?: string }>(ctx.request);
+  const bodyParsed = await parseJsonBody<{ idempotencyKey: string; reason?: string }>(ctx.request);
   if (bodyParsed instanceof Response) return bodyParsed;
   const body = bodyParsed;
   if (!body?.idempotencyKey) return json({ error: 'invalid_body' }, 400);
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (reason.length < 1 || reason.length > 500) {
+    return json({ ok: false, error: INVALID_VOID_REASON }, commandErrorHttpStatus(INVALID_VOID_REASON));
+  }
   const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
   if (resolvedCtx instanceof Response) return resolvedCtx;
-  const commandPayload = {
-    invoiceId,
-    ...(body.reason ? { reason: body.reason } : {}),
-  };
-  const fingerprint = await commandFingerprint('invoice.void', { invoiceId });
+  const commandPayload = { invoiceId, reason };
+  const fingerprint = await commandFingerprint('invoice.void', commandPayload);
   const actor = { kind: 'user' as const, userId: ctx.actor.userId };
   const idem = { key: body.idempotencyKey, fingerprint };
   const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryVoidInvoice']>>>({
@@ -7469,9 +7577,10 @@ async function handlePostInvoiceVoid(ctx: V1DispatchContext): Promise<Response> 
   });
   return finishPropertyDoInvoke({
     invoked,
-    permission: 'reservations:write',
+    permission: 'folio:reverse',
     successStatus: 200,
-    onFailure: (result) => {    return null;
+    onFailure: (result) => {
+      return null;
     },
   });
 }
@@ -8524,6 +8633,56 @@ async function handlePostFolioTransfer(ctx: V1DispatchContext): Promise<Response
     successStatus: 200,
     onFailure: (result) => {    return null;
     },
+  });
+}
+
+async function handlePostFolioTransferBulk(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{
+    folioLineIds: string[];
+    destinationFolioWindowId: string;
+    idempotencyKey: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const body = bodyParsed;
+  if (
+    !body?.destinationFolioWindowId ||
+    !body.idempotencyKey ||
+    !Array.isArray(body.folioLineIds) ||
+    body.folioLineIds.length === 0
+  ) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  if (body.folioLineIds.length > FOLIO_TRANSFER_BULK_MAX) {
+    return json({ ok: false, error: LIMIT_EXCEEDED }, 422);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const folioLineIds = [...body.folioLineIds].sort();
+  const commandPayload = {
+    folioLineIds,
+    destinationFolioWindowId: body.destinationFolioWindowId,
+  };
+  const fingerprint = await commandFingerprint('folio.transfer_charges', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: body.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryTransferCharges']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'folio.transfer_charges',
+      routeId: 'post_folio_transfer_bulk',
+      idempotencyKey: body.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryTransferCharges(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'folio:adjust',
+    successStatus: 200,
+    onFailure: (_result) => null,
   });
 }
 
@@ -11133,7 +11292,7 @@ export const V1_ROUTES: V1RouteDef[] = [
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/invoices\/([^/]+)\/void$/,
-    permission: 'folio:adjust',
+    permission: 'folio:reverse',
     commandId: 'invoice.void',
     entitlement: 'pms.core',
     handler: handlePostInvoiceVoid,
@@ -11740,6 +11899,35 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetOpenFolios,
+  },
+  {
+    id: 'post_reservation_undo_check_out',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/undo-check-out$/,
+    permission: 'folio:reverse',
+    commandId: 'reservations.undo_check_out',
+    entitlement: 'pms.core',
+    handler: handlePostReservationUndoCheckOut,
+  },
+  {
+    id: 'post_folio_transfer_bulk',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/folio\/transfer$/,
+    permission: 'folio:adjust',
+    commandId: 'folio.transfer_charges',
+    entitlement: 'pms.core',
+    handler: handlePostFolioTransferBulk,
+  },
+  {
+    id: 'get_reservation_draft_bill',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/draft-bill$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationDraftBill,
   },
 ];
 

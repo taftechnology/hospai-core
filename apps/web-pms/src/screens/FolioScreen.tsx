@@ -2,6 +2,8 @@ import {
   UPI_REFERENCE_RE,
   GST_STATE_CODES,
   UNREGISTERED_BUYER_NAME_ADDRESS_THRESHOLD_MINOR,
+  FOLIO_SPLIT_MAX,
+  FOLIO_TRANSFER_BULK_MAX,
   gstinProblem,
   gstinStateCode,
   sellerGstinFromRegistrations,
@@ -20,6 +22,7 @@ import {
   type RecurringCharge,
   type RecurringChargePattern,
 } from '@hospai/client-core';
+import { allocate } from '@hospai/money';
 import {
   Alert,
   AlertTitle,
@@ -40,6 +43,7 @@ import {
   Dialog,
   EmptyState,
   Field,
+  FieldGroup,
   Input,
   NativeSelect,
   PageHeader,
@@ -52,7 +56,8 @@ import {
 } from '@hospai/ui-kit';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useMemo, useState, useEffect, type ReactNode } from 'react';
+import { folioWindowLabel } from './folio-window-label.js';
+import { useMemo, useState, useEffect, useRef, type ReactNode } from 'react';
 import {
   hasPropertyPermission,
   meShellStateFromQuery,
@@ -95,6 +100,62 @@ function folioBackTarget(status: string | undefined): { to: string; label: strin
 }
 
 const TERMINAL_STATUSES = new Set(['cancelled', 'checked_out', 'no_show']);
+
+type SplitMode = 'custom' | 'equal';
+type SplitPartRow = { amountMajor: string; folioWindowId: string };
+type MoveSelectBy = 'charge_code' | 'source_group';
+type MoveSourceGroup = 'room_nights' | 'inclusions' | 'scheduled_add_ons' | 'manual';
+
+const MOVE_SOURCE_GROUP_OPTIONS: Array<{ value: MoveSourceGroup; label: string }> = [
+  { value: 'room_nights', label: 'Room nights' },
+  { value: 'inclusions', label: 'Inclusions' },
+  { value: 'scheduled_add_ons', label: 'Scheduled add-ons' },
+  { value: 'manual', label: 'Manual charges' },
+];
+
+function emptySplitParts(n: number, defaultWindowId: string): SplitPartRow[] {
+  const count = Math.min(FOLIO_SPLIT_MAX, Math.max(2, n));
+  return Array.from({ length: count }, () => ({
+    amountMajor: '',
+    folioWindowId: defaultWindowId,
+  }));
+}
+
+function resizeSplitParts(
+  prev: SplitPartRow[],
+  n: number,
+  defaultWindowId: string,
+): SplitPartRow[] {
+  const count = Math.min(FOLIO_SPLIT_MAX, Math.max(2, n));
+  if (prev.length === count) return prev;
+  if (prev.length > count) return prev.slice(0, count);
+  return [
+    ...prev,
+    ...Array.from({ length: count - prev.length }, () => ({
+      amountMajor: '',
+      folioWindowId: defaultWindowId,
+    })),
+  ];
+}
+
+/** Classifies a live charge root for Move charges source groups. */
+function folioLineSourceGroup(line: FolioLine): MoveSourceGroup | null {
+  if (line.taxOf != null || line.source === 'TAX') return null;
+  if (
+    line.source === 'SPLIT_REVERSAL' ||
+    line.source === 'TRANSFER_REVERSAL' ||
+    line.source === 'PAYMENT' ||
+    line.source === 'PAYMENT_REFUND' ||
+    line.source === 'CHARGEBACK'
+  ) {
+    return null;
+  }
+  if (line.paymentId != null) return null;
+  if (line.source === 'NIGHT_AUDIT' && line.chargeCode === 'ROOM') return 'room_nights';
+  if (line.folioLineId.includes(':inclusion:')) return 'inclusions';
+  if (line.folioLineId.includes(':recurring:')) return 'scheduled_add_ons';
+  return 'manual';
+}
 
 function readState(q: {
   isPending: boolean;
@@ -1204,10 +1265,8 @@ export function FolioScreen() {
   const [authAmount, setAuthAmount] = useState('');
   const [authPurpose, setAuthPurpose] = useState<'STAY' | 'DAMAGE'>('STAY');
   const [splitLineId, setSplitLineId] = useState('');
-  const [splitA, setSplitA] = useState('');
-  const [splitB, setSplitB] = useState('');
-  const [splitDestA, setSplitDestA] = useState('');
-  const [splitDestB, setSplitDestB] = useState('');
+  const [splitMode, setSplitMode] = useState<SplitMode>('custom');
+  const [splitParts, setSplitParts] = useState<SplitPartRow[]>(() => emptySplitParts(2, ''));
   const [companyBilledParty, setCompanyBilledParty] = useState('');
   const [billedPartyHint, setBilledPartyHint] = useState<string | null>(null);
   const [discountLineId, setDiscountLineId] = useState('');
@@ -1215,6 +1274,11 @@ export function FolioScreen() {
   const [discountKind, setDiscountKind] = useState<'percent' | 'fixed'>('percent');
   const [discountValue, setDiscountValue] = useState('');
   const [transferDest, setTransferDest] = useState<Record<string, string>>({});
+  const [moveSelectBy, setMoveSelectBy] = useState<MoveSelectBy>('charge_code');
+  const [moveChargeCode, setMoveChargeCode] = useState('');
+  const [moveSourceGroup, setMoveSourceGroup] = useState<MoveSourceGroup>('manual');
+  const [moveSelectedIds, setMoveSelectedIds] = useState<string[]>([]);
+  const [moveDestWindowId, setMoveDestWindowId] = useState('');
   const [captureDueRetry, setCaptureDueRetry] = useState(false);
   const [captureAmounts, setCaptureAmounts] = useState<Record<string, string>>({});
   const [refundAmounts, setRefundAmounts] = useState<Record<string, string>>({});
@@ -1230,6 +1294,24 @@ export function FolioScreen() {
   const [fxFrom, setFxFrom] = useState('EUR');
   const [fxRate, setFxRate] = useState('');
   const [voidInvoiceOpen, setVoidInvoiceOpen] = useState(false);
+  const [voidInvoiceReason, setVoidInvoiceReason] = useState('');
+  const [settlementCancelOpen, setSettlementCancelOpen] = useState(false);
+  const [settlementCancelConfirmOpen, setSettlementCancelConfirmOpen] = useState(false);
+  const [settlementCancelReason, setSettlementCancelReason] = useState('');
+  const [settlementCancelSelectedIds, setSettlementCancelSelectedIds] = useState<string[]>([]);
+  const [settlementCancelReopen, setSettlementCancelReopen] = useState(false);
+  const [settlementCancelPending, setSettlementCancelPending] = useState(false);
+  const [settlementCancelCanRetry, setSettlementCancelCanRetry] = useState(false);
+  const settlementCancelSessionRef = useRef<{
+    reason: string;
+    reopenStay: boolean;
+    steps: Array<
+      | { kind: 'void'; opId: string; invoiceId: string }
+      | { kind: 'refund'; opId: string; paymentId: string; amountMinor: number }
+      | { kind: 'undo'; opId: string }
+    >;
+    nextIndex: number;
+  } | null>(null);
   const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
   const [releasePaymentId, setReleasePaymentId] = useState<string | null>(null);
   const [forfeitPaymentId, setForfeitPaymentId] = useState<string | null>(null);
@@ -1372,6 +1454,9 @@ export function FolioScreen() {
     !hasPropertyPermission(meShell.authority.me, 'folio:adjust');
   const canSplit = policy.canSplit && !adjustDenied;
   const canAdjust = !adjustDenied;
+  useEffect(() => {
+    if (canAdjust && folioAdvancedOpen) setChargeCodesRequested(true);
+  }, [canAdjust, folioAdvancedOpen]);
   const postDenied =
     meShell.kind === 'authority' &&
     meShell.authority.kind === 'live' &&
@@ -1392,6 +1477,15 @@ export function FolioScreen() {
     meShell.authority.kind === 'live' &&
     !hasPropertyPermission(meShell.authority.me, 'folio:hold');
   const canHold = !holdDenied;
+  const reverseDenied =
+    meShell.kind === 'authority' &&
+    meShell.authority.kind === 'live' &&
+    !hasPropertyPermission(meShell.authority.me, 'folio:reverse');
+  const canReverse = !reverseDenied;
+  const canReadFolio =
+    meShell.kind !== 'authority' ||
+    meShell.authority.kind !== 'live' ||
+    hasPropertyPermission(meShell.authority.me, 'folio:read');
 
   const cityLedgerAccountsQ = useQuery({
     queryKey: ['city-ledger-accounts-active', propertyId],
@@ -1537,6 +1631,9 @@ export function FolioScreen() {
     windows.find((w) => w.kind === 'GUEST')?.folioWindowId ?? `${reservationId}:GUEST`;
   const reservationTerminal = TERMINAL_STATUSES.has(reservationQ.data?.status ?? '');
   const reservationStatus = reservationQ.data?.status ?? null;
+  const showDraftBill =
+    canReadFolio &&
+    (reservationStatus === 'checked_in' || reservationStatus === 'checked_out');
   const invoiceReadsLive =
     readState(folioQ) === 'live' && readState(reservationQ) === 'live';
   const canGenerateInvoice =
@@ -1569,16 +1666,146 @@ export function FolioScreen() {
     return openWindows.filter((w) => w.folioWindowId !== sourceWindowId);
   }
 
+  function invalidateFolioMoneyCaches() {
+    void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+    void queryClient.invalidateQueries({
+      queryKey: ['folio-payments', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['reservation-proforma', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['draft-bill', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['folio-hold', propertyId, reservationId],
+    });
+    void queryClient.invalidateQueries({ queryKey: ['open-folios', propertyId] });
+    void queryClient.invalidateQueries({
+      queryKey: ['reservation', propertyId, reservationId],
+    });
+  }
+
+  const moveCandidateLines = useMemo(() => {
+    return fold.roots
+      .map((n) => n.line)
+      .filter((line) => folioLineSourceGroup(line) != null);
+  }, [fold.roots]);
+
+  const moveChargeCodes = useMemo(() => {
+    const codes = new Set<string>();
+    for (const line of moveCandidateLines) codes.add(line.chargeCode);
+    return [...codes].sort();
+  }, [moveCandidateLines]);
+
+  const moveFilteredLines = useMemo(() => {
+    if (moveSelectBy === 'charge_code') {
+      if (!moveChargeCode) return [];
+      return moveCandidateLines.filter((l) => l.chargeCode === moveChargeCode);
+    }
+    return moveCandidateLines.filter((l) => folioLineSourceGroup(l) === moveSourceGroup);
+  }, [moveCandidateLines, moveSelectBy, moveChargeCode, moveSourceGroup]);
+
+  function selectMoveLines(lines: FolioLine[]) {
+    setMoveSelectedIds(lines.map((l) => l.folioLineId));
+  }
+
+  const moveSelectedLines = useMemo(() => {
+    const selected = new Set(moveSelectedIds);
+    return moveFilteredLines.filter((l) => selected.has(l.folioLineId));
+  }, [moveFilteredLines, moveSelectedIds]);
+
+  const moveTotalMinor = useMemo(() => {
+    const nodeById = new Map(fold.roots.map((n) => [n.line.folioLineId, n]));
+    return moveSelectedLines.reduce((sum, l) => {
+      const taxMinor = (nodeById.get(l.folioLineId)?.taxes ?? []).reduce(
+        (t, n) => t + n.line.ledgerAmountMinor,
+        0,
+      );
+      return sum + l.ledgerAmountMinor + taxMinor;
+    }, 0);
+  }, [moveSelectedLines, fold.roots]);
+
+  const moveDestOptions = useMemo(() => {
+    const open = windows.filter((w) => w.status === 'OPEN');
+    const sourceIds = new Set(moveSelectedLines.map((l) => l.folioWindowId ?? ''));
+    if (sourceIds.size === 1) {
+      const only = [...sourceIds][0];
+      const rest = open.filter((w) => w.folioWindowId !== only);
+      if (rest.length > 0) return rest;
+    }
+    return open;
+  }, [windows, moveSelectedLines]);
+  const moveDestEffective =
+    (moveDestWindowId && moveDestOptions.some((w) => w.folioWindowId === moveDestWindowId)
+      ? moveDestWindowId
+      : '') ||
+    moveDestOptions.find((w) => w.kind !== 'GUEST')?.folioWindowId ||
+    moveDestOptions[0]?.folioWindowId ||
+    '';
+
+  const splitLineOptions = useMemo(() => {
+    const blocked = new Set([
+      'SPLIT_REVERSAL',
+      'TRANSFER_REVERSAL',
+      'CHARGEBACK',
+      'CHARGEBACK_FEE',
+      'FX_GAIN',
+      'FX_LOSS',
+      'PAYMENT',
+      'PAYMENT_REFUND',
+      'TAX',
+    ]);
+    return fold.roots
+      .map((n) => n.line)
+      .filter(
+        (l) =>
+          l.taxOf == null &&
+          l.paymentId == null &&
+          l.ledgerAmountMinor > 0 &&
+          !(l.source != null && blocked.has(l.source)),
+      );
+  }, [fold.roots]);
+
+  const equalSplitPreview = useMemo(() => {
+    if (splitMode !== 'equal' || !splitLineId) return null;
+    const source = ((folioQ.data?.lines ?? []) as FolioLine[]).find(
+      (l) => l.folioLineId === splitLineId,
+    );
+    if (!source) return null;
+    const sourceMinor = source.ledgerAmountMinor;
+    if (!Number.isInteger(sourceMinor) || sourceMinor <= 0) return null;
+    const n = splitParts.length;
+    if (n < 2 || n > FOLIO_SPLIT_MAX) return null;
+    return allocate(
+      sourceMinor,
+      Array.from({ length: n }, () => 1),
+      { policy: 'LAST' },
+    );
+  }, [splitMode, splitLineId, splitParts.length, folioQ.data?.lines]);
+
   function splitPayload() {
-    const a = Math.round(Number(splitA) * 100);
-    const b = Math.round(Number(splitB) * 100);
-    const destA = splitDestA || guestWindowId;
-    const destB = splitDestB || guestWindowId;
+    const n = splitParts.length;
+    if (n < 2 || n > FOLIO_SPLIT_MAX) {
+      throw new Error('split_parts_out_of_range');
+    }
+    let amounts: number[];
+    if (splitMode === 'equal') {
+      if (!equalSplitPreview) throw new Error('invalid_amount');
+      amounts = equalSplitPreview;
+    } else {
+      amounts = splitParts.map((p) => {
+        const minor = parseAmountToMinor(p.amountMajor);
+        if (minor == null) throw new Error('invalid_amount');
+        return minor;
+      });
+    }
     return {
-      splits: [
-        { folioLineId: `${splitLineId}:a`, amountMinor: a, folioWindowId: destA },
-        { folioLineId: `${splitLineId}:b`, amountMinor: b, folioWindowId: destB },
-      ],
+      splits: amounts.map((amountMinor, i) => ({
+        folioLineId: `${splitLineId}:${i}`,
+        amountMinor,
+        folioWindowId: splitParts[i]?.folioWindowId || guestWindowId,
+      })),
     };
   }
 
@@ -1805,6 +2032,14 @@ export function FolioScreen() {
         setMessage(splitReason ?? 'Split refused.');
         return true;
       }
+      if (err instanceof Error && err.message === 'split_parts_out_of_range') {
+        setMessage(`Split supports 2–${FOLIO_SPLIT_MAX} parts.`);
+        return true;
+      }
+      if (err instanceof Error && err.message === 'invalid_amount') {
+        setMessage('Enter a valid amount for each part.');
+        return true;
+      }
       return false;
     },
     mutationFn: () => {
@@ -1814,7 +2049,7 @@ export function FolioScreen() {
     },
     onSuccess: () => {
       setSettledNotice('Split posted.');
-      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      invalidateFolioMoneyCaches();
     },
   });
 
@@ -1826,6 +2061,14 @@ export function FolioScreen() {
         setMessage(splitReason ?? 'Split refused.');
         return true;
       }
+      if (err instanceof Error && err.message === 'split_parts_out_of_range') {
+        setMessage(`Split supports 2–${FOLIO_SPLIT_MAX} parts.`);
+        return true;
+      }
+      if (err instanceof Error && err.message === 'invalid_amount') {
+        setMessage('Enter a valid amount for each part.');
+        return true;
+      }
       return false;
     },
     mutationFn: () => {
@@ -1835,7 +2078,7 @@ export function FolioScreen() {
     },
     onSuccess: () => {
       setSettledNotice('Payment split posted.');
-      void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+      invalidateFolioMoneyCaches();
     },
   });
 
@@ -1983,6 +2226,50 @@ export function FolioScreen() {
         setSettledNotice('Charge transferred.');
       }
       void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
+    },
+  });
+
+  const moveCharges = useFolioActionMutation<
+    { ok: true; results: Array<{ reverseFolioLineId: string; destFolioLineId: string }> },
+    void
+  >({
+    fallback: 'Move charges failed',
+    setMessage,
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'policy_blocked_adjust') {
+        setMessage('Requires permission folio:adjust. Ask a manager.');
+        return true;
+      }
+      if (err instanceof Error && err.message === 'move_none_selected') {
+        setMessage('Select at least one charge to move.');
+        return true;
+      }
+      if (err instanceof Error && err.message === 'move_limit_exceeded') {
+        setMessage(`Select at most ${FOLIO_TRANSFER_BULK_MAX} charges.`);
+        return true;
+      }
+      if (err instanceof Error && err.message === 'move_no_dest') {
+        setMessage('Pick a destination window.');
+        return true;
+      }
+      return false;
+    },
+    mutationFn: () => {
+      if (!canAdjust) throw new Error('policy_blocked_adjust');
+      const folioLineIds = [...moveSelectedIds].sort();
+      if (folioLineIds.length === 0) throw new Error('move_none_selected');
+      if (folioLineIds.length > FOLIO_TRANSFER_BULK_MAX) throw new Error('move_limit_exceeded');
+      const destinationFolioWindowId = moveDestEffective;
+      if (!destinationFolioWindowId) throw new Error('move_no_dest');
+      return api.transferFolioLines(
+        propertyId,
+        { folioLineIds, destinationFolioWindowId },
+        `xfer-bulk:${reservationId}:${crypto.randomUUID()}`,
+      );
+    },
+    onSuccess: () => {
+      setSettledNotice('Charges moved.');
+      invalidateFolioMoneyCaches();
     },
   });
 
@@ -2198,17 +2485,33 @@ export function FolioScreen() {
   const voidInv = useFolioActionMutation({
     fallback: 'Void invoice failed',
     setMessage,
-    mutationFn: () => {
+    onLocalError: (err) => {
+      if (err instanceof Error && err.message === 'void_reason_required') {
+        setMessage('Give a reason to void this invoice.');
+        return true;
+      }
+      if (err instanceof Error && err.message === 'policy_blocked_reverse') {
+        setMessage('Requires permission folio:reverse. Ask a manager.');
+        return true;
+      }
+      return false;
+    },
+    mutationFn: (reason: string) => {
       if (!activeInvoiceId) throw new Error('no_active_invoice');
-      if (!canAdjust) throw new Error('policy_blocked_adjust');
+      if (!canReverse) throw new Error('policy_blocked_reverse');
+      const trimmed = reason.trim();
+      if (!trimmed) throw new Error('void_reason_required');
       return api.voidInvoice(propertyId, activeInvoiceId, {
+        reason: trimmed,
         idempotencyKey: `void:${activeInvoiceId}:${crypto.randomUUID()}`,
       });
     },
     onSuccess: () => {
       setActiveInvoiceId(null);
       void queryClient.removeQueries({ queryKey: ['invoice', propertyId, activeInvoiceId] });
+      setVoidInvoiceReason('');
       setSettledNotice('Invoice voided.');
+      invalidateFolioMoneyCaches();
     },
   });
 
@@ -2291,6 +2594,166 @@ export function FolioScreen() {
       void queryClient.invalidateQueries({ queryKey: ['board'] });
     },
   });
+
+  function refundRemainingMinor(p: FolioPaymentRow): number {
+    const capturedBase = p.capturedAmountMinor ?? p.amountMinor;
+    const refundedBase = p.refundedAmountMinor ?? 0;
+    return Math.max(0, capturedBase - refundedBase);
+  }
+
+  const settlementRefundCandidates = useMemo(
+    () =>
+      payments.filter(
+        (p) =>
+          p.status === 'captured' &&
+          refundRemainingMinor(p) > 0 &&
+          (p.tenderType === 'CASH' || p.tenderType === 'UPI' || p.tenderType === 'CARD'),
+      ),
+    [payments],
+  );
+
+  const checkedOutToday =
+    reservationQ.data?.status === 'checked_out' &&
+    businessDate != null &&
+    reservationQ.data.checkedOutBusinessDate === businessDate;
+
+  const showCancelSettlement =
+    canReverse &&
+    (Boolean(activeInvoiceId) || reservationQ.data?.status === 'checked_out');
+
+  function openSettlementCancelDialog() {
+    const preselected = settlementRefundCandidates
+      .filter((p) => p.tenderType === 'CASH' || p.tenderType === 'UPI')
+      .map((p) => p.paymentId);
+    setSettlementCancelSelectedIds(preselected);
+    setSettlementCancelReason('');
+    setSettlementCancelReopen(false);
+    settlementCancelSessionRef.current = null;
+    setSettlementCancelCanRetry(false);
+    setSettlementCancelOpen(true);
+  }
+
+  function buildSettlementCancelSession(): NonNullable<typeof settlementCancelSessionRef.current> {
+    const runUuid = crypto.randomUUID();
+    const reason = settlementCancelReason.trim();
+    const steps: NonNullable<typeof settlementCancelSessionRef.current>['steps'] = [];
+    if (activeInvoiceId) {
+      steps.push({
+        kind: 'void',
+        invoiceId: activeInvoiceId,
+        opId: `settlement-cancel:${reservationId}:void:${runUuid}`,
+      });
+    }
+    for (const paymentId of settlementCancelSelectedIds) {
+      const payment = settlementRefundCandidates.find((p) => p.paymentId === paymentId);
+      if (!payment) continue;
+      const amountMinor = refundRemainingMinor(payment);
+      if (amountMinor <= 0) continue;
+      steps.push({
+        kind: 'refund',
+        paymentId,
+        amountMinor,
+        opId: `settlement-cancel:${reservationId}:refund:${paymentId}:${runUuid}`,
+      });
+    }
+    const reopenStay = settlementCancelReopen && checkedOutToday;
+    if (reopenStay) {
+      steps.push({
+        kind: 'undo',
+        opId: `settlement-cancel:${reservationId}:undo:${runUuid}`,
+      });
+    }
+    return { reason, reopenStay, steps, nextIndex: 0 };
+  }
+
+  async function runSettlementCancelFrom(session: NonNullable<typeof settlementCancelSessionRef.current>) {
+    setSettlementCancelPending(true);
+    setMessage(null);
+    try {
+      for (let i = session.nextIndex; i < session.steps.length; i++) {
+        const step = session.steps[i]!;
+        session.nextIndex = i;
+        settlementCancelSessionRef.current = { ...session };
+        try {
+          if (step.kind === 'void') {
+            await api.voidInvoice(propertyId, step.invoiceId, {
+              reason: session.reason,
+              idempotencyKey: step.opId,
+            });
+            setActiveInvoiceId(null);
+            void queryClient.removeQueries({
+              queryKey: ['invoice', propertyId, step.invoiceId],
+            });
+          } else if (step.kind === 'refund') {
+            await api.refundPayment(propertyId, step.paymentId, step.amountMinor, step.opId);
+          } else {
+            await api.undoCheckOut(propertyId, reservationId, step.opId, {
+              reason: session.reason,
+            });
+          }
+          session.nextIndex = i + 1;
+          settlementCancelSessionRef.current = { ...session };
+        } catch (err) {
+          setSettlementCancelCanRetry(true);
+          setMessage(
+            classifiedUserMessage(asClassified(err), {
+              fallback: 'Cancel settlement failed',
+              fmt,
+            }),
+          );
+          return;
+        }
+      }
+      invalidateFolioMoneyCaches();
+      if (session.reopenStay) {
+        void queryClient.invalidateQueries({ queryKey: ['board'] });
+        void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', propertyId] });
+      }
+      const notice = session.reopenStay
+        ? 'Settlement cancelled. Stay reopened.'
+        : 'Settlement cancelled.';
+      setSettledNotice(notice);
+      settlementCancelSessionRef.current = null;
+      setSettlementCancelCanRetry(false);
+      setSettlementCancelOpen(false);
+      setSettlementCancelConfirmOpen(false);
+    } finally {
+      setSettlementCancelPending(false);
+    }
+  }
+
+  function startSettlementCancel() {
+    if (!canReverse) {
+      setMessage('Requires permission folio:reverse. Ask a manager.');
+      return;
+    }
+    const reason = settlementCancelReason.trim();
+    if (!reason) {
+      setMessage('Give a reason to cancel the settlement.');
+      return;
+    }
+    const session = buildSettlementCancelSession();
+    if (session.steps.length === 0) {
+      setMessage('Nothing to cancel on this settlement.');
+      return;
+    }
+    settlementCancelSessionRef.current = session;
+    setSettlementCancelOpen(false);
+    setSettlementCancelConfirmOpen(true);
+  }
+
+  function confirmSettlementCancel() {
+    setSettlementCancelConfirmOpen(false);
+    const session = settlementCancelSessionRef.current;
+    if (!session) return;
+    void runSettlementCancelFrom(session);
+  }
+
+  function retrySettlementCancel() {
+    const session = settlementCancelSessionRef.current;
+    if (!session) return;
+    void runSettlementCancelFrom(session);
+  }
 
   const regCardLabels = useRegCardLabels(reservationQ.data);
   const roomCode = (() => {
@@ -2466,6 +2929,15 @@ export function FolioScreen() {
                 Book for guest
               </Link>
             ) : null}
+            {showDraftBill ? (
+              <Link
+                className="ui-link-btn"
+                data-testid="draft-bill"
+                to={`/reservations/${encodeURIComponent(reservationId)}/draft-bill`}
+              >
+                Draft bill
+              </Link>
+            ) : null}
             {policy.canCheckout ? (
               <>
                 <Button
@@ -2495,6 +2967,17 @@ export function FolioScreen() {
                 onClick={() => setEarlyDepartOpen(true)}
               >
                 Early depart
+              </Button>
+            ) : null}
+            {showCancelSettlement ? (
+              <Button
+                type="button"
+                intent="destructive"
+                data-testid="cancel-settlement"
+                disabled={settlementCancelPending || folioDegraded}
+                onClick={() => openSettlementCancelDialog()}
+              >
+                Cancel settlement
               </Button>
             ) : null}
           </>
@@ -3323,13 +3806,16 @@ export function FolioScreen() {
             </p>
           ) : null}
           {invoiceFooter ? <p className="muted">{invoiceFooter}</p> : null}
-          {canAdjust ? (
+          {canReverse ? (
             <Button
               type="button"
               intent="destructive"
               data-testid="invoice-void"
               disabled={voidInv.isPending || folioDegraded}
-              onClick={() => setVoidInvoiceOpen(true)}
+              onClick={() => {
+                setVoidInvoiceReason('');
+                setVoidInvoiceOpen(true);
+              }}
             >
               Void invoice
             </Button>
@@ -3341,6 +3827,16 @@ export function FolioScreen() {
       {message ? (
         <Alert intent={messageIntent} data-testid="folio-message">
           {message}
+          {messageIntent === 'exception' && settlementCancelCanRetry ? (
+            <Button
+              type="button"
+              data-testid="cancel-settlement-retry"
+              disabled={settlementCancelPending}
+              onClick={() => retrySettlementCancel()}
+            >
+              Retry
+            </Button>
+          ) : null}
         </Alert>
       ) : null}
 
@@ -3605,50 +4101,180 @@ export function FolioScreen() {
 
         <section className="folio-advanced__section folio-advanced__form-row">
           <h2>Split charge</h2>
-          <Input
-            aria-label="split-line-id"
-            placeholder="folio line id"
-            value={splitLineId}
-            onChange={(e) => setSplitLineId(e.target.value)}
+          <Field
+            label="Folio line"
+            control={
+              <NativeSelect
+                aria-label="split-line-id"
+                value={splitLineId}
+                onChange={(e) => setSplitLineId(e.target.value)}
+              >
+                <option value="">Select a charge…</option>
+                {splitLineOptions.map((l) => {
+                  const win = windows.find((w) => w.folioWindowId === l.folioWindowId);
+                  return (
+                    <option key={l.folioLineId} value={l.folioLineId}>
+                      {[
+                        l.businessDate ? date(l.businessDate) : null,
+                        chargeDescription(l.chargeCode, chargeCodes),
+                        money(l.ledgerAmountMinor),
+                        win ? folioWindowLabel(win) : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </option>
+                  );
+                })}
+              </NativeSelect>
+            }
           />
-          <Input
-            aria-label="split-a"
-            placeholder="amount a"
-            value={splitA}
-            onChange={(e) => setSplitA(e.target.value)}
+          <FieldGroup legend="Split mode">
+            <div className="ui-choice-row">
+              <label className="ui-choice">
+                <Input
+                  type="radio"
+                  name="split-mode"
+                  value="custom"
+                  checked={splitMode === 'custom'}
+                  onChange={() => setSplitMode('custom')}
+                  aria-label="split-mode-custom"
+                />
+                Custom
+              </label>
+              <label className="ui-choice">
+                <Input
+                  type="radio"
+                  name="split-mode"
+                  value="equal"
+                  checked={splitMode === 'equal'}
+                  onChange={() => setSplitMode('equal')}
+                  aria-label="split-mode-equal"
+                />
+                Equal
+              </label>
+            </div>
+          </FieldGroup>
+          <Field
+            label="Parts"
+            control={
+              <NativeSelect
+                aria-label="split-part-count"
+                value={String(splitParts.length)}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (!Number.isInteger(next) || next < 2 || next > FOLIO_SPLIT_MAX) return;
+                  setSplitParts((prev) => resizeSplitParts(prev, next, guestWindowId));
+                }}
+              >
+                {Array.from({ length: FOLIO_SPLIT_MAX - 1 }, (_, i) => i + 2).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
           />
-          <Input
-            aria-label="split-b"
-            placeholder="amount b"
-            value={splitB}
-            onChange={(e) => setSplitB(e.target.value)}
-          />
-          <NativeSelect
-            aria-label="split-dest-a"
-            value={splitDestA || guestWindowId}
-            onChange={(e) => setSplitDestA(e.target.value)}
-          >
-            {openWindows.map((w) => (
-              <option key={w.folioWindowId} value={w.folioWindowId}>
-                {w.kind}
-              </option>
-            ))}
-          </NativeSelect>
-          <NativeSelect
-            aria-label="split-dest-b"
-            value={splitDestB || guestWindowId}
-            onChange={(e) => setSplitDestB(e.target.value)}
-          >
-            {openWindows.map((w) => (
-              <option key={w.folioWindowId} value={w.folioWindowId}>
-                {w.kind}
-              </option>
-            ))}
-          </NativeSelect>
+          {splitParts.map((part, i) => (
+            <div key={`split-part-${i}`} className="ui-row">
+              {splitMode === 'custom' ? (
+                <Field
+                  size="sm"
+                  label={`Amount ${i + 1}`}
+                  control={
+                    <Input
+                      aria-label={`split-amount-${i}`}
+                      placeholder="amount"
+                      value={part.amountMajor}
+                      onChange={(e) =>
+                        setSplitParts((prev) =>
+                          prev.map((row, idx) =>
+                            idx === i ? { ...row, amountMajor: e.target.value } : row,
+                          ),
+                        )
+                      }
+                    />
+                  }
+                />
+              ) : (
+                <Field
+                  size="sm"
+                  label={`Amount ${i + 1}`}
+                  control={
+                    <Input
+                      aria-label={`split-preview-${i}`}
+                      readOnly
+                      value={
+                        equalSplitPreview
+                          ? minorToMajorInput(equalSplitPreview[i] ?? 0)
+                          : '—'
+                      }
+                    />
+                  }
+                />
+              )}
+              <Field
+                size="sm"
+                label={`Window ${i + 1}`}
+                control={
+                  <NativeSelect
+                    aria-label={`split-dest-${i}`}
+                    value={part.folioWindowId || guestWindowId}
+                    onChange={(e) =>
+                      setSplitParts((prev) =>
+                        prev.map((row, idx) =>
+                          idx === i ? { ...row, folioWindowId: e.target.value } : row,
+                        ),
+                      )
+                    }
+                  >
+                    {openWindows.map((w) => (
+                      <option key={w.folioWindowId} value={w.folioWindowId}>
+                        {folioWindowLabel(w)}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+            </div>
+          ))}
+          {splitMode === 'custom' ? (
+            <div className="ui-row">
+              <Button
+                type="button"
+                data-testid="split-add-part"
+                disabled={splitParts.length >= FOLIO_SPLIT_MAX}
+                onClick={() =>
+                  setSplitParts((prev) => {
+                    if (prev.length >= FOLIO_SPLIT_MAX) return prev;
+                    return [...prev, { amountMajor: '', folioWindowId: guestWindowId }];
+                  })
+                }
+              >
+                Add part
+              </Button>
+              <Button
+                type="button"
+                data-testid="split-remove-part"
+                disabled={splitParts.length <= 2}
+                onClick={() =>
+                  setSplitParts((prev) => (prev.length <= 2 ? prev : prev.slice(0, -1)))
+                }
+              >
+                Remove part
+              </Button>
+            </div>
+          ) : null}
           <Button
             type="button"
             data-testid="split-charge"
-            disabled={!canSplit || split.isPending || !splitLineId}
+            disabled={
+              !canSplit ||
+              split.isPending ||
+              !splitLineId ||
+              splitParts.length < 2 ||
+              splitParts.length > FOLIO_SPLIT_MAX ||
+              (splitMode === 'equal' && !equalSplitPreview)
+            }
             onClick={() => split.mutate()}
           >
             Split
@@ -3656,13 +4282,180 @@ export function FolioScreen() {
           <Button
             type="button"
             data-testid="split-payment"
-            disabled={!canSplit || splitPayment.isPending || !splitLineId}
+            disabled={
+              !canSplit ||
+              splitPayment.isPending ||
+              !splitLineId ||
+              splitParts.length < 2 ||
+              splitParts.length > FOLIO_SPLIT_MAX ||
+              (splitMode === 'equal' && !equalSplitPreview)
+            }
             onClick={() => splitPayment.mutate()}
           >
             Split payment
           </Button>
           {!canSplit && splitReason ? <p className="muted">{splitReason}</p> : null}
         </section>
+
+        {canAdjust ? (
+          <section className="folio-advanced__section folio-advanced__form-row">
+            <h2>Move charges</h2>
+            <FieldGroup legend="Select by">
+              <div className="ui-choice-row">
+                <label className="ui-choice">
+                  <Input
+                    type="radio"
+                    name="move-select-by"
+                    value="charge_code"
+                    checked={moveSelectBy === 'charge_code'}
+                    onChange={() => {
+                      setMoveSelectBy('charge_code');
+                      if (moveChargeCode) {
+                        selectMoveLines(
+                          moveCandidateLines.filter((l) => l.chargeCode === moveChargeCode),
+                        );
+                      } else {
+                        selectMoveLines([]);
+                      }
+                    }}
+                    aria-label="move-select-charge-code"
+                  />
+                  Charge code
+                </label>
+                <label className="ui-choice">
+                  <Input
+                    type="radio"
+                    name="move-select-by"
+                    value="source_group"
+                    checked={moveSelectBy === 'source_group'}
+                    onChange={() => {
+                      setMoveSelectBy('source_group');
+                      selectMoveLines(
+                        moveCandidateLines.filter(
+                          (l) => folioLineSourceGroup(l) === moveSourceGroup,
+                        ),
+                      );
+                    }}
+                    aria-label="move-select-source-group"
+                  />
+                  Source group
+                </label>
+              </div>
+            </FieldGroup>
+            {moveSelectBy === 'charge_code' ? (
+              <Field
+                label="Charge code"
+                control={
+                  <NativeSelect
+                    aria-label="move-charge-code"
+                    value={moveChargeCode}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setMoveChargeCode(code);
+                      selectMoveLines(
+                        code
+                          ? moveCandidateLines.filter((l) => l.chargeCode === code)
+                          : [],
+                      );
+                    }}
+                  >
+                    <option value="">Select code…</option>
+                    {moveChargeCodes.map((code) => (
+                      <option key={code} value={code}>
+                        {chargeDescription(code, chargeCodes)}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+            ) : (
+              <Field
+                label="Source group"
+                control={
+                  <NativeSelect
+                    aria-label="move-source-group"
+                    value={moveSourceGroup}
+                    onChange={(e) => {
+                      const group = e.target.value as MoveSourceGroup;
+                      setMoveSourceGroup(group);
+                      selectMoveLines(
+                        moveCandidateLines.filter((l) => folioLineSourceGroup(l) === group),
+                      );
+                    }}
+                  >
+                    {MOVE_SOURCE_GROUP_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                }
+              />
+            )}
+            {moveFilteredLines.length > 0 ? (
+              <ul className="ui-stack" data-testid="move-charge-list">
+                {moveFilteredLines.map((line) => (
+                  <li key={line.folioLineId}>
+                    <Field
+                      size="xs"
+                      label={`${chargeDescription(line.chargeCode, chargeCodes)} · ${money(line.ledgerAmountMinor)}`}
+                      control={
+                        <Checkbox
+                          aria-label={`move-line-${line.folioLineId}`}
+                          checked={moveSelectedIds.includes(line.folioLineId)}
+                          onChange={() =>
+                            setMoveSelectedIds((prev) =>
+                              prev.includes(line.folioLineId)
+                                ? prev.filter((id) => id !== line.folioLineId)
+                                : [...prev, line.folioLineId],
+                            )
+                          }
+                        />
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No matching charges.</p>
+            )}
+            <p data-testid="move-charges-total">
+              Total {money(moveTotalMinor)} incl. tax
+              {moveSelectedIds.length > FOLIO_TRANSFER_BULK_MAX
+                ? ` (max ${FOLIO_TRANSFER_BULK_MAX})`
+                : ''}
+            </p>
+            <Field
+              label="Destination window"
+              control={
+                <NativeSelect
+                  aria-label="move-dest"
+                  value={moveDestEffective}
+                  onChange={(e) => setMoveDestWindowId(e.target.value)}
+                >
+                  {moveDestOptions.map((w) => (
+                    <option key={w.folioWindowId} value={w.folioWindowId}>
+                      {folioWindowLabel(w)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+            />
+            <Button
+              type="button"
+              data-testid="move-charges"
+              disabled={
+                !canAdjust ||
+                moveCharges.isPending ||
+                moveSelectedIds.length === 0 ||
+                moveSelectedIds.length > FOLIO_TRANSFER_BULK_MAX
+              }
+              onClick={() => moveCharges.mutate()}
+            >
+              Move charges
+            </Button>
+          </section>
+        ) : null}
 
         {canAdjust ? (
           <section className="folio-advanced__section folio-advanced__form-row">
@@ -3872,16 +4665,146 @@ export function FolioScreen() {
         </div>
       </details>
       {voidInvoiceOpen ? (
-        <ConfirmDialog
+        <FormDialog
           title="Void this invoice?"
-          description="This cannot be undone."
-          confirmLabel="Void invoice"
-          intent="destructive"
-          onCancel={() => setVoidInvoiceOpen(false)}
-          onConfirm={() => {
+          onClose={() => {
+            if (voidInv.isPending) return;
             setVoidInvoiceOpen(false);
-            voidInv.mutate();
           }}
+          actions={
+            <>
+              <Button
+                type="button"
+                disabled={voidInv.isPending}
+                onClick={() => setVoidInvoiceOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="destructive"
+                data-testid="invoice-void-confirm"
+                disabled={voidInv.isPending || !voidInvoiceReason.trim()}
+                onClick={() => {
+                  const reason = voidInvoiceReason.trim();
+                  if (!reason) return;
+                  setVoidInvoiceOpen(false);
+                  voidInv.mutate(reason);
+                }}
+              >
+                Void invoice
+              </Button>
+            </>
+          }
+        >
+          <p className="muted">This cannot be undone.</p>
+          <Field
+            label="Reason"
+            control={
+              <Input
+                aria-label="invoice-void-reason"
+                data-testid="invoice-void-reason"
+                value={voidInvoiceReason}
+                onChange={(e) => setVoidInvoiceReason(e.target.value)}
+              />
+            }
+          />
+        </FormDialog>
+      ) : null}
+      {settlementCancelOpen ? (
+        <FormDialog
+          title="Cancel settlement"
+          onClose={() => {
+            if (settlementCancelPending) return;
+            setSettlementCancelOpen(false);
+          }}
+          actions={
+            <>
+              <Button
+                type="button"
+                disabled={settlementCancelPending}
+                onClick={() => setSettlementCancelOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                intent="destructive"
+                data-testid="cancel-settlement-continue"
+                disabled={settlementCancelPending || !settlementCancelReason.trim()}
+                onClick={() => startSettlementCancel()}
+              >
+                Continue
+              </Button>
+            </>
+          }
+        >
+          <div className="ui-stack">
+            <p className="muted">
+              Voids the active invoice if any, refunds the selected payments, and can reopen a
+              same-day checkout.
+            </p>
+            <Field
+              label="Reason"
+              control={
+                <Input
+                  aria-label="cancel-settlement-reason"
+                  data-testid="cancel-settlement-reason"
+                  value={settlementCancelReason}
+                  onChange={(e) => setSettlementCancelReason(e.target.value)}
+                />
+              }
+            />
+            {settlementRefundCandidates.length > 0 ? (
+              <div className="ui-stack" data-testid="cancel-settlement-payments">
+                {settlementRefundCandidates.map((p) => (
+                  <div className="ui-choice-row" key={p.paymentId}>
+                    <label className="ui-choice">
+                      <Checkbox
+                        data-testid={`cancel-settlement-pay-${p.paymentId}`}
+                        checked={settlementCancelSelectedIds.includes(p.paymentId)}
+                        onChange={() =>
+                          setSettlementCancelSelectedIds((prev) =>
+                            prev.includes(p.paymentId)
+                              ? prev.filter((id) => id !== p.paymentId)
+                              : [...prev, p.paymentId],
+                          )
+                        }
+                      />
+                      {`Refund ${tenderLabel(p)} · ${money(refundRemainingMinor(p))}`}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {checkedOutToday ? (
+              <div className="ui-choice-row">
+                <label className="ui-choice">
+                  <Checkbox
+                    aria-label="cancel-settlement-reopen"
+                    data-testid="cancel-settlement-reopen"
+                    checked={settlementCancelReopen}
+                    onChange={(e) => setSettlementCancelReopen(e.target.checked)}
+                  />
+                  Also reopen the stay
+                </label>
+              </div>
+            ) : null}
+          </div>
+        </FormDialog>
+      ) : null}
+      {settlementCancelConfirmOpen ? (
+        <ConfirmDialog
+          title="Cancel this settlement?"
+          description="This voids the bill, refunds the selected payments, and cannot be undone as a single step."
+          confirmLabel="Cancel settlement"
+          intent="destructive"
+          onCancel={() => {
+            setSettlementCancelConfirmOpen(false);
+            settlementCancelSessionRef.current = null;
+            setSettlementCancelCanRetry(false);
+          }}
+          onConfirm={() => confirmSettlementCancel()}
         />
       ) : null}
       {voidPaymentId ? (

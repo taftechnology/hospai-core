@@ -288,22 +288,27 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN package_id')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('INSERT INTO folio_hold_event_v51')) return { toArray: () => [] };
+    if (q.startsWith('DROP TABLE folio_hold_event')) return { toArray: () => [] };
+    if (q.startsWith('ALTER TABLE folio_hold_event_v51 RENAME TO folio_hold_event')) {
+      return { toArray: () => [] };
+    }
     throw new Error(`Unhandled SQL in MemorySql: ${q}`);
   }
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 50', () => {
+  it('applies property migrations through version 51', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(50);
+    expect(v1).toBe(51);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(50);
-    expect(sql.schemaVersion).toHaveLength(50);
+    expect(v2).toBe(51);
+    expect(sql.schemaVersion).toHaveLength(51);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50,
+      49, 50, 51,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -801,9 +806,18 @@ describe('folio hold v50', () => {
   });
 });
 
+describe('folio hold event v51', () => {
+  it('rebuilds folio_hold_event to allow reactivated and copies rows', () => {
+    const v51 = PROPERTY_MIGRATIONS.find((m) => m.version === 51);
+    expect(v51?.name).toBe('folio_hold_event_reactivated');
+    expect(v51?.statements.some((s) => s.includes("'reactivated'"))).toBe(true);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(51);
+  });
+});
+
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(50);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(51);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

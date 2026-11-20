@@ -107,6 +107,19 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'reservations:write',
   },
   {
+    id: 'reservations.undo_check_out',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['reservation.status_changed'],
+    notes:
+      'R4.29: same-day undo checkout. Header x-idempotency-key; fingerprint {reservationId, reason}. ' +
+      'Requires folio:reverse. No availability_day write.',
+    permission: 'folio:reverse',
+    entitlement: 'pms.core',
+  },
+  {
     id: 'reservations.early_depart',
     prototypeAction: null,
     lane: 'INTERACTIVE',
@@ -590,6 +603,19 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     degraded: 'FAIL_CLOSED',
     idempotent: true,
     events: ['folio.line_posted', 'folio.charge_transferred'],
+    entitlement: 'pms.core',
+    permission: 'folio:adjust',
+  },
+  {
+    id: 'folio.transfer_charges',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['folio.line_posted', 'folio.charge_transferred'],
+    notes:
+      'R4.29: bulk same-stay transfer ≤ FOLIO_TRANSFER_BULK_MAX. Sorted folioLineIds fingerprint. ' +
+      'All-or-nothing; cross-reservation → transfer_cross_reservation (F1).',
     entitlement: 'pms.core',
     permission: 'folio:adjust',
   },
@@ -1217,7 +1243,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     idempotent: true,
     events: ['invoice.voided'],
     entitlement: 'pms.core',
-    permission: 'folio:adjust',
+    permission: 'folio:reverse',
   },
   {
     id: 'city_ledger.create_account',

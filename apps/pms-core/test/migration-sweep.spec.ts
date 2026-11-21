@@ -171,17 +171,36 @@ describe('migration orchestrator (Phase 0)', () => {
   });
 
   it('admin route returns 202 and workflow id when dev actor is allowed', async () => {
+    // A real MIGRATION_SWEEP_WORKFLOW.create() would start a full-fleet sweep that keeps
+    // running in the shared singleWorker for the rest of the shard, and the installed
+    // vitest-pool-workers binding cannot terminate it (`terminate()` throws "Not implemented
+    // yet", no introspection API). So the route gets a recording binding; the sweep body
+    // itself is exercised by the inline runMigrationSweep tests in this file.
+    const created: Array<{ id?: string; params?: MigrationSweepParams }> = [];
+    const recordingEnv = {
+      ...env,
+      MIGRATION_SWEEP_WORKFLOW: {
+        create: async (opts: { id?: string; params?: MigrationSweepParams }) => {
+          created.push(opts);
+          return { id: opts.id ?? '' };
+        },
+      },
+    } as unknown as PmsEnv;
+
     const res = await worker.fetch(
       new Request('http://localhost/v1/admin/migration-sweep', {
         method: 'POST',
         headers: { 'x-dev-actor': 'user_admin' },
       }),
-      env,
+      recordingEnv,
     );
     expect(res.status).toBe(202);
     const body = (await res.json()) as { workflowId: string };
     expect(typeof body.workflowId).toBe('string');
     expect(body.workflowId.length).toBeGreaterThan(0);
+    expect(created).toHaveLength(1);
+    expect(created[0]?.id).toBe(body.workflowId);
+    expect(created[0]?.params).toEqual({ triggeredBy: 'user_admin' });
   });
 
   it('error isolation — one entitlement RPC failure does not fail the page', async () => {

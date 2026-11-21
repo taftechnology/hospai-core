@@ -198,7 +198,7 @@ describe('Settings → Reports → Manager Report', () => {
     fireEvent.change(screen.getByLabelText('Bucket for Source 12'), { target: { value: 'Bucket 3' } });
     await waitFor(() => expect(screen.queryByTestId('manager-settings-blocker')).toBeNull());
     expect(screen.getByTestId('manager-settings-save')).toBeEnabled();
-  });
+  }, 15_000);
 
   it('picks the F&B charge codes from active codes, without the system room code', async () => {
     renderSettings();

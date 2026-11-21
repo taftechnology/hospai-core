@@ -177,4 +177,13 @@ describe('domain code messages', () => {
     );
     expect(msg).not.toMatch(/check_out_not_today/);
   });
+
+  it('copilot_unavailable says the copilot is not set up, without the code', () => {
+    const msg = classifiedUserMessage(
+      classified({ class: 'server_error', status: 503, body: { ok: false, error: 'copilot_unavailable' } }),
+      { fallback: 'x' },
+    );
+    expect(msg).toMatch(/not set up/i);
+    expect(msg).not.toMatch(/copilot_unavailable/);
+  });
 });

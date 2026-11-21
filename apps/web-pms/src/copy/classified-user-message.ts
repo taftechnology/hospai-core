@@ -212,6 +212,8 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     'Place an open-folio hold to post charges after checkout.',
   check_out_not_today: () =>
     'This stay checked out on an earlier business date and cannot be reopened.',
+  copilot_unavailable: () =>
+    'The copilot is not set up, or is not answering right now. Ask a manager to check the assistant settings.',
 };
 
 export function classifiedUserMessage(

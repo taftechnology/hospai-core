@@ -416,6 +416,7 @@ import {
   type UpdateTicketInput,
 } from '@hospai/pms-maintenance';
 import { assertEntitled, EntitlementDoCache, PermissionDoCache } from '@hospai/entitlement-client';
+import { COPILOT_MAX_TOOL_CALLS, copilotTool } from '@hospai/contracts';
 import {
   dispatchModuleSubscribers,
   subscribersForEvent,
@@ -1622,6 +1623,7 @@ export const PROVISIONAL_ASSIGN_EXCEPTION_COMMAND = 'provisional.assign_exceptio
 export const PROVISIONAL_ADD_EXCEPTION_NOTE_COMMAND = 'provisional.add_exception_note' as const;
 export const RETRY_EVENT_CONSUMER_EXCEPTION_COMMAND = 'events.retry_consumer_exception' as const;
 export const DISMISS_EVENT_CONSUMER_EXCEPTION_COMMAND = 'events.dismiss_consumer_exception' as const;
+export const COPILOT_RECORD_READ_COMMAND = 'copilot.record_read' as const;
 
 export type AffectedRefs = {
   reservationId: string | null;
@@ -6585,6 +6587,80 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     } catch (e) {
       const mapped = mapPropertyCommandError(e);
       if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * Copilot read audit (R4.16, internal only: no HTTP route). One audit row for an answer whose tools
+   * returned guest references: the actor, the tool ids and the count of distinct references. No
+   * names, no question text, no answer text, and no outbox event. User actors only: the copilot
+   * reads on behalf of a signed-in clerk, so a system actor never skips the permission gate here.
+   */
+  async tryRecordCopilotRead(
+    actor: ActorContext,
+    input: { toolIds: string[]; guestRefCount: number },
+    idem: IdempotencyKey,
+  ): Promise<
+    | { ok: true }
+    | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
+    | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
+    | { ok: false; error: typeof ORG_ID_UNSET }
+    | { ok: false; error: typeof LIMIT_EXCEEDED | typeof INVALID_REQUEST }
+    | { ok: false; error: typeof IDEM_KEY_REUSED }
+    | { ok: false; error: typeof INTERNAL_ERROR }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    if (actor.kind !== 'user') return { ok: false, error: FORBIDDEN };
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const permDenied = await this.gatePermission(actor, 'copilot:use');
+    if (permDenied) return permDenied;
+    let entitled = await assertEntitled(this.env, this.entitlementCache, orgId, 'ai_ops.enabled');
+    if (!entitled.ok && entitled.error === ENTITLEMENT_REQUIRED) {
+      // The route already passed a fresh entitlement gate for this very request. A denial from the
+      // 60 s cache is a plan bought a moment ago, so read the snapshot once more before refusing.
+      this.entitlementCache.invalidate();
+      entitled = await assertEntitled(this.env, this.entitlementCache, orgId, 'ai_ops.enabled');
+    }
+    if (!entitled.ok) return entitled;
+
+    if (!Array.isArray(input.toolIds) || input.toolIds.length < 1) {
+      return { ok: false, error: INVALID_REQUEST };
+    }
+    if (input.toolIds.length > COPILOT_MAX_TOOL_CALLS) return { ok: false, error: LIMIT_EXCEEDED };
+    if (
+      !Number.isInteger(input.guestRefCount) ||
+      input.guestRefCount < 0 ||
+      input.guestRefCount > 1_000_000 ||
+      input.toolIds.some((id) => typeof id !== 'string' || !copilotTool(id))
+    ) {
+      return { ok: false, error: INVALID_REQUEST };
+    }
+    const toolIds = [...new Set(input.toolIds)].sort();
+
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(
+          this.ctx.storage.sql,
+          idem,
+          () => {
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: COPILOT_RECORD_READ_COMMAND,
+              entityType: 'copilot',
+              entityId: 'copilot_answer',
+              afterJson: { toolIds, guestRefCount: input.guestRefCount },
+            });
+            return { ok: true as const };
+          },
+          actor,
+        ),
+      );
+    } catch (e) {
+      const mapped = mapPropertyCommandError(e);
+      if (mapped && mapped.error === IDEM_KEY_REUSED) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: INTERNAL_ERROR };
     }
   }

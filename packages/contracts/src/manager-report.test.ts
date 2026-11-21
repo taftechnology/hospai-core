@@ -90,8 +90,8 @@ describe('fiscal year and month starts', () => {
 });
 
 describe('manager report route and query', () => {
-  it('is the last audited route, with the night-audit permission', () => {
-    const last = V1_HTTP_ROUTE_AUDIT.at(-1);
+  it('is the last audited route before the copilot, with the night-audit permission', () => {
+    const last = V1_HTTP_ROUTE_AUDIT.at(-2);
     expect(last).toMatchObject({ id: 'get_manager_report', permission: 'night_audit:run', degradedRead: 'FAIL_CLOSED' });
   });
 

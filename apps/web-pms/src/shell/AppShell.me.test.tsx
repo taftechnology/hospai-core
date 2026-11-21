@@ -7,6 +7,7 @@ import { propertyLocalToday } from '../status/property-local-today.js';
 
 const getMe = vi.fn();
 const getProperty = vi.fn();
+const getOrgEntitlements = vi.fn();
 const { tzForTest } = vi.hoisted(() => ({
   tzForTest: { current: 'UTC' as string | null },
 }));
@@ -16,6 +17,7 @@ vi.mock('../client.js', () => ({
   api: {
     getMe: (...a: unknown[]) => getMe(...a),
     getProperty: (...a: unknown[]) => getProperty(...a),
+    getOrgEntitlements: (...a: unknown[]) => getOrgEntitlements(...a),
     getOpenShift: async () => ({ ok: true, shift: null }),
     getRecentShifts: async () => ({ ok: true, shifts: [] }),
     openShift: async () => ({ ok: true }),
@@ -89,6 +91,50 @@ describe('AppShell /me states', () => {
     localStorage.clear();
     delete document.documentElement.dataset.theme;
     vi.restoreAllMocks();
+  });
+
+  it('R4.16 the Copilot link needs copilot:use and the plan: shown only when both hold', async () => {
+    const entitled = {
+      orgId: 'org_demo',
+      version: 2,
+      features: { 'ai_ops.enabled': true },
+      limits: {},
+      computedAt: '2026-03-05T00:00:00.000Z',
+    };
+    getOrgEntitlements.mockResolvedValue(entitled);
+    getMe.mockResolvedValue({ ...liveOwner, permissions: [...liveOwner.permissions, 'copilot:use'] });
+    renderShell();
+    const nav = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() =>
+      expect(within(nav).getByRole('link', { name: 'Copilot' }).getAttribute('href')).toBe('/copilot'),
+    );
+    expect(getOrgEntitlements).toHaveBeenCalledWith('org_demo');
+    cleanup();
+
+    // The plan does not grant it.
+    getOrgEntitlements.mockResolvedValue({ ...entitled, features: { 'pms.core': true } });
+    renderShell();
+    const nav2 = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() => expect(getOrgEntitlements).toHaveBeenCalledTimes(2));
+    expect(within(nav2).queryByRole('link', { name: 'Copilot' })).toBeNull();
+    cleanup();
+
+    // The plan grants it but the user lacks the permission.
+    getOrgEntitlements.mockResolvedValue(entitled);
+    getMe.mockResolvedValue(liveOwner);
+    renderShell();
+    const nav3 = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() => expect(getOrgEntitlements).toHaveBeenCalledTimes(3));
+    expect(within(nav3).queryByRole('link', { name: 'Copilot' })).toBeNull();
+    cleanup();
+
+    // The snapshot cannot be read: not a grant.
+    getOrgEntitlements.mockRejectedValue(new Error('down'));
+    getMe.mockResolvedValue({ ...liveOwner, permissions: [...liveOwner.permissions, 'copilot:use'] });
+    renderShell();
+    const nav4 = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() => expect(getOrgEntitlements).toHaveBeenCalledTimes(4));
+    expect(within(nav4).queryByRole('link', { name: 'Copilot' })).toBeNull();
   });
 
   it('404 → no-access copy; board nav absent', async () => {

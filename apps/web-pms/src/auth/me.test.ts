@@ -54,6 +54,7 @@ describe('me authority helpers', () => {
           e.id !== 'roster' &&
           e.id !== 'night-audit' &&
           e.id !== 'exceptions' &&
+          e.id !== 'copilot' &&
           e.id !== 'inventory' &&
           e.id !== 'rates' &&
           e.id !== 'settings' &&
@@ -126,6 +127,7 @@ describe('me authority helpers', () => {
         'maintenance:read',
         'maintenance:write',
         'roster:read',
+        'copilot:use',
       ],
       orgPermissions: ['org:read'],
     };
@@ -139,6 +141,24 @@ describe('me authority helpers', () => {
     expect(filtered.map((e) => e.id)).not.toContain('settings');
     expect(filtered.some((e) => e.id === 'arrivals')).toBe(true);
     expect(filtered.some((e) => e.id === 'maintenance')).toBe(true);
+  });
+
+  it('R4.16 filterNavEntries: Copilot needs copilot:use and the plan, and an unread plan is not a grant', () => {
+    const withUse: PropertyMe = { ...baseMe, permissions: ['reservations:read', 'copilot:use'] };
+    const withoutUse: PropertyMe = { ...baseMe, permissions: ['reservations:read'] };
+    const ids = (me: PropertyMe, features: Parameters<typeof filterNavEntries>[2]) =>
+      filterNavEntries(NAV_ENTRIES, { kind: 'live', me }, features).map((e) => e.id);
+    expect(ids(withUse, { 'ai_ops.enabled': true })).toContain('copilot');
+    expect(ids(withUse, {})).not.toContain('copilot');
+    expect(ids(withUse, { 'ai_ops.enabled': false })).not.toContain('copilot');
+    expect(ids(withUse, null)).not.toContain('copilot');
+    expect(ids(withUse, undefined)).not.toContain('copilot');
+    expect(ids(withoutUse, { 'ai_ops.enabled': true })).not.toContain('copilot');
+    // An entitlement-less entry is unaffected by the snapshot.
+    expect(ids(withUse, null)).toContain('board');
+    // Unknown authority stays fail-open, as before.
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'unknown' }, null)).toEqual(NAV_ENTRIES);
+    expect(filterNavEntries(NAV_ENTRIES, { kind: 'pending' }, { 'ai_ops.enabled': true })).toEqual([]);
   });
 
   it('filterNavEntries: staff without maintenance:read hides Maintenance', () => {

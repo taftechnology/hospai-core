@@ -1686,6 +1686,18 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes:
       'R4.5: dismiss an event_consumer_exception with a reason (1–500). JSON idempotencyKey. Already-resolved is 422 already_resolved.',
   },
+  {
+    id: 'copilot.record_read',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'ai_ops.enabled',
+    permission: 'copilot:use',
+    notes:
+      'R4.16: internal only, no HTTP route. post_copilot_message calls it once per answer whose tools returned guest references. The audit row holds the actor, the tool ids and the count of distinct guest references: no names, no question text, no answer text. The route mints one idempotency key per answer (no client key). FAIL_CLOSED: an answer is not returned when its read cannot be recorded.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

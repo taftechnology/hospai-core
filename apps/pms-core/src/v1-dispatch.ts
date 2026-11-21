@@ -272,8 +272,23 @@ import {
   loadSnapshot,
   require,
 } from '@hospai/entitlement-client';
-import { logError, logWarn, type ObservabilityContext } from '@hospai/observability';
-import { resolveOrgStub } from '@hospai/tenant-router';
+import { logError, logInfo, logWarn, type ObservabilityContext } from '@hospai/observability';
+import { resolveOrgEntitlementStub, resolveOrgStub } from '@hospai/tenant-router';
+import {
+  COPILOT_METER_KEY,
+  COPILOT_POST_READ_ROUTE_IDS,
+  COPILOT_UNAVAILABLE,
+  copilotToolRequestBody,
+  copilotTool,
+  copilotToolRequestPath,
+  parseCopilotRequest,
+  type CopilotMessageResponse,
+} from '@hospai/contracts';
+import { CopilotModelError, selectCopilotModel } from './copilot-model.js';
+import { copilotSystemPrompt } from './copilot-prompt.js';
+import { COPILOT_HIDDEN_NAME, guestRefsOf, nameFromBatchEntry, scrubGuestRefs } from './copilot-guests.js';
+import { runCopilot, type CopilotToolOutcome } from './copilot-run.js';
+import type { OrgEntitlementDO } from './org-entitlement-do.js';
 import { authorizedParties, resolveActor, requirePermission, type Actor } from './auth.js';
 import { applySecurityHeaders } from './security-headers.js';
 import { isScanContentType, scanFilename, sha256Hex } from './guest-documents.js';
@@ -712,6 +727,15 @@ async function handlePostDemoSeed(ctx: V1DispatchContext): Promise<Response> {
   const resolved = await resolvePropertyFromRegistry(ctx.env, body.propertyId);
   if (!resolved) return json({ error: 'not_found' }, 404);
   resolveOrgStub(ctx.env.ORG_DO, { orgId: body.orgId });
+
+  // Local demo only (this route is dev-actor gated): the Copilot add-on, so the fake-model demo works
+  // after a reset. No plan is changed; re-seeding is a no-op once the row exists.
+  await ctx.env.PLATFORM_DB.prepare(
+    `INSERT OR IGNORE INTO subscription_addon (org_id, addon_code, quantity)
+     SELECT ?, 'ai_ops', 1 WHERE EXISTS (SELECT 1 FROM subscription WHERE org_id = ?)`,
+  )
+    .bind(body.orgId, body.orgId)
+    .run();
 
   try {
     const result = await runDemoSeed({
@@ -9909,6 +9933,235 @@ async function handleGetManagerReport(ctx: V1DispatchContext): Promise<Response>
   }
 }
 
+/**
+ * One read for the copilot, made as the asking user (R4.16). The tool is an existing GET route: this
+ * builds an internal GET that carries the caller's own credentials and runs it through `dispatchV1`,
+ * the same function that served the user's request. That re-authenticates the actor and applies the
+ * route's permission, entitlement, tenant and degraded-mode gates. There is no service identity and
+ * no direct Durable Object call. A refusal comes back as an outcome with no body, never as data.
+ */
+async function copilotRead(
+  ctx: V1DispatchContext,
+  pathWithQuery: string,
+  post?: { body: Record<string, string> },
+): Promise<CopilotToolOutcome> {
+  const url = new URL(pathWithQuery, ctx.url.origin);
+  const method = post ? 'POST' : 'GET';
+  const found = findRoute(method, url.pathname);
+  if (!found || found.route.method !== method) return { ok: false, status: 404, error: 'not_found' };
+  // A POST is allowed only for an allow-listed read route that carries no command.
+  if (post && !COPILOT_POST_READ_ROUTE_IDS.includes(found.route.id)) {
+    return { ok: false, status: 404, error: 'not_found' };
+  }
+
+  const headers = new Headers(ctx.request.headers);
+  for (const name of ['content-type', 'content-length', 'x-idempotency-key', 'upgrade']) headers.delete(name);
+  if (post) headers.set('content-type', 'application/json');
+  const request = new Request(url.toString(), {
+    method,
+    headers,
+    ...(post ? { body: JSON.stringify(post.body) } : {}),
+  });
+  const observability: ObservabilityContext = { ...ctx.observability };
+
+  let response: Response;
+  try {
+    response = await dispatchV1(request, ctx.env, observability, found.route, found.match);
+  } catch {
+    return { ok: false, status: 500, error: 'internal_error' };
+  }
+  let body: unknown = null;
+  try {
+    const text = await response.text();
+    body = text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    body = null;
+  }
+  if (response.status === 200 && body !== null) {
+    const refs = guestRefsOf(body);
+    if (refs.length === 0) return { ok: true, data: scrubGuestRefs(body, new Map()) };
+    const names = await copilotGuestNames(ctx, url.pathname, refs);
+    return { ok: true, data: scrubGuestRefs(body, names), guestRefs: refs };
+  }
+
+  const record = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const error = typeof record.error === 'string' ? record.error : 'request_failed';
+  const detail = response.status === 400 && typeof record.detail === 'string' ? record.detail : undefined;
+  return { ok: false, status: response.status, error, ...(detail ? { detail } : {}) };
+}
+
+/**
+ * Names for guest references, read as the user through the existing property guest batch route
+ * (`guests:read`), 50 at a time. A refusal, a failure or an undecryptable row gives the neutral
+ * label: a reference never reaches the model or the clerk.
+ */
+async function copilotGuestNames(
+  ctx: V1DispatchContext,
+  toolPathname: string,
+  refs: readonly string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const propertySegment = toolPathname.split('/')[3] ?? '';
+  const url = new URL(`/v1/properties/${propertySegment}/guests/batch`, ctx.url.origin);
+  const found = findRoute('POST', url.pathname);
+  for (let i = 0; i < refs.length; i += 50) {
+    const chunk = refs.slice(i, i + 50);
+    let guests: Record<string, unknown> = {};
+    if (found) {
+      const headers = new Headers(ctx.request.headers);
+      for (const name of ['content-length', 'x-idempotency-key', 'upgrade']) headers.delete(name);
+      headers.set('content-type', 'application/json');
+      try {
+        const res = await dispatchV1(
+          new Request(url.toString(), { method: 'POST', headers, body: JSON.stringify({ refs: chunk }) }),
+          ctx.env,
+          { ...ctx.observability },
+          found.route,
+          found.match,
+        );
+        if (res.status === 200) {
+          guests = ((await res.json()) as { guests?: Record<string, unknown> }).guests ?? {};
+        }
+      } catch {
+        guests = {};
+      }
+    }
+    for (const ref of chunk) names.set(ref, guests[ref] ? nameFromBatchEntry(guests[ref]) : COPILOT_HIDDEN_NAME);
+  }
+  return names;
+}
+
+/** The property's open business date, read as the user through `get_property`. Null when it cannot be read. */
+async function copilotBusinessDate(ctx: V1DispatchContext, propertyId: string): Promise<string | null> {
+  const outcome = await copilotRead(ctx, `/v1/properties/${encodeURIComponent(propertyId)}`);
+  if (!outcome.ok) return null;
+  const date = (outcome.data as { businessDate?: unknown }).businessDate;
+  return typeof date === 'string' && ISO_DATE_RE.test(date) ? date : null;
+}
+
+/**
+ * Counts one answered question against `ai_ops.messages.limit` with the entitlement meter that
+ * already exists (`meter_counter`, through `OrgEntitlementDO.checkHardLimit`). An org without that
+ * meter is not counted. The limit is soft: past it the answer still returns, flagged. A metering
+ * failure never fails the answer.
+ */
+async function meterCopilotAnswer(ctx: V1DispatchContext, orgId: string): Promise<boolean> {
+  try {
+    const snapshot = await loadSnapshot(ctx.env, orgId);
+    if (!snapshot.limits[COPILOT_METER_KEY]) return false;
+    const meter = resolveOrgEntitlementStub(
+      ctx.env.ORG_ENTITLEMENT_DO,
+      orgId,
+    ) as DurableObjectStub<OrgEntitlementDO>;
+    const counted = await meter.checkHardLimit(orgId, COPILOT_METER_KEY, 1);
+    return !counted.ok;
+  } catch {
+    logWarn(ctx.observability, { msg: 'copilot.meter_failed' });
+    return false;
+  }
+}
+
+/**
+ * Copilot (R4.16): one question in, one answer out. Reads only, as the asking user. The question,
+ * the answer and every tool result stay in this request: nothing is stored, logged or put on an
+ * event. The log line holds counts and durations. A read of guest references writes one audit row
+ * through the internal `copilot.record_read`, and if that cannot be written the answer is withheld.
+ */
+async function handlePostCopilotMessage(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const started = Date.now();
+
+  const bodyParsed = await parseJsonBody<unknown>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  const parsed = parseCopilotRequest(bodyParsed);
+  if (!parsed.ok) {
+    if (parsed.error === 'limit_exceeded') {
+      return json(
+        { ok: false, error: LIMIT_EXCEEDED, limit: parsed.limit, max: parsed.max },
+        commandErrorHttpStatus(LIMIT_EXCEEDED),
+      );
+    }
+    return json({ error: 'invalid_body' }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const unavailable = () =>
+    json({ ok: false, error: COPILOT_UNAVAILABLE }, commandErrorHttpStatus(COPILOT_UNAVAILABLE));
+  const model = selectCopilotModel(ctx.env);
+  if (!model) return unavailable();
+
+  const businessDate = await copilotBusinessDate(ctx, propertyId);
+  let run: Awaited<ReturnType<typeof runCopilot>>;
+  try {
+    run = await runCopilot({
+      model,
+      systemPrompt: copilotSystemPrompt({ businessDate }),
+      turns: parsed.messages,
+      businessDate,
+      runTool: async (toolId, args) => {
+        const tool = copilotTool(toolId);
+        if (!tool) return { ok: false, status: 400, error: 'unknown_tool' };
+        const body = copilotToolRequestBody(tool, args);
+        return copilotRead(ctx, copilotToolRequestPath(tool, propertyId, args), body ? { body } : undefined);
+      },
+    });
+  } catch (e) {
+    if (e instanceof CopilotModelError) {
+      logWarn(ctx.observability, {
+        msg: 'copilot.model_failed',
+        reason: e.message,
+        duration_ms: Date.now() - started,
+      });
+      return unavailable();
+    }
+    throw e;
+  }
+
+  if (run.guestRefs.size > 0) {
+    try {
+      // The key is minted here, one per answer: this is not a client-retried command.
+      const recordInput = { toolIds: run.readToolIds, guestRefCount: run.guestRefs.size };
+      const recorded = await resolvedCtx.resolved.stub.tryRecordCopilotRead(
+        { kind: 'user', userId: ctx.actor.userId },
+        recordInput,
+        {
+          key: `copilot-read-${crypto.randomUUID()}`,
+          fingerprint: await commandFingerprint('copilot.record_read', recordInput),
+        },
+      );
+      if (!recorded.ok) {
+        return commandFailureResponse(recorded.error, 'copilot:use', { feature: 'ai_ops.enabled' });
+      }
+    } catch (e) {
+      if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+      throw e;
+    }
+  }
+
+  const overSoftLimit = await meterCopilotAnswer(ctx, resolvedCtx.property.orgId);
+
+  logInfo(ctx.observability, {
+    msg: 'copilot.answered',
+    tool_calls: run.toolsUsed.length,
+    tools_ok: run.toolsUsed.filter((t) => t.ok).length,
+    guest_refs: run.guestRefs.size,
+    duration_ms: Date.now() - started,
+  });
+
+  const response: CopilotMessageResponse = {
+    ok: true,
+    answer: run.answer,
+    sources: run.sources,
+    suggestedActions: run.suggestedActions,
+    toolsUsed: run.toolsUsed,
+    overSoftLimit,
+  };
+  return json(response, 200, { 'cache-control': 'private, no-store' });
+}
+
 async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -14141,6 +14394,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'night_audit:run',
     entitlement: 'pms.core',
     handler: handleGetManagerReport,
+  },
+  {
+    id: 'post_copilot_message',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/copilot\/messages$/,
+    permission: 'copilot:use',
+    entitlement: 'ai_ops.enabled',
+    handler: handlePostCopilotMessage,
   },
 ];
 

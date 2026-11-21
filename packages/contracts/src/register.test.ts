@@ -380,7 +380,7 @@ describe('command catalog', () => {
       expect(e.reason.length).toBeGreaterThan(10);
       expect(entitled, `exemption ${e.id} is not entitled`).toContain(e.id);
     }
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(113);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(114);
   });
 
   it('provisional workbench commands are entitled FAIL_CLOSED night_audit:run', () => {
@@ -983,12 +983,13 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[178]?.id).toBe('post_event_consumer_exception_dismiss');
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_manager_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_housekeeping_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_audit_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('get_cashier_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_front_office_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_housekeeping_dashboard');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('post_copilot_message');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_manager_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_housekeeping_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('get_audit_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_cashier_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_front_office_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('get_housekeeping_dashboard');
     expect(V1_HTTP_ROUTE_AUDIT[213]?.id).toBe('get_room_ooo_history');
     expect(V1_HTTP_ROUTE_AUDIT[212]?.id).toBe('get_room_status_history');
     expect(V1_HTTP_ROUTE_AUDIT[211]?.id).toBe('get_housekeeping_tasks');
@@ -1004,7 +1005,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[201]?.id).toBe('post_folio_hold_release');
     expect(V1_HTTP_ROUTE_AUDIT[198]?.id).toBe('get_reservation_registration_card');
     expect(V1_HTTP_ROUTE_AUDIT[197]?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(250);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(251);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',
@@ -1066,8 +1067,8 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
-    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(113);
-    expect(COMMAND_CATALOG).toHaveLength(147);
+    expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(114);
+    expect(COMMAND_CATALOG).toHaveLength(148);
     expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
       id: 'post_folio_hold',
       scope: 'property',
@@ -1317,6 +1318,12 @@ describe('command catalog', () => {
       degradedRead: 'FAIL_CLOSED',
     });
     expect('commandId' in (V1_HTTP_ROUTE_AUDIT[249] ?? {})).toBe(false);
+    expect(V1_HTTP_ROUTE_AUDIT[250]).toEqual({
+      id: 'post_copilot_message',
+      scope: 'property',
+      permission: 'copilot:use',
+      entitlement: 'ai_ops.enabled',
+    });
     expect(INSPECTION_REQUIRED).toBe('inspection_required');
     expect(AUDIT_SESSION_OPEN).toBe('audit_session_open');
     expect(isCommandError(INSPECTION_REQUIRED)).toBe(true);

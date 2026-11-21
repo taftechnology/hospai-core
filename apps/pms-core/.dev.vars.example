@@ -15,3 +15,8 @@ HOSPAI_ORG_MASTER_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbcc
 # CLERK_PUBLISHABLE_KEY=pk_test_…
 # CLERK_JWT_KEY=
 # CLERK_AUTHORIZED_PARTIES=http://localhost:5173
+# Copilot (R4.16). Off unless all three are set; under HOSPAI_UNSAFE_LOCAL the copilot falls back to
+# a deterministic fake model, so the demo works without a provider. The key is a secret.
+# COPILOT_BASE_URL=
+# COPILOT_MODEL=
+# COPILOT_API_KEY=

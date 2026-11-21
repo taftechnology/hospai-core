@@ -2193,6 +2193,82 @@ details.side-panel summary {
   gap: var(--space-2);
 }
 
+/* Copilot (R4.16): the conversation is plain turns in a list; links and buttons come from the kit. */
+.copilot-home,
+.copilot-links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.copilot-suggestions,
+.copilot-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.copilot-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.copilot-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-inline-size: 48rem;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.copilot-turn--assistant {
+  align-self: flex-start;
+}
+
+.copilot-turn--user {
+  align-self: flex-end;
+  background: var(--primary-tint);
+  color: var(--primary-tint-fg);
+}
+
+.copilot-turn__who {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.copilot-turn__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.copilot-links ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+}
+
+.copilot-composer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-block-start: var(--space-4);
+}
+
+.copilot-composer .ui-field {
+  flex: 1 1 20rem;
+}
+
 /* Front desk boards stack cards vertically with the shell's rhythm. */
 .board-page {
   display: flex;

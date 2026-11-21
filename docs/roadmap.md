@@ -882,7 +882,18 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** one day's totals foot to `SNAPSHOT_REPORTS`; changing an occupancy rule changes that row and only that row; a two-day range sums its days; hotel A cannot run hotel B; a seeded day matches the client's sample layout.
   - **Scope out:** day-wise sale and expenditure (stores data; Inventory was left blank); trends (warehouse); a report builder.
 
-- [ ] **R4.16 Copilot — read-only, permission-aware**
+- [x] **R4.16 Copilot — read-only, permission-aware**
+  - **Done (2026-11-21), provider-neutral:** [spec](superpowers/specs/2026-11-21-copilot-read-only-design.md).
+    - **Tools:** `COPILOT_TOOLS` (14) map to existing read routes and are executed **through `dispatchV1` as the asking user**, with the same permission, entitlement and tenant gates. GET routes are allowed, plus one allow-listed read POST: the desk search, which keeps names out of URLs. The spec was amended for that. A test blocks any route with a `commandId`.
+    - **Guests:** guest refs are resolved to names through the guest batch route as the caller, or shown as "Name hidden". Booking ids are kept for chaining, and UUIDs are removed from answer text.
+    - **Audit:** `copilot.record_read` is internal, not HTTP. It writes one audit row with counts only, and the answer is withheld if that write fails.
+    - **Privacy:** no conversation storage or logging.
+    - **Metering:** usage counts on the existing `meter_counter` / `checkHardLimit`. It is effectively hard rather than soft, which is a gap.
+    - **Route and SPA:** `post_copilot_message` (`copilot:use`, `ai_ops.enabled`). `/copilot` has suggested questions, sources as links and next steps as navigation.
+    - **Model:** `FakeCopilotModel` serves tests and the local demo; the demo seed grants `ai_ops`. `OpenAiCompatibleModel` is off until `COPILOT_BASE_URL`, `COPILOT_MODEL` and the secret `COPILOT_API_KEY` are set.
+    - **Open:** **choose the provider and name it in the DPA**. `copilot_unavailable` covers both "not set up" and "provider failed". The Fake model prints money in minor units (demo only).
+    - opencode (Kimi K3.1 Pro) was tried first and hit OpenCode Go's 5-hour limit before writing code; a Claude Sonnet subagent built it.
+    - Pins: catalog 148, writers 114, routes 251 (last `post_copilot_message`).
   - **Depends:** **R3.10** (`ai_ops.enabled`, `ai_ops.messages.limit`), **R4.14** and **R4.32** (answers on reports read them; moved after both on 2026-10-31). Comes before **R4.6**, which adds the write path on top of it.
   - **Pilot checklist §14:** ask operational questions; answers with source context; help with reports and summaries; suggested next actions; only shows what the staff member may see.
   - **Prototype:** `CopilotHome.tsx`. **Page:** [AI Copilot Home](https://www.bluepms.com/modules/ai-copilot-home/) has titles and report bullets only. It shows a home with suggested questions and shortcuts, and mentions report discovery and explaining exceptions: name these in the spec.

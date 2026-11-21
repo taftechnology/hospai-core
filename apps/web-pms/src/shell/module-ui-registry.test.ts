@@ -6,6 +6,7 @@ describe('module UI nav merge', () => {
   it('sorts primary then quiet ids; housekeeping at 50; no in-house/departures', () => {
     expect(ALL_NAV.map((e) => e.id)).toEqual([
       'dashboard',
+      'copilot',
       'board',
       'arrivals',
       'live-rooms',
@@ -32,6 +33,13 @@ describe('module UI nav merge', () => {
 
     expect(ALL_NAV.find((e) => e.id === 'dashboard')?.label).toBe('Dashboard');
     expect(ALL_NAV.find((e) => e.id === 'dashboard')?.path).toBe('/dashboard');
+    // R4.16: Copilot is gated by its permission and by the plan.
+    expect(ALL_NAV.find((e) => e.id === 'copilot')).toMatchObject({
+      label: 'Copilot',
+      path: '/copilot',
+      permission: 'copilot:use',
+      entitlement: 'ai_ops.enabled',
+    });
     expect(ALL_NAV.find((e) => e.id === 'folios')?.label).toBe('Folios');
     expect(ALL_NAV.find((e) => e.id === 'folios')?.permission).toBe('folio:read');
     expect(ALL_NAV.find((e) => e.id === 'board')?.label).toBe('Room Plan');

@@ -94,6 +94,14 @@ export type PmsEnv = {
   HOSPAI_ORG_MASTER_KEY?: string;
   /** Vitest-only: pin ledger property-test PRNG seed (`vitest.config.ts` → miniflare.bindings). */
   LEDGER_PROP_SEED?: string;
+  /**
+   * Copilot model provider (R4.16). The copilot talks to a chat-completions endpoint only when all
+   * three are set; with none set it answers 503 `copilot_unavailable` (or uses the fake model under
+   * HOSPAI_UNSAFE_LOCAL). The key is a secret: wrangler secret or `.dev.vars`, never wrangler `vars`.
+   */
+  COPILOT_BASE_URL?: string;
+  COPILOT_MODEL?: string;
+  COPILOT_API_KEY?: string;
   /** Workers Assets binding for same-origin SPA (`apps/web-pms/dist`). */
   ASSETS?: Fetcher;
 };

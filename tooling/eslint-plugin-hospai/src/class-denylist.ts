@@ -69,6 +69,9 @@ export const CLASS_DENYLIST = [
   'SecretConfigRejectedError',
   'SqlKeyStore',
   'UndeclaredConfigError',
+  'CopilotModelError',
+  'FakeCopilotModel',
+  'OpenAiCompatibleModel',
 ] as const;
 
 export type DenylistedClassName = (typeof CLASS_DENYLIST)[number];

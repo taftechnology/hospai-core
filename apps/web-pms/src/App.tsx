@@ -13,6 +13,7 @@ import { HomeRedirect } from './auth/HomeRedirect.js';
 import { createQueryClient } from './query-client.js';
 import { BookingScreen } from './screens/BookingScreen.js';
 import { BoardScreen } from './screens/BoardScreen.js';
+import { CopilotScreen } from './screens/CopilotScreen.js';
 import { DashboardScreen } from './screens/DashboardScreen.js';
 import { TapeChartScreen } from './screens/TapeChartScreen.js';
 import { RoomBoardScreen } from './screens/RoomBoardScreen.js';
@@ -77,6 +78,9 @@ export const router = createBrowserRouter(
             {/* R2.6: home follows live permissions (housekeeping-only → Housekeeping). */}
             <Route index element={<HomeRedirect />} />
             <Route path="dashboard" element={<DashboardScreen />} />
+            <Route path="copilot" element={<PermissionRoute permission="copilot:use" />}>
+              <Route index element={<CopilotScreen />} />
+            </Route>
             {/* R4.14: the catalogue of named operational reports; each runs from its definition. */}
             <Route path="reports" element={<ReportsCatalogScreen />} />
             {/* R4.32: the Manager Report is its own screen, ahead of the report-by-id route. */}

@@ -1,5 +1,6 @@
 import {
   REPORT_GROUP_PERMISSION,
+  type FeatureKey,
   reportGroupsWithReports,
   type PropertyScopedPermission,
 } from '@hospai/contracts';
@@ -17,12 +18,22 @@ export type NavEntry = {
   permission?: PropertyScopedPermission;
   /** Visible when the user holds any one of these (the Reports entry spans the report groups). */
   anyPermission?: readonly PropertyScopedPermission[];
+  /** Shown only when the org's plan grants this feature (the Copilot entry, R4.16). */
+  entitlement?: FeatureKey;
   tone?: 'primary' | 'quiet';
 };
 
 /** Core SPA contribution — module UI registry concatenates alongside this. */
 export const NAV_ENTRIES: NavEntry[] = [
   { id: 'dashboard', label: 'Dashboard', path: '/dashboard', order: 5, permission: 'reservations:read' },
+  {
+    id: 'copilot',
+    label: 'Copilot',
+    path: '/copilot',
+    order: 7,
+    permission: 'copilot:use',
+    entitlement: 'ai_ops.enabled',
+  },
   { id: 'board', label: 'Room Plan', path: '/board', order: 10, permission: 'reservations:read' },
   { id: 'arrivals', label: 'Front Desk', path: '/arrivals', order: 20, permission: 'reservations:read' },
   { id: 'live-rooms', label: 'Live rooms', path: '/rooms/live', order: 25, permission: 'reservations:read' },

@@ -164,6 +164,8 @@ export const INVOICE_R2_UNBOUND = 'invoice_r2_unbound' as const;
 export const INVOICE_COUNTER_RACE = 'invoice_counter_race' as const;
 export const INVOICE_NUMBER_INVALID = 'invoice_number_invalid' as const;
 export const REPORTS_R2_UNBOUND = 'reports_r2_unbound' as const;
+/** The copilot has no model provider configured, or the provider did not answer (R4.16). 503. */
+export const COPILOT_UNAVAILABLE = 'copilot_unavailable' as const;
 export const INVOICE_REQUIRED = 'invoice_required' as const;
 export const FOLIO_BALANCE_DUE = 'folio_balance_due' as const;
 

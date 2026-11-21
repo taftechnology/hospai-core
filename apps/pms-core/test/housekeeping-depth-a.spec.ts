@@ -696,7 +696,7 @@ describe('housekeeping depth A: requests, lost and found, cases [R4.11]', () => 
     await setKillSwitch(env, 'pms.core', false);
 
     // R4.11 Part B appends ten more routes after these, Part C ten after those.
-    expect(V1_HTTP_ROUTE_AUDIT.slice(-36, -26).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
+    expect(V1_HTTP_ROUTE_AUDIT.slice(-37, -27).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
       ['post_housekeeping_requests', 'housekeeping:write'],
       ['patch_housekeeping_request', 'housekeeping:write'],
       ['post_lost_items', 'housekeeping:write'],

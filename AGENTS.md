@@ -219,13 +219,13 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.32 (Manager Report and MIS settings, 2026-11-20; R4.14 Parts A to C before it) — update this table when you bump them:
+After roadmap R4.16 (Copilot, read-only and permission-aware, 2026-11-21; R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **147** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **250** routes, last id **`get_manager_report`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `AUDIT_WRITER_COMMAND_IDS` | **113** | `packages/contracts/src/register.test.ts` |
+| `COMMAND_CATALOG` length | **148** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **251** routes, last id **`post_copilot_message`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `AUDIT_WRITER_COMMAND_IDS` | **114** | `packages/contracts/src/register.test.ts` |
 | `PROPERTY_SCHEMA_HEAD` | **56** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |

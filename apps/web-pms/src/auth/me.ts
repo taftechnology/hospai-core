@@ -1,5 +1,6 @@
 import type { ClassifiedResponse } from '@hospai/client-core';
 import type {
+  EntitlementSnapshot,
   OrgScopedPermission,
   PropertyScopedPermission,
 } from '@hospai/contracts';
@@ -55,7 +56,14 @@ export function hasOrgPermission(me: PropertyMe, p: OrgScopedPermission): boolea
   return me.orgPermissions.includes(p);
 }
 
-export function filterNavEntries(entries: NavEntry[], authority: Authority): NavEntry[] {
+/** What the org's plan grants, from the entitlement snapshot. Null until it has been read. */
+export type EntitlementFeatures = EntitlementSnapshot['features'] | null;
+
+export function filterNavEntries(
+  entries: NavEntry[],
+  authority: Authority,
+  features: EntitlementFeatures = null,
+): NavEntry[] {
   switch (authority.kind) {
     case 'pending':
       return [];
@@ -63,6 +71,8 @@ export function filterNavEntries(entries: NavEntry[], authority: Authority): Nav
       return entries; // fail open
     case 'live':
       return entries.filter((e) => {
+        // An entry the plan does not grant stays hidden until the snapshot says it does.
+        if (e.entitlement && features?.[e.entitlement] !== true) return false;
         if (e.anyPermission) return e.anyPermission.some((p) => hasPropertyPermission(authority.me, p));
         return !e.permission || hasPropertyPermission(authority.me, e.permission);
       });

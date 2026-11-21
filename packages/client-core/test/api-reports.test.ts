@@ -78,3 +78,39 @@ describe('getManagerReport', () => {
     ]);
   });
 });
+
+describe('postCopilotMessage', () => {
+  it('posts the visible conversation and nothing else to the property copilot route', async () => {
+    const calls: Array<{ path: string; method: string | undefined; body: unknown }> = [];
+    const transport: Transport = {
+      fetch: async (input, init) => {
+        calls.push({
+          path: new URL(input, 'http://test').pathname,
+          method: init?.method,
+          body: JSON.parse(String(init?.body)),
+        });
+        return new Response(
+          JSON.stringify({ ok: true, answer: 'A', sources: [], suggestedActions: [], toolsUsed: [], overSoftLimit: false }),
+          { status: 200 },
+        );
+      },
+    };
+    const client = createClient({
+      transport,
+      queued: createQueuedCommandLog(),
+      entitlements: createEntitlementStore({
+        loadSnapshot: async () => ({ orgId: 'o', version: 1, features: {}, limits: {}, computedAt: new Date(0).toISOString() }),
+      }),
+      keyStore: new Map(),
+    });
+    const out = await client.postCopilotMessage('p 1', [{ role: 'user', content: 'Who arrives today?' }]);
+    expect(out.answer).toBe('A');
+    expect(calls).toEqual([
+      {
+        path: '/v1/properties/p%201/copilot/messages',
+        method: 'POST',
+        body: { messages: [{ role: 'user', content: 'Who arrives today?' }] },
+      },
+    ]);
+  });
+});

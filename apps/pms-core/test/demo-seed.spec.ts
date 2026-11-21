@@ -120,6 +120,26 @@ describe('POST /v1/admin/demo-seed', () => {
     await setKillSwitch(env, 'pms.core', false);
   });
 
+  it('R4.16: seeding the demo org grants the Copilot add-on once, and no other org', async () => {
+    const owner = 'user_owner';
+    const { orgId, propertyId } = await provisionEmpty(owner);
+    const other = await provisionEmpty(owner, 'Other Hotel');
+    const addons = async (id: string) =>
+      (
+        await env.PLATFORM_DB.prepare(`SELECT addon_code FROM subscription_addon WHERE org_id = ?`).bind(id).all()
+      ).results.map((r) => (r as { addon_code: string }).addon_code);
+    expect(await addons(orgId)).toEqual([]);
+    expect((await postDemoSeed(owner, { orgId, propertyId })).status).toBe(200);
+    expect(await addons(orgId)).toEqual(['ai_ops']);
+    const version = async () =>
+      (await env.PLATFORM_DB.prepare(`SELECT entitlement_version AS v FROM subscription WHERE org_id = ?`).bind(orgId).first<{ v: number }>())!.v;
+    const v1 = await version();
+    expect((await postDemoSeed(owner, { orgId, propertyId })).status).toBe(200);
+    expect(await addons(orgId)).toEqual(['ai_ops']);
+    expect(await version()).toBe(v1);
+    expect(await addons(other.orgId)).toEqual([]);
+  });
+
   it('4: returns 404 when dev actor is not allowed', async () => {
     const gatedEnv = { ...env, HOSPAI_ALLOW_DEV_ACTOR: undefined } as PmsEnv;
     const res = await postDemoSeed('user_owner', { orgId: 'org_demo', propertyId: 'prop_demo' }, gatedEnv);

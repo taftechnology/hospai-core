@@ -18,6 +18,7 @@ import {
   MoonIcon,
   SunIcon,
   CheckIcon,
+  CopilotIcon,
   CreditCardIcon,
   DashboardIcon,
   NightAuditIcon,
@@ -36,6 +37,7 @@ import { ALL_NAV } from './module-ui-registry.js';
 import type { NavEntry } from './nav.js';
 import { PropertyFormatProvider } from './PropertyFormat.js';
 import { useThemeChoice } from './theme.js';
+import { useEntitlementFeatures } from './use-entitlements.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
 import { consumePermissionDenyFlash } from './PermissionDenyFlash.js';
@@ -45,6 +47,7 @@ import { TopBar } from './TopBar.js';
 
 const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   dashboard: DashboardIcon,
+  copilot: CopilotIcon,
   board: RoomPlanIcon,
   arrivals: CheckIcon,
   'live-rooms': MonitorIcon,
@@ -163,6 +166,8 @@ export function AppShell() {
     retry: false,
   });
 
+  const entitlementFeatures = useEntitlementFeatures(meQuery.isSuccess);
+
   const shell = meShellStateFromQuery({
     status: meQuery.status,
     data: meQuery.data as PropertyMe | undefined,
@@ -193,7 +198,7 @@ export function AppShell() {
   }
 
   const authority: Authority = shell.authority;
-  const navEntries = filterNavEntries(ALL_NAV, authority);
+  const navEntries = filterNavEntries(ALL_NAV, authority, entitlementFeatures);
   const primaryNav = navEntries.filter((e) => e.tone !== 'quiet');
   const quietNav = navEntries.filter((e) => e.tone === 'quiet');
 

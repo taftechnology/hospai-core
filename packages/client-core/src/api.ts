@@ -39,6 +39,8 @@ import type {
   ReportDefinition,
   ReportParams,
   ManagerReportResponse,
+  CopilotMessageResponse,
+  CopilotTurn,
   ReportResponse,
   HousekeepingTaskList,
   HousekeepingTaskStageList,
@@ -2342,6 +2344,21 @@ export function createClient(opts: {
       const q = date ? `?${new URLSearchParams({ date }).toString()}` : '';
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/reports/manager${q}`);
       return body as ManagerReportResponse;
+    },
+    /**
+     * One copilot question (R4.16). The conversation is whatever the caller passes: this client keeps
+     * none. Reads only; the answer's links and actions are for the clerk to open.
+     */
+    async postCopilotMessage(
+      propertyId: string,
+      messages: readonly CopilotTurn[],
+    ): Promise<CopilotMessageResponse> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/copilot/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages }),
+      });
+      return body as CopilotMessageResponse;
     },
     async getHousekeepingDashboard(
       propertyId: string,

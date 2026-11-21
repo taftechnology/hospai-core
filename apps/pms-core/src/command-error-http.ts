@@ -140,6 +140,7 @@ import {
   RATE_PLAN_NOT_FOUND,
   REFUND_EXCEEDS_REMAINING,
   REPORTS_R2_UNBOUND,
+  COPILOT_UNAVAILABLE,
   RESTRICTION_VIOLATED,
   ROOM_ALREADY_ASSIGNED,
   ROOM_CODE_EXISTS,
@@ -264,6 +265,7 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case INVOICE_R2_UNBOUND:
     case CITY_LEDGER_R2_UNBOUND:
     case REPORTS_R2_UNBOUND:
+    case COPILOT_UNAVAILABLE:
       return 503;
     case NOT_MEMBER:
       return 404;

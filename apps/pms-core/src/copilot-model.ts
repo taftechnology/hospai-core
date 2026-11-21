@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import {
   COPILOT_TOOLS,
   copilotToolJsonSchema,
@@ -12,6 +13,10 @@ import type { PmsEnv } from './env.js';
  *     `HOSPAI_UNSAFE_LOCAL`, so the demo works without a provider.
  *   - `OpenAiCompatibleModel`: a chat-completions endpoint with tool calling. Off unless
  *     `COPILOT_BASE_URL`, `COPILOT_MODEL` and the secret `COPILOT_API_KEY` are all set.
+ *   - `AnthropicModel`: the Anthropic Messages API through the official SDK. Chosen only by
+ *     `COPILOT_PROVIDER=anthropic`, and then needs `COPILOT_MODEL` and the secret
+ *     `COPILOT_API_KEY`; `COPILOT_BASE_URL` is optional. Without that provider setting, selection
+ *     is exactly as before.
  */
 
 export type CopilotModelToolSpec = {
@@ -25,14 +30,25 @@ export type CopilotToolCall = { id: string; toolId: string; args: unknown };
 export type CopilotModelMessage =
   | { role: 'system' | 'user' | 'assistant'; content: string }
   /** The model asked for these tools. */
-  | { role: 'assistant_tool_calls'; calls: CopilotToolCall[] }
+  | {
+      role: 'assistant_tool_calls';
+      calls: CopilotToolCall[];
+      /**
+       * Opaque provider content for this assistant turn (the Anthropic adapter's exact content
+       * blocks, thinking included, which the API requires back unchanged inside a tool loop). Held
+       * in memory for one question only: never logged, stored or returned. Other adapters ignore it.
+       */
+      providerContent?: unknown;
+    }
   /** What a tool returned (JSON text), or why it could not be read. */
   | { role: 'tool'; callId: string; toolId: string; content: string };
 
-export type CopilotModelStep = { text: string } | { toolCalls: CopilotToolCall[] };
+export type CopilotModelStep =
+  | { text: string }
+  | { toolCalls: CopilotToolCall[]; providerContent?: unknown };
 
 export interface CopilotModel {
-  readonly kind: 'fake' | 'openai_compatible';
+  readonly kind: 'fake' | 'openai_compatible' | 'anthropic';
   step(
     messages: readonly CopilotModelMessage[],
     tools: readonly CopilotModelToolSpec[],
@@ -378,6 +394,151 @@ export class OpenAiCompatibleModel implements CopilotModel {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Anthropic (native Messages API)
+// ---------------------------------------------------------------------------------------------
+
+export type AnthropicModelConfig = {
+  model: string;
+  apiKey: string;
+  baseUrl?: string;
+  /** Test seam; passed to the SDK client as its `fetch`. Production uses the global fetch. */
+  fetchImpl?: typeof fetch;
+};
+
+/** The route's budget is 25s per question; one request may not outlive it. */
+const ANTHROPIC_REQUEST_TIMEOUT_MS = 20_000;
+const ANTHROPIC_MAX_TOKENS = 8000;
+export const ANTHROPIC_REFUSAL_SENTENCE = "I can't answer that question.";
+
+type AnthropicWireMessage = { role: 'user' | 'assistant'; content: string | unknown[] };
+
+/**
+ * System messages go to the top-level `system` field. A tool turn replays the exact blocks the API
+ * returned (`providerContent`) when present, else is rebuilt from the calls. All results that answer
+ * one assistant message go in one user message, in order.
+ */
+export function toAnthropicRequestParts(messages: readonly CopilotModelMessage[]): {
+  system: string | undefined;
+  messages: AnthropicWireMessage[];
+} {
+  const system: string[] = [];
+  const out: AnthropicWireMessage[] = [];
+  let pendingResults: unknown[] | null = null;
+  const flush = () => {
+    if (pendingResults) out.push({ role: 'user', content: pendingResults });
+    pendingResults = null;
+  };
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      pendingResults ??= [];
+      pendingResults.push({ type: 'tool_result', tool_use_id: m.callId, content: m.content });
+      continue;
+    }
+    flush();
+    if (m.role === 'system') system.push(m.content);
+    else if (m.role === 'assistant_tool_calls') {
+      out.push({
+        role: 'assistant',
+        content: Array.isArray(m.providerContent)
+          ? (m.providerContent as unknown[])
+          : m.calls.map((c) => ({ type: 'tool_use', id: c.id, name: c.toolId, input: c.args ?? {} })),
+      });
+    } else out.push({ role: m.role, content: m.content });
+  }
+  flush();
+  return { system: system.length > 0 ? system.join('\n\n') : undefined, messages: out };
+}
+
+function hasToolBlocks(messages: readonly CopilotModelMessage[]): boolean {
+  return messages.some((m) => m.role === 'assistant_tool_calls' || m.role === 'tool');
+}
+
+function anthropicFailure(err: unknown): CopilotModelError {
+  if (err instanceof Anthropic.APIUserAbortError || err instanceof Anthropic.APIConnectionTimeoutError) {
+    return new CopilotModelError('provider_timeout');
+  }
+  if (err instanceof Anthropic.APIConnectionError) return new CopilotModelError('provider_unreachable');
+  if (err instanceof Anthropic.APIError && typeof err.status === 'number') {
+    return new CopilotModelError(`provider_status_${err.status}`);
+  }
+  return new CopilotModelError('provider_unreachable');
+}
+
+export class AnthropicModel implements CopilotModel {
+  readonly kind = 'anthropic' as const;
+  private readonly client: Anthropic;
+  /** The last non-empty tool list: the API wants tools defined while the history holds tool blocks. */
+  private lastTools: Anthropic.Tool[] = [];
+
+  constructor(private readonly cfg: AnthropicModelConfig) {
+    this.client = new Anthropic({
+      apiKey: cfg.apiKey,
+      ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}),
+      ...(cfg.fetchImpl ? { fetch: cfg.fetchImpl } : {}),
+      maxRetries: 0,
+      timeout: ANTHROPIC_REQUEST_TIMEOUT_MS,
+    });
+  }
+
+  async step(
+    messages: readonly CopilotModelMessage[],
+    tools: readonly CopilotModelToolSpec[],
+    opts?: { signal?: AbortSignal },
+  ): Promise<CopilotModelStep> {
+    const parts = toAnthropicRequestParts(messages);
+    if (tools.length > 0) {
+      this.lastTools = tools.map((t) => ({
+        name: t.toolId,
+        description: t.description,
+        input_schema: t.parameters as Anthropic.Tool.InputSchema,
+      }));
+    }
+    // With no tools offered but tool blocks in the history, keep the tools defined and forbid use.
+    const toolsOff = tools.length === 0;
+    const sendTools = !toolsOff || hasToolBlocks(messages) ? this.lastTools : [];
+
+    let response: Anthropic.Message;
+    try {
+      response = await this.client.messages.create(
+        {
+          model: this.cfg.model,
+          max_tokens: ANTHROPIC_MAX_TOKENS,
+          output_config: { effort: 'low' },
+          cache_control: { type: 'ephemeral' },
+          ...(parts.system !== undefined ? { system: parts.system } : {}),
+          messages: parts.messages as Anthropic.MessageParam[],
+          ...(sendTools.length > 0
+            ? { tools: sendTools, tool_choice: toolsOff ? { type: 'none' as const } : { type: 'auto' as const } }
+            : {}),
+        },
+        { signal: opts?.signal },
+      );
+    } catch (err) {
+      throw anthropicFailure(err);
+    }
+
+    const blocks = Array.isArray(response?.content) ? response.content : null;
+    if (!blocks) throw new CopilotModelError('provider_bad_response');
+
+    const toolUses = blocks.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+    if (response.stop_reason === 'tool_use' && toolUses.length > 0) {
+      return {
+        toolCalls: toolUses.map((b) => ({ id: b.id, toolId: b.name, args: b.input })),
+        providerContent: blocks,
+      };
+    }
+    if (response.stop_reason === 'refusal') return { text: ANTHROPIC_REFUSAL_SENTENCE };
+    if (response.stop_reason === 'max_tokens') throw new CopilotModelError('provider_truncated');
+    return {
+      text: blocks
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join(''),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Selection
 // ---------------------------------------------------------------------------------------------
 
@@ -413,10 +574,22 @@ export function validCopilotBaseUrl(raw: string, env: Pick<PmsEnv, 'HOSPAI_UNSAF
  * needs all three settings; the fake needs the local marker. Nothing here has a default key or URL.
  */
 export function selectCopilotModel(
-  env: Pick<PmsEnv, 'HOSPAI_UNSAFE_LOCAL' | 'COPILOT_BASE_URL' | 'COPILOT_MODEL' | 'COPILOT_API_KEY'>,
+  env: Pick<PmsEnv, 'HOSPAI_UNSAFE_LOCAL' | 'COPILOT_PROVIDER' | 'COPILOT_BASE_URL' | 'COPILOT_MODEL' | 'COPILOT_API_KEY'>,
 ): CopilotModel | null {
   if (modelOverrideForTest === 'none') return null;
   if (modelOverrideForTest) return modelOverrideForTest;
+  const provider = env.COPILOT_PROVIDER?.trim();
+  if (provider) {
+    // A named provider never falls through to the fake or the OpenAI-compatible adapter.
+    if (provider !== 'anthropic') return null;
+    const aModel = env.COPILOT_MODEL?.trim();
+    const aKey = env.COPILOT_API_KEY?.trim();
+    if (!aModel || !aKey) return null;
+    const rawBase = env.COPILOT_BASE_URL?.trim();
+    if (!rawBase) return new AnthropicModel({ model: aModel, apiKey: aKey });
+    const validBase = validCopilotBaseUrl(rawBase, env);
+    return validBase ? new AnthropicModel({ model: aModel, apiKey: aKey, baseUrl: validBase }) : null;
+  }
   const baseUrl = env.COPILOT_BASE_URL?.trim();
   const model = env.COPILOT_MODEL?.trim();
   const apiKey = env.COPILOT_API_KEY?.trim();

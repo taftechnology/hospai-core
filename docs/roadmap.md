@@ -892,6 +892,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - **Route and SPA:** `post_copilot_message` (`copilot:use`, `ai_ops.enabled`). `/copilot` has suggested questions, sources as links and next steps as navigation.
     - **Model:** `FakeCopilotModel` serves tests and the local demo; the demo seed grants `ai_ops`. `OpenAiCompatibleModel` is off until `COPILOT_BASE_URL`, `COPILOT_MODEL` and the secret `COPILOT_API_KEY` are set.
     - **Open:** **choose the provider and name it in the DPA**. `copilot_unavailable` covers both "not set up" and "provider failed". The Fake model prints money in minor units (demo only).
+    - **Anthropic adapter (2026-11-21):** `AnthropicModel` (native Messages API, `COPILOT_PROVIDER=anthropic`) exists; Haiku 5.5 at low effort is the recommended pilot provider, still to be named in the DPA.
     - opencode (Kimi K3.1 Pro) was tried first and hit OpenCode Go's 5-hour limit before writing code; a Claude Sonnet subagent built it.
     - Pins: catalog 148, writers 114, routes 251 (last `post_copilot_message`).
   - **Depends:** **R3.10** (`ai_ops.enabled`, `ai_ops.messages.limit`), **R4.14** and **R4.32** (answers on reports read them; moved after both on 2026-10-31). Comes before **R4.6**, which adds the write path on top of it.

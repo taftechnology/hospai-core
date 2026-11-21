@@ -145,7 +145,11 @@ export async function runCopilot(opts: {
       text = '';
       break;
     }
-    messages.push({ role: 'assistant_tool_calls', calls: out.toolCalls });
+    messages.push({
+      role: 'assistant_tool_calls',
+      calls: out.toolCalls,
+      ...(out.providerContent !== undefined ? { providerContent: out.providerContent } : {}),
+    });
     for (const call of out.toolCalls) {
       messages.push({
         role: 'tool',

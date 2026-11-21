@@ -72,6 +72,7 @@ export const CLASS_DENYLIST = [
   'CopilotModelError',
   'FakeCopilotModel',
   'OpenAiCompatibleModel',
+  'AnthropicModel',
 ] as const;
 
 export type DenylistedClassName = (typeof CLASS_DENYLIST)[number];

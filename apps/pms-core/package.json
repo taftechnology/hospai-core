@@ -12,6 +12,7 @@
     "dev": "wrangler dev"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0",
     "@clerk/backend": "3.13.2",
     "@hospai/contracts": "workspace:*",
     "@hospai/crypto-shredding": "workspace:*",

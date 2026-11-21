@@ -94,6 +94,8 @@ export type PmsEnv = {
   HOSPAI_ORG_MASTER_KEY?: string;
   /** Vitest-only: pin ledger property-test PRNG seed (`vitest.config.ts` → miniflare.bindings). */
   LEDGER_PROP_SEED?: string;
+  /** `anthropic` selects the native Anthropic adapter; empty keeps the OpenAI-compatible/fake behaviour. */
+  COPILOT_PROVIDER?: string;
   /**
    * Copilot model provider (R4.16). The copilot talks to a chat-completions endpoint only when all
    * three are set; with none set it answers 503 `copilot_unavailable` (or uses the fake model under

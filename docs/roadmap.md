@@ -825,7 +825,7 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Tests:** a duplicate post of one check charges the room once; a post after check-out is refused with a named code and lands on the workbench; the posted tax components foot to the check total; a missing day-close raises a pre-check exception.
   - **Scope out:** tables, orders, kitchen, settlement, promotions and POS reports (vendor); a second POS vendor; stock and recipe costing (§16.6).
 
-- [ ] **R4.14 Operational report set (named, not a catalogue)**
+- [x] **R4.14 Operational report set (named, not a catalogue)**
   - **Part A done (2026-11-20):** [spec](superpowers/specs/2026-11-20-reports-a-framework-front-office-design.md).
     - **Closed list:** written in the spec, Part A of three.
     - **Registry:** `REPORT_DEFINITIONS` in contracts (typed columns, spans, a 2,000-row cap), shared by server and SPA.
@@ -841,7 +841,17 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
     - **Trial balance:** each folio line falls in exactly one movement column (payments, taxes, transfers, adjustments, charges). Opening + movements = closing on every row, and the closing equals the guest trial balance. Checked in the browser on the demo: the 21/11 closing equals the guest trial balance total.
     - **Approximations for past dates:** lines with no business date take the property-local date of their `created_at`. The deposit ledger shows current advances, not as of the date.
     - Pins: routes 247 (last `get_cashier_report`).
-    - **Left:** Part C (night audit and housekeeping).
+  - **Part C done (2026-11-20), completing R4.14 except POS and distribution (they land with R4.21 and R4.3):** [spec](superpowers/specs/2026-11-20-reports-c-night-audit-housekeeping-design.md).
+    - **Routes:** `get_audit_report` (`night_audit:run`) and `get_housekeeping_report` (`housekeeping:read`).
+    - **Night-audit reports:** night audit report, revenue, daily statistics and end-of-day control, for a closed date. A date counts as closed once its `ROLL_BUSINESS_DATE` step completed; otherwise the report shows a clear empty state.
+      - Revenue and occupancy figures come from the stored snapshots.
+      - Occupancy %, ADR and RevPAR use the one shared `roundedRatio` helper (half up; a zero denominator shows "—"). They are displayed, never posted.
+      - Arrivals, departures and persons are not in the snapshots, so daily statistics reads them from the stays (approximate for history). Complimentary and house use are not shown.
+      - End-of-day "room charges" are the night's `NIGHT_AUDIT` lines, which include no-show charges, so the total can differ from the revenue snapshot's room net.
+      - Layouts are standard until the client's samples (Q8) arrive, which is a definition edit, not a new slice.
+    - **Housekeeping reports (12):** room status, status-change history, blocks, attendant workload, inspection scores, guest audit, requests, lost and found, damage cases, linen, minibar and amenity dispatches. Each runs the same module read as its tab.
+    - **Totals:** `/reports` lists 32 reports in four groups.
+    - Pins: routes 249 (last `get_housekeeping_report`).
   - **Q10 answered (client, 2026-11-19):** **all the standard reports plus what BluePMS has.** This is F3's one rewrite: the list becomes the standard set plus BluePMS's report catalogue groups (research note), minus POS and distribution reports while R4.21 and R4.3 are deferred. The catalogue builder stays out.
   - **Depends:** **R1.1**, **R1.16**, **R4.11**; the POS and distribution reports land with **R4.21** and **R4.3**.
   - **Pilot checklist:** front-office reports, housekeeping reports, POS reports, distribution reports.

@@ -74,7 +74,7 @@ describe('ReportsCatalogScreen', () => {
   });
 
   it('shows nothing from a group whose permission the user lacks', async () => {
-    getMe.mockResolvedValue(me(['housekeeping:read']));
+    getMe.mockResolvedValue(me(['guests:read']));
     renderCatalog();
     expect(await screen.findByTestId('reports-none')).toBeInTheDocument();
     expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
@@ -104,6 +104,48 @@ describe('ReportsCatalogScreen', () => {
       ['Guest trial balance', '/reports/cashier_guest_trial_balance'],
     ]);
     expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
+  });
+
+  it('lists the four night-audit reports for night_audit:run and no housekeeping group', async () => {
+    getMe.mockResolvedValue(me(['night_audit:run']));
+    renderCatalog();
+    const group = await screen.findByTestId('reports-group-night_audit');
+    expect(within(group).getByRole('heading', { name: 'Night audit' })).toBeInTheDocument();
+    expect(
+      within(group)
+        .getAllByRole('link')
+        .map((a) => [a.textContent, a.getAttribute('href')]),
+    ).toEqual([
+      ['Night audit report', '/reports/night_audit_report'],
+      ['Night-audit revenue', '/reports/night_audit_revenue'],
+      ['Daily statistics', '/reports/night_audit_daily_statistics'],
+      ['End-of-day control', '/reports/night_audit_end_of_day'],
+    ]);
+    expect(screen.queryByTestId('reports-group-housekeeping')).toBeNull();
+    expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
+  });
+
+  it('lists the twelve housekeeping reports for housekeeping:read and no night-audit group', async () => {
+    getMe.mockResolvedValue(me(['housekeeping:read']));
+    renderCatalog();
+    const group = await screen.findByTestId('reports-group-housekeeping');
+    expect(within(group).getByRole('heading', { name: 'Housekeeping' })).toBeInTheDocument();
+    expect(within(group).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([
+      '/reports/housekeeping_room_status',
+      '/reports/housekeeping_status_history',
+      '/reports/housekeeping_blocks',
+      '/reports/housekeeping_attendant_workload',
+      '/reports/housekeeping_inspection_scores',
+      '/reports/housekeeping_guest_audit',
+      '/reports/housekeeping_requests',
+      '/reports/housekeeping_lost_found',
+      '/reports/housekeeping_cases',
+      '/reports/housekeeping_linen',
+      '/reports/housekeeping_minibar',
+      '/reports/housekeeping_amenities',
+    ]);
+    expect(within(group).getByRole('link', { name: 'Lost and found register' })).toBeInTheDocument();
+    expect(screen.queryByTestId('reports-group-night_audit')).toBeNull();
   });
 
   it('hides a report whose extra permission the user lacks, but keeps the others in the group', async () => {

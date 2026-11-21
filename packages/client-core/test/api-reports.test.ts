@@ -45,3 +45,23 @@ describe('getReport', () => {
     ]);
   });
 });
+
+describe('getReport: Part C routes', () => {
+  it('sends night-audit reports to the audit group and housekeeping reports to theirs, with their filters', async () => {
+    const seen: string[] = [];
+    const client = testClient(seen);
+    await client.getReport('p1', reportDefinition('night_audit_revenue')!, { date: '2026-11-19' });
+    await client.getReport('p1', reportDefinition('housekeeping_room_status')!, {});
+    await client.getReport('p1', reportDefinition('housekeeping_inspection_scores')!, {
+      from: '2026-11-20',
+      to: '2026-11-20',
+      inspector: 'staff_1',
+      room: 'rm_1',
+    });
+    expect(seen).toEqual([
+      '/v1/properties/p1/reports/night-audit/night_audit_revenue?date=2026-11-19',
+      '/v1/properties/p1/reports/housekeeping/housekeeping_room_status',
+      '/v1/properties/p1/reports/housekeeping/housekeeping_inspection_scores?from=2026-11-20&to=2026-11-20&inspector=staff_1&room=rm_1',
+    ]);
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { V1_HTTP_ROUTE_AUDIT } from './v1-http-routes.js';
+import { averageDailyRateMinor, revParMinor, roundedRatio, wholePercent } from './report-stats.js';
 import {
   REPORT_DEFINITIONS,
   REPORT_GROUPS,
@@ -10,6 +11,7 @@ import {
   reportGroupsWithReports,
   reportPath,
   reportPermissions,
+  reportCodeWord,
   reportRangeSpan,
 } from './reports.js';
 
@@ -48,7 +50,7 @@ describe('report registry', () => {
       'front_office_availability_detailed',
       'front_office_availability_monthly',
     ]);
-    expect(reportGroupsWithReports()).toEqual(['front_office', 'cashier_financial']);
+    expect(reportGroupsWithReports()).toEqual(['front_office', 'cashier_financial', 'night_audit', 'housekeeping']);
     expect(reportDefinition('front_office_forecast')?.params).toMatchObject({ maxSpan: 90 });
   });
 
@@ -58,8 +60,10 @@ describe('report registry', () => {
       expect(route, d.routeId).toBeDefined();
       expect(route).toMatchObject({ permission: REPORT_GROUP_PERMISSION[d.group] });
     }
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_cashier_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_front_office_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-1)?.id).toBe('get_housekeeping_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_audit_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_cashier_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('get_front_office_report');
     expect(reportPath('p 1', reportDefinition('front_office_in_house')!)).toBe(
       `/v1/properties/p%201/reports/${REPORT_ROUTE_SEGMENT.get_front_office_report}/front_office_in_house`,
     );
@@ -179,5 +183,135 @@ describe('parseReportParams', () => {
       ok: true,
       params: { from: '2026-01-01', to: '2026-01-03', status: 'confirmed' },
     });
+  });
+});
+
+describe('Part C night-audit and housekeeping registry', () => {
+  const audit = REPORT_DEFINITIONS.filter((d) => d.group === 'night_audit');
+  const hk = REPORT_DEFINITIONS.filter((d) => d.group === 'housekeeping');
+  const q = (o: Record<string, string>) => (n: string) => o[n] ?? null;
+
+  it('registers four night-audit reports on the audit route and twelve housekeeping reports', () => {
+    expect(audit.map((d) => d.id)).toEqual([
+      'night_audit_report',
+      'night_audit_revenue',
+      'night_audit_daily_statistics',
+      'night_audit_end_of_day',
+    ]);
+    expect(hk.map((d) => d.id)).toEqual([
+      'housekeeping_room_status',
+      'housekeeping_status_history',
+      'housekeeping_blocks',
+      'housekeeping_attendant_workload',
+      'housekeeping_inspection_scores',
+      'housekeeping_guest_audit',
+      'housekeeping_requests',
+      'housekeeping_lost_found',
+      'housekeeping_cases',
+      'housekeeping_linen',
+      'housekeeping_minibar',
+      'housekeeping_amenities',
+    ]);
+    for (const d of audit) {
+      expect(d.routeId).toBe('get_audit_report');
+      expect(d.params.kind).toBe('closed_date');
+      expect(reportPermissions(d)).toEqual(['night_audit:run']);
+    }
+    for (const d of hk) {
+      expect(d.routeId).toBe('get_housekeeping_report');
+      expect(reportPermissions(d)).toEqual(['housekeeping:read']);
+      if (d.params.kind === 'range') expect(d.params.maxSpan).toBe(31);
+    }
+    expect(REPORT_ROUTE_SEGMENT.get_audit_report).toBe('night-audit');
+    expect(reportPath('p', reportDefinition('night_audit_end_of_day')!)).toBe(
+      '/v1/properties/p/reports/night-audit/night_audit_end_of_day',
+    );
+    expect(reportPath('p', reportDefinition('housekeeping_minibar')!)).toBe(
+      '/v1/properties/p/reports/housekeeping/housekeeping_minibar',
+    );
+  });
+
+  it('statistics columns show a dash when undefined', () => {
+    const stats = reportDefinition('night_audit_daily_statistics')!;
+    expect(stats.columns.filter((c) => c.emptyAsDash).map((c) => c.key)).toEqual(['occupancy', 'adr', 'revpar']);
+  });
+
+  it('the closed-date and no-parameter kinds parse; the room status report takes nothing', () => {
+    const revenue = reportDefinition('night_audit_revenue')!;
+    expect(parseReportParams(revenue, q({}))).toEqual({ ok: true, params: {} });
+    expect(parseReportParams(revenue, q({ date: '2026-02-30' }))).toMatchObject({ error: 'invalid_query' });
+    expect(parseReportParams(revenue, q({ date: '2026-02-01' }))).toEqual({
+      ok: true,
+      params: { date: '2026-02-01' },
+    });
+    const rooms = reportDefinition('housekeeping_room_status')!;
+    expect(parseReportParams(rooms, q({ date: '2026-02-01' }))).toEqual({ ok: true, params: {} });
+  });
+
+  it('housekeeping filters validate: fixed lists, ids and the inspector', () => {
+    const range = { from: '2026-01-01', to: '2026-01-02' };
+    const requests = reportDefinition('housekeeping_requests')!;
+    expect(parseReportParams(requests, q({ ...range, department: 'front_office', status: 'open' }))).toEqual({
+      ok: true,
+      params: { ...range, department: 'front_office', status: 'open' },
+    });
+    expect(parseReportParams(requests, q({ ...range, department: 'kitchen' }))).toMatchObject({
+      detail: 'invalid_department',
+    });
+    const history = reportDefinition('housekeeping_status_history')!;
+    expect(parseReportParams(history, q({ ...range, room: 'rm_101' }))).toEqual({
+      ok: true,
+      params: { ...range, room: 'rm_101' },
+    });
+    expect(parseReportParams(history, q({ ...range, room: "x'; --" }))).toMatchObject({ detail: 'invalid_room' });
+    const scores = reportDefinition('housekeeping_inspection_scores')!;
+    expect(parseReportParams(scores, q({ ...range, inspector: 'user_1', room: 'rm_1' }))).toEqual({
+      ok: true,
+      params: { ...range, inspector: 'user_1', room: 'rm_1' },
+    });
+    expect(parseReportParams(scores, q({ ...range, inspector: 'a b' }))).toMatchObject({
+      detail: 'invalid_inspector',
+    });
+    const linen = reportDefinition('housekeeping_linen')!;
+    expect(parseReportParams(linen, q({ ...range, kind: 'laundry_out', item: 'item_1' }))).toEqual({
+      ok: true,
+      params: { ...range, kind: 'laundry_out', item: 'item_1' },
+    });
+    expect(parseReportParams(linen, q({ ...range, kind: 'sold' }))).toMatchObject({ detail: 'invalid_kind' });
+    expect(
+      parseReportParams(reportDefinition('housekeeping_blocks')!, q({ from: '2026-01-01', to: '2026-03-01' })),
+    ).toMatchObject({ error: 'limit_exceeded', max: 31 });
+  });
+
+  it('codes become words', () => {
+    expect(reportCodeWord('in_progress')).toBe('In progress');
+    expect(reportCodeWord('food_beverage')).toBe('Food and beverage');
+    expect(reportCodeWord(null)).toBe('');
+  });
+});
+
+describe('roundedRatio (the one rounding rule for report statistics)', () => {
+  it('rounds half up and returns null for a zero or negative denominator', () => {
+    expect(roundedRatio(1, 2)).toBe(1);
+    expect(roundedRatio(1, 3)).toBe(0);
+    expect(roundedRatio(2, 3)).toBe(1);
+    expect(roundedRatio(5, 2)).toBe(3);
+    expect(roundedRatio(0, 5)).toBe(0);
+    expect(roundedRatio(5, 0)).toBeNull();
+    expect(roundedRatio(5, -1)).toBeNull();
+  });
+
+  it('rounds a negative numerator half away from zero', () => {
+    expect(roundedRatio(-5, 2)).toBe(-3);
+    expect(roundedRatio(-1, 3)).toBe(0);
+  });
+
+  it('occupancy, ADR and RevPAR use it', () => {
+    expect(wholePercent(1, 8)).toBe(13); // 12.5 rounds up
+    expect(wholePercent(0, 0)).toBeNull();
+    expect(averageDailyRateMinor(10001, 2)).toBe(5001); // 5000.5 rounds up
+    expect(averageDailyRateMinor(10000, 0)).toBeNull();
+    expect(revParMinor(10000, 3)).toBe(3333);
+    expect(revParMinor(10000, 0)).toBeNull();
   });
 });

@@ -26,10 +26,13 @@ export function addDaysIso(iso: string, days: number): string {
 /** Form defaults from the definition: the business date, and the default span for a range. */
 export function defaultReportParams(def: ReportDefinition, today: string): ReportParams {
   if (def.params.kind === 'date') return { date: today };
-  if (def.params.kind === 'reservation') return {};
+  // The last closed business date: the open business date is the one being worked, so the day before it.
+  if (def.params.kind === 'closed_date') return { date: addDaysIso(today, -1) };
+  if (def.params.kind === 'reservation' || def.params.kind === 'none') return {};
   const params: ReportParams = { from: today, to: addDaysIso(today, def.params.defaultSpan - 1) };
   for (const f of def.params.filters ?? []) (params as Record<string, string>)[f.name] = '';
-  if (def.params.staffFilter) params.cashier = '';
+  if (def.params.staffFilter) params[def.params.staffFilter.name] = '';
+  for (const f of def.params.lookupFilters ?? []) params[f.name] = '';
   return params;
 }
 
@@ -41,7 +44,7 @@ export type ReportParamsCheck =
 export function checkReportParams(def: ReportDefinition, draft: ReportParams): ReportParamsCheck {
   const parsed = parseReportParams(def, (n) => (draft as Record<string, string | undefined>)[n]);
   if (parsed.ok) {
-    if (def.params.kind === 'date' && parsed.params.date === undefined) {
+    if ((def.params.kind === 'date' || def.params.kind === 'closed_date') && parsed.params.date === undefined) {
       return { ok: false, message: 'Choose a date.' };
     }
     if (def.params.kind === 'reservation' && parsed.params.reservationId === undefined) {
@@ -81,6 +84,9 @@ export type CellFormat = {
   staff: (userId: string) => string;
 };
 
+/** What an undefined statistic shows on screen and in print. */
+export const EMPTY_STATISTIC = '\u2014';
+
 /** The words shown on screen and in print for one cell. */
 export function formatReportCell(
   column: ReportColumn,
@@ -89,7 +95,8 @@ export function formatReportCell(
   f: CellFormat,
 ): string {
   const v = row[column.key];
-  if (v === null || v === undefined || v === '') return '';
+  // A statistic that cannot be worked out (a division by zero) reads as a dash, not a blank.
+  if (v === null || v === undefined || v === '') return column.emptyAsDash ? EMPTY_STATISTIC : '';
   switch (column.type) {
     case 'money':
       return f.money(Number(v), currency);
@@ -200,6 +207,14 @@ export function buildReportCsv(input: {
   return `${lines.join('\r\n')}\r\n`;
 }
 
+/** Cache key for a dropdown list a report form needs (rooms, linen items): tenant and list. */
+export function reportLookupKey(
+  propertyId: string,
+  source: 'rooms' | 'linen_items' | 'roster',
+): readonly ['report-lookup', string, string] {
+  return ['report-lookup', propertyId, source] as const;
+}
+
 export function reportCsvFileName(def: ReportDefinition, params: ReportParams): string {
   const span = params.date ?? (params.from && params.to ? `${params.from}_${params.to}` : '');
   return `${def.id}${span ? `_${span}` : ''}.csv`;
@@ -211,6 +226,7 @@ export function describeReportParams(
   params: ReportParams,
   formatDate: (iso: string) => string,
   staffName: (userId: string) => string = staffFallbackWord,
+  lookupName: (name: 'room' | 'item', id: string) => string = (_n, id) => id,
 ): string {
   const parts: string[] = [];
   if (params.date) parts.push(formatDate(params.date));
@@ -223,8 +239,13 @@ export function describeReportParams(
       const label = f.options.find((o) => o.value === (v ?? ''))?.label;
       if (v && label) parts.push(`${f.label}: ${label}`);
     }
-    if (def.params.staffFilter && params.cashier) {
-      parts.push(`${def.params.staffFilter.label}: ${staffName(params.cashier)}`);
+    if (def.params.staffFilter) {
+      const who = params[def.params.staffFilter.name];
+      if (who) parts.push(`${def.params.staffFilter.label}: ${staffName(who)}`);
+    }
+    for (const f of def.params.lookupFilters ?? []) {
+      const id = params[f.name];
+      if (id) parts.push(`${f.label}: ${lookupName(f.name, id)}`);
     }
   }
   return parts.join(' · ');

@@ -366,6 +366,7 @@ import {
   readHousekeepingDashboard,
   readRoomBoardRooms,
   readRoomStatusHistory,
+  readRoomOooEvents,
   transitionTask as transitionHousekeepingTask,
   updateTask as updateHousekeepingTask,
   deleteFutureHousekeepingAssignments,
@@ -522,7 +523,16 @@ import {
   reportObjectKey,
 } from './event-log.js';
 import { netAdvancePaidMinor } from './folio-advance.js';
+import {
+  auditReportNeedsSnapshots,
+  readAuditReport,
+  resolveAuditDate,
+  type AuditReportResult,
+  type OccupancySnapshot,
+  type RevenueSnapshot,
+} from './audit-report.js';
 import { readCashierReport, type CashierReportResult } from './cashier-report.js';
+import { readHousekeepingReport, type HousekeepingReportResult } from './housekeeping-report.js';
 import {
   readFrontOfficeReport,
   reservationConfirmation,
@@ -14899,6 +14909,86 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     );
   }
 
+  /** One stored snapshot object of a closed date, read from R2 through the report index (null when absent). */
+  private async readSnapshotObjectSync<T>(businessDate: string, reportId: string): Promise<T | null> {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT r2_key FROM night_audit_report WHERE business_date = ? AND report_id = ?`,
+        businessDate,
+        reportId,
+      )
+      .toArray() as Array<{ r2_key: string }>;
+    const key = rows[0]?.r2_key;
+    if (!key) return null;
+    const obj = await this.env.EVENT_LOG_R2?.get(key);
+    if (!obj) return null;
+    try {
+      return JSON.parse(await obj.text()) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Night-audit report (R4.14 Part C). A pure read of the audit tables and the stored `occupancy`
+   * and `revenue` snapshots; the snapshots are fetched here (the DO owns the bucket binding) and
+   * lent to the report module.
+   */
+  async readAuditReportView(
+    reportId: string,
+    params: ReportParams,
+  ): Promise<
+    | AuditReportResult
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    let occupancy: OccupancySnapshot | null = null;
+    let revenue: RevenueSnapshot | null = null;
+    if (auditReportNeedsSnapshots(reportId)) {
+      const { date, closed } = resolveAuditDate(this.ctx.storage.sql, params.date, businessDate);
+      if (closed) {
+        occupancy = await this.readSnapshotObjectSync<OccupancySnapshot>(date, 'occupancy');
+        revenue = await this.readSnapshotObjectSync<RevenueSnapshot>(date, 'revenue');
+      }
+    }
+    return readAuditReport(
+      { sql: this.ctx.storage.sql, businessDate, currency, occupancy, revenue },
+      reportId,
+      params,
+    );
+  }
+
+  /** Housekeeping report (R4.14 Part C): the module reads behind the housekeeping tabs, in report form. */
+  async readHousekeepingReportView(
+    reportId: string,
+    params: ReportParams,
+  ): Promise<
+    | HousekeepingReportResult
+    | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    const timeZone = this.readStoredTimeZoneSync() ?? 'UTC';
+    return readHousekeepingReport(
+      {
+        sql: this.ctx.storage.sql,
+        businessDate,
+        currency,
+        requestTypes: this.housekeepingRequestTypesSync(),
+        dayStartMs: (date) => zonedMidnightMs(date, timeZone),
+      },
+      reportId,
+      params,
+    );
+  }
+
   /** Net GUEST payments on one window, floored at 0 (see `netAdvancePaidMinor`). */
   private advancePaidMinorSync(folioWindowId: string): number {
     const lines = this.ctx.storage.sql
@@ -19232,41 +19322,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     this.assertRpcAvailable();
     const room = this.ctx.storage.sql.exec(`SELECT room_id FROM room WHERE room_id = ?`, roomId).toArray();
     if (room.length === 0) return { ok: false, error: NOT_FOUND };
-    const rows = this.ctx.storage.sql
-      .exec(
-        `SELECT event_id, ooo_id, room_id, kind, before_json, after_json, reason, actor, at
-           FROM room_ooo_event WHERE room_id = ?
-          ORDER BY at DESC, rowid DESC
-          LIMIT ?`,
-        roomId,
-        ROOM_HISTORY_PAGE,
-      )
-      .toArray() as Array<{
-      event_id: string;
-      ooo_id: string;
-      room_id: string;
-      kind: string;
-      before_json: string | null;
-      after_json: string | null;
-      reason: string | null;
-      actor: string;
-      at: number;
-    }>;
-    return {
-      ok: true,
-      roomId,
-      events: rows.map((r) => ({
-        eventId: r.event_id,
-        oooId: r.ooo_id,
-        roomId: r.room_id,
-        kind: r.kind as RoomOooEventRow['kind'],
-        before: r.before_json ? (JSON.parse(r.before_json) as Record<string, unknown>) : null,
-        after: r.after_json ? (JSON.parse(r.after_json) as Record<string, unknown>) : null,
-        reason: r.reason,
-        actor: r.actor,
-        at: r.at,
-      })),
-    };
+    const { events } = readRoomOooEvents(this.ctx.storage.sql, { roomId, limit: ROOM_HISTORY_PAGE });
+    return { ok: true, roomId, events };
   }
 
   private async runMaintenanceWrite<R extends { ok: true }>(

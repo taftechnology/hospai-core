@@ -6,7 +6,13 @@ export { transitionTask, type TransitionTaskInput } from './application/transiti
 export { readHousekeepingTasks, type ReadTasksFilters } from './application/read-tasks.js';
 export { readHousekeepingDashboard, type ReadDashboardInput } from './application/read-dashboard.js';
 export { readRoomBoardRooms, readActiveOooRows } from './application/read-room-board.js';
-export { readRoomStatusHistory } from './application/read-room-status-history.js';
+export {
+  readRoomStatusHistory,
+  readRoomStatusHistoryRows,
+  type ReadRoomStatusHistoryRowsFilters,
+} from './application/read-room-status-history.js';
+export { readRoomOooEvents, type ReadRoomOooEventsFilters } from './application/read-room-ooo-events.js';
+export { readAttendantWorkload, type AttendantWorkloadRow } from './application/read-workload.js';
 export { createRequest, type CreateRequestInput } from './application/create-request.js';
 export { updateRequest, type UpdateRequestInput } from './application/update-request.js';
 export { readHousekeepingRequests, type ReadRequestsFilters } from './application/read-requests.js';

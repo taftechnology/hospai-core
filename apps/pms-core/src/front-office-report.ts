@@ -6,6 +6,7 @@ import {
   freeAvailability,
   reportDefinition,
   reportRangeSpan,
+  wholePercent,
   type ReportDefinition,
   type ReportParams,
   type ReportResponse,
@@ -70,8 +71,7 @@ function nightsBetween(arrival: string, departure: string): number {
 
 /** Whole percent, half up, from two non-negative integers; null when there is nothing to divide by. */
 export function wholePercentHalfUp(part: number, whole: number): number | null {
-  if (whole <= 0) return null;
-  return Math.floor((part * 200 + whole) / (whole * 2));
+  return wholePercent(part, whole);
 }
 
 const MONTH_NAMES = [

@@ -9805,6 +9805,80 @@ async function handleGetCashierReport(ctx: V1DispatchContext): Promise<Response>
   }
 }
 
+/**
+ * Night-audit reports (R4.14 Part C). The permission is the route's `night_audit:run`, the one the
+ * existing night-audit report read uses. A date with no completed audit is a 200 with no rows and
+ * `emptyReason`, not an error.
+ */
+async function handleGetAuditReport(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const reportId = decodeURIComponent(ctx.match[2]!);
+
+  const def = reportDefinition(reportId);
+  if (!def || def.routeId !== 'get_audit_report') {
+    return json({ error: 'not_found' }, 404);
+  }
+  const parsed = parseReportParams(def, (n) => ctx.url.searchParams.get(n));
+  if (!parsed.ok) {
+    if (parsed.error === 'limit_exceeded') {
+      return json({ ok: false, error: LIMIT_EXCEEDED, limit: parsed.limit, max: parsed.max }, 422);
+    }
+    return json({ error: parsed.error, detail: parsed.detail }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readAuditReportView(def.id, parsed.params);
+    if (!result.ok) {
+      return json(result, commandErrorHttpStatus(result.error));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+/**
+ * Housekeeping reports (R4.14 Part C). The permission is the route's `housekeeping:read`, the one
+ * every housekeeping tab read uses.
+ */
+async function handleGetHousekeepingReport(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const reportId = decodeURIComponent(ctx.match[2]!);
+
+  const def = reportDefinition(reportId);
+  if (!def || def.routeId !== 'get_housekeeping_report') {
+    return json({ error: 'not_found' }, 404);
+  }
+  const parsed = parseReportParams(def, (n) => ctx.url.searchParams.get(n));
+  if (!parsed.ok) {
+    if (parsed.error === 'limit_exceeded') {
+      return json({ ok: false, error: LIMIT_EXCEEDED, limit: parsed.limit, max: parsed.max }, 422);
+    }
+    return json({ error: parsed.error, detail: parsed.detail }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readHousekeepingReportView(def.id, parsed.params);
+    if (!result.ok) {
+      if (result.error === LIMIT_EXCEEDED) return json(result, 422);
+      return json(result, commandErrorHttpStatus(result.error));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -14010,6 +14084,24 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'folio:read',
     entitlement: 'pms.core',
     handler: handleGetCashierReport,
+  },
+  {
+    id: 'get_audit_report',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reports\/night-audit\/([^/]+)$/,
+    permission: 'night_audit:run',
+    entitlement: 'pms.core',
+    handler: handleGetAuditReport,
+  },
+  {
+    id: 'get_housekeeping_report',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reports\/housekeeping\/([^/]+)$/,
+    permission: 'housekeeping:read',
+    entitlement: 'pms.core',
+    handler: handleGetHousekeepingReport,
   },
 ];
 

@@ -1,4 +1,14 @@
 import type { PropertyScopedPermission } from './permissions.js';
+import {
+  AMENITY_DISPATCH_STATUSES,
+  LINEN_MOVEMENT_KINDS,
+} from './housekeeping-stock.js';
+import {
+  HOUSEKEEPING_CASE_STATUSES,
+  HOUSEKEEPING_REQUEST_DEPARTMENTS,
+  HOUSEKEEPING_REQUEST_STATUSES,
+  LOST_ITEM_STATUSES,
+} from './housekeeping-requests.js';
 
 /**
  * Operational report registry (R4.14). One definition drives the server's parameter validation, the
@@ -35,10 +45,14 @@ export const REPORT_GROUP_PERMISSION: Record<ReportGroup, PropertyScopedPermissi
   housekeeping: 'housekeeping:read',
 };
 
-/** One report route per data group (spec D2). Part A shipped the front-office route, Part B the cashier route. */
+/**
+ * One report route per data group (spec D2). Part A shipped the front-office route, Part B the
+ * cashier route, Part C the night-audit and housekeeping routes.
+ */
 export const REPORT_ROUTE_IDS = [
   'get_front_office_report',
   'get_cashier_report',
+  'get_audit_report',
   'get_housekeeping_report',
 ] as const;
 export type ReportRouteId = (typeof REPORT_ROUTE_IDS)[number];
@@ -47,6 +61,7 @@ export type ReportRouteId = (typeof REPORT_ROUTE_IDS)[number];
 export const REPORT_ROUTE_SEGMENT: Record<ReportRouteId, string> = {
   get_front_office_report: 'front-office',
   get_cashier_report: 'cashier',
+  get_audit_report: 'night-audit',
   get_housekeeping_report: 'housekeeping',
 };
 
@@ -66,7 +81,13 @@ export type ReportColumnType =
   | 'staff'
   | 'status';
 
-export type ReportColumn = { key: string; label: string; type: ReportColumnType };
+export type ReportColumn = {
+  key: string;
+  label: string;
+  type: ReportColumnType;
+  /** A statistic that can be undefined (a division by zero): an empty cell reads as a dash. */
+  emptyAsDash?: true;
+};
 
 export type ReportFilterDef = {
   name: string;
@@ -75,8 +96,22 @@ export type ReportFilterDef = {
   options: ReadonlyArray<{ value: string; label: string }>;
 };
 
+/** A dropdown whose options the SPA lists from the property (rooms, linen items). */
+export type ReportLookupFilterDef = {
+  name: 'room' | 'item';
+  label: string;
+  source: 'rooms' | 'linen_items';
+};
+
 export type ReportParamsDef =
   | { kind: 'date'; label: string }
+  /** A report with nothing to choose: it reads the property as it is now. */
+  | { kind: 'none' }
+  /**
+   * One closed business date (Part C night-audit reports). The server fills the last closed date
+   * when none is sent; a date with no completed audit gives an empty result with `emptyReason`.
+   */
+  | { kind: 'closed_date'; label: string }
   /** One stay, picked through the desk search (Part B detailed folio). */
   | { kind: 'reservation'; label: string }
   | {
@@ -86,8 +121,10 @@ export type ReportParamsDef =
       defaultSpan: number;
       unit: 'days' | 'nights';
       filters?: ReadonlyArray<ReportFilterDef>;
-      /** Optional cashier filter; the options are the property's staff, listed by the SPA. */
-      staffFilter?: { name: 'cashier'; label: string };
+      /** Optional staff filter (cashier, inspector); the options are the property's staff, listed by the SPA. */
+      staffFilter?: { name: 'cashier' | 'inspector'; label: string };
+      /** Optional room / linen item dropdowns whose options the SPA lists from the property. */
+      lookupFilters?: ReadonlyArray<ReportLookupFilterDef>;
     };
 
 export type ReportDefinition = {
@@ -120,6 +157,16 @@ export type ReportParams = {
   tender?: string;
   /** Cashier (staff user id) filter. */
   cashier?: string;
+  /** Inspector (staff user id) filter (Part C inspection scores). */
+  inspector?: string;
+  /** Room id filter (Part C status history, blocks, inspection scores). */
+  room?: string;
+  /** Linen item id filter (Part C linen log). */
+  item?: string;
+  /** Request department filter (Part C requests). */
+  department?: string;
+  /** Linen movement kind filter (Part C linen log). */
+  kind?: string;
   /** The stay a detailed folio is run for. */
   reservationId?: string;
 };
@@ -148,6 +195,8 @@ export type ReportResponse = {
   totals: ReportRow | null;
   /** Present on single-stay reports. */
   stay?: ReportStay;
+  /** Why there are no rows when it is not simply "nothing matched" (the closed date has no completed audit). */
+  emptyReason?: 'no_closed_audit';
 };
 
 const ARRIVAL_STATUS_FILTER: ReportFilterDef = {
@@ -377,6 +426,397 @@ const CASHIER_REPORT_DEFINITIONS: ReadonlyArray<ReportDefinition> = [
   },
 ];
 
+const CODE_WORD_OVERRIDES: Record<string, string> = {
+  food_beverage: 'Food and beverage',
+  front_office: 'Front office',
+  check_out: 'Check-out',
+  deep_clean: 'Deep clean',
+  out_of_order: 'Out of order',
+};
+
+/** The word for a snake_case code (`in_progress` is "In progress"). Reports show words, never codes. */
+export function reportCodeWord(code: string | null | undefined): string {
+  if (!code) return '';
+  const known = CODE_WORD_OVERRIDES[code];
+  if (known) return known;
+  const spaced = code.replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function codeFilter(
+  name: string,
+  label: string,
+  allLabel: string,
+  codes: ReadonlyArray<string>,
+): ReportFilterDef {
+  return {
+    name,
+    label,
+    options: [{ value: '', label: allLabel }, ...codes.map((c) => ({ value: c, label: reportCodeWord(c) }))],
+  };
+}
+
+/** Part C: night-audit reports (spec 2026-11-20-reports-c-night-audit-housekeeping-design). */
+const NIGHT_AUDIT_REPORT_DEFINITIONS: ReadonlyArray<ReportDefinition> = [
+  {
+    id: 'night_audit_report',
+    group: 'night_audit',
+    title: 'Night audit report',
+    description: 'The audit run for one closed business date: each step, the checks and the report snapshots.',
+    routeId: 'get_audit_report',
+    params: { kind: 'closed_date', label: 'Business date' },
+    columns: [
+      { key: 'section', label: 'Part', type: 'text' },
+      { key: 'name', label: 'Item', type: 'text' },
+      { key: 'outcome', label: 'Result', type: 'text' },
+      { key: 'count', label: 'Count', type: 'integer' },
+      { key: 'attempts', label: 'Attempts', type: 'integer' },
+      { key: 'startedAt', label: 'Started', type: 'datetime' },
+      { key: 'completedAt', label: 'Finished', type: 'datetime' },
+      { key: 'generatedAt', label: 'Generated', type: 'datetime' },
+      { key: 'hash', label: 'Fingerprint (SHA-256)', type: 'text' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'night_audit_revenue',
+    group: 'night_audit',
+    title: 'Night-audit revenue',
+    description:
+      'The revenue figures stored when the date closed, by charge category, with tax shown separately. Payments are on the cashier reports.',
+    routeId: 'get_audit_report',
+    params: { kind: 'closed_date', label: 'Business date' },
+    columns: [
+      { key: 'category', label: 'Charge category', type: 'text' },
+      { key: 'charges', label: 'Charges', type: 'money' },
+      { key: 'tax', label: 'Tax', type: 'money' },
+      { key: 'total', label: 'Total', type: 'money' },
+    ],
+    hasTotals: true,
+  },
+  {
+    id: 'night_audit_daily_statistics',
+    group: 'night_audit',
+    title: 'Daily statistics',
+    description:
+      'Rooms, occupancy, room revenue, ADR and RevPAR for one closed date, from the figures stored when it closed.',
+    routeId: 'get_audit_report',
+    params: { kind: 'closed_date', label: 'Business date' },
+    columns: [
+      { key: 'roomsAvailable', label: 'Rooms available', type: 'integer' },
+      { key: 'roomsSold', label: 'Rooms sold', type: 'integer' },
+      { key: 'occupancy', label: 'Occupancy %', type: 'percent', emptyAsDash: true },
+      { key: 'roomRevenue', label: 'Room revenue', type: 'money' },
+      { key: 'adr', label: 'ADR', type: 'money', emptyAsDash: true },
+      { key: 'revpar', label: 'RevPAR', type: 'money', emptyAsDash: true },
+      { key: 'arrivals', label: 'Arrivals', type: 'integer' },
+      { key: 'departures', label: 'Departures', type: 'integer' },
+      { key: 'inHousePersons', label: 'In-house persons', type: 'integer' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'night_audit_end_of_day',
+    group: 'night_audit',
+    title: 'End-of-day control',
+    description:
+      'The control sheet for one closed date: who closed it, checks that blocked or warned, exceptions, room charges, force-closed shifts, no-shows and fingerprints.',
+    routeId: 'get_audit_report',
+    params: { kind: 'closed_date', label: 'Business date' },
+    columns: [
+      { key: 'section', label: 'Part', type: 'text' },
+      { key: 'item', label: 'Item', type: 'text' },
+      { key: 'detail', label: 'Detail', type: 'text' },
+      { key: 'count', label: 'Count', type: 'integer' },
+      { key: 'amount', label: 'Amount', type: 'money' },
+      { key: 'at', label: 'Time', type: 'datetime' },
+      { key: 'by', label: 'By', type: 'staff' },
+    ],
+    hasTotals: false,
+  },
+];
+
+const HK_DAY_RANGE = { kind: 'range', maxSpan: 31, defaultSpan: 1, unit: 'days' } as const;
+const ROOM_LOOKUP: ReportLookupFilterDef = { name: 'room', label: 'Room', source: 'rooms' };
+
+/** Part C: housekeeping reports (spec 2026-11-20-reports-c-night-audit-housekeeping-design). */
+const HOUSEKEEPING_REPORT_DEFINITIONS: ReadonlyArray<ReportDefinition> = [
+  {
+    id: 'housekeeping_room_status',
+    group: 'housekeeping',
+    title: 'Room status',
+    description: 'Every room as it is now: housekeeping status, condition, any block and the guest in the room.',
+    routeId: 'get_housekeeping_report',
+    params: { kind: 'none' },
+    columns: [
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'floor', label: 'Floor', type: 'text' },
+      { key: 'roomType', label: 'Room type', type: 'text' },
+      { key: 'status', label: 'Housekeeping status', type: 'text' },
+      { key: 'condition', label: 'Condition', type: 'text' },
+      { key: 'block', label: 'Block reason', type: 'text' },
+      { key: 'blockUntil', label: 'Blocked until', type: 'date' },
+      { key: 'guest', label: 'Guest', type: 'guest' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_status_history',
+    group: 'housekeeping',
+    title: 'Status-change history',
+    description: 'Every housekeeping status change in a date range, newest first.',
+    routeId: 'get_housekeeping_report',
+    params: { ...HK_DAY_RANGE, lookupFilters: [ROOM_LOOKUP] },
+    columns: [
+      { key: 'at', label: 'Time', type: 'datetime' },
+      { key: 'businessDate', label: 'Business date', type: 'date' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'from', label: 'From', type: 'text' },
+      { key: 'to', label: 'To', type: 'text' },
+      { key: 'source', label: 'Changed by', type: 'text' },
+      { key: 'reason', label: 'Reason', type: 'text' },
+      { key: 'comment', label: 'Comment', type: 'text' },
+      { key: 'actor', label: 'Staff', type: 'staff' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_blocks',
+    group: 'housekeeping',
+    title: 'Blocks',
+    description: 'Room blocks created, changed and released in a date range.',
+    routeId: 'get_housekeeping_report',
+    params: { ...HK_DAY_RANGE },
+    columns: [
+      { key: 'at', label: 'Time', type: 'datetime' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'event', label: 'What happened', type: 'text' },
+      { key: 'blockType', label: 'Block type', type: 'text' },
+      { key: 'startDate', label: 'From', type: 'date' },
+      { key: 'endDate', label: 'Until', type: 'date' },
+      { key: 'times', label: 'Times', type: 'text' },
+      { key: 'reason', label: 'Reason', type: 'text' },
+      { key: 'actor', label: 'Staff', type: 'staff' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_attendant_workload',
+    group: 'housekeeping',
+    title: 'Attendant workload',
+    description:
+      'Tasks and rooms per attendant and date. Completed includes reviewed. Unassigned and cancelled tasks are left out.',
+    routeId: 'get_housekeeping_report',
+    params: { ...HK_DAY_RANGE },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'attendant', label: 'Attendant', type: 'staff' },
+      { key: 'assigned', label: 'Tasks assigned', type: 'integer' },
+      { key: 'completed', label: 'Completed', type: 'integer' },
+      { key: 'reviewed', label: 'Reviewed', type: 'integer' },
+      { key: 'open', label: 'Open', type: 'integer' },
+      { key: 'overdue', label: 'Overdue', type: 'integer' },
+      { key: 'rooms', label: 'Rooms assigned', type: 'integer' },
+    ],
+    hasTotals: true,
+  },
+  {
+    id: 'housekeeping_inspection_scores',
+    group: 'housekeeping',
+    title: 'Inspection scores',
+    description: 'Room inspections with score and result, and the average score for each inspector.',
+    routeId: 'get_housekeeping_report',
+    params: {
+      ...HK_DAY_RANGE,
+      lookupFilters: [ROOM_LOOKUP],
+      staffFilter: { name: 'inspector', label: 'Inspector' },
+    },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'template', label: 'Checklist', type: 'text' },
+      { key: 'inspector', label: 'Inspector', type: 'staff' },
+      { key: 'attendant', label: 'Attendant', type: 'staff' },
+      { key: 'score', label: 'Score %', type: 'percent', emptyAsDash: true },
+      { key: 'threshold', label: 'Pass mark %', type: 'percent' },
+      { key: 'result', label: 'Result', type: 'text' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_guest_audit',
+    group: 'housekeeping',
+    title: 'Guest audit',
+    description: 'Guest-count audit sessions and the rooms where the count differed from the front office.',
+    routeId: 'get_housekeeping_report',
+    params: { ...HK_DAY_RANGE },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'session', label: 'Session', type: 'text' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'frontOffice', label: 'Front office guests', type: 'integer' },
+      { key: 'housekeeping', label: 'Counted guests', type: 'integer' },
+      { key: 'difference', label: 'Difference', type: 'integer' },
+      { key: 'reason', label: 'Reason', type: 'text' },
+      { key: 'evidence', label: 'Evidence', type: 'text' },
+      { key: 'countedBy', label: 'Counted by', type: 'staff' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_requests',
+    group: 'housekeeping',
+    title: 'Requests',
+    description: 'Guest requests raised in a date range.',
+    routeId: 'get_housekeeping_report',
+    params: {
+      ...HK_DAY_RANGE,
+      filters: [
+        codeFilter('department', 'Department', 'All departments', HOUSEKEEPING_REQUEST_DEPARTMENTS),
+        codeFilter('status', 'Status', 'All statuses', HOUSEKEEPING_REQUEST_STATUSES),
+      ],
+    },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'guest', label: 'Guest', type: 'guest' },
+      { key: 'type', label: 'Request', type: 'text' },
+      { key: 'department', label: 'Department', type: 'text' },
+      { key: 'status', label: 'Status', type: 'text' },
+      { key: 'note', label: 'Note', type: 'text' },
+      { key: 'assignee', label: 'Assigned to', type: 'staff' },
+      { key: 'createdAt', label: 'Raised', type: 'datetime' },
+      { key: 'resolvedAt', label: 'Resolved', type: 'datetime' },
+      { key: 'resolution', label: 'Resolution', type: 'text' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_lost_found',
+    group: 'housekeeping',
+    title: 'Lost and found register',
+    description: 'Items found in a date range with each step of their custody.',
+    routeId: 'get_housekeeping_report',
+    params: {
+      ...HK_DAY_RANGE,
+      filters: [codeFilter('status', 'Status', 'All statuses', LOST_ITEM_STATUSES)],
+    },
+    columns: [
+      { key: 'date', label: 'Found on', type: 'date' },
+      { key: 'item', label: 'Item', type: 'text' },
+      { key: 'category', label: 'Category', type: 'text' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'foundWhere', label: 'Found where', type: 'text' },
+      { key: 'foundBy', label: 'Found by', type: 'staff' },
+      { key: 'storage', label: 'Stored at', type: 'text' },
+      { key: 'status', label: 'Status', type: 'text' },
+      { key: 'handedTo', label: 'Handed to', type: 'staff' },
+      { key: 'handedOverAt', label: 'Handed over', type: 'datetime' },
+      { key: 'claimant', label: 'Claimed by', type: 'guest' },
+      { key: 'claimedAt', label: 'Claimed', type: 'datetime' },
+      { key: 'disposedAt', label: 'Disposed', type: 'datetime' },
+      { key: 'disposeReason', label: 'Disposal reason', type: 'text' },
+      { key: 'closedAt', label: 'Closed', type: 'datetime' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_cases',
+    group: 'housekeeping',
+    title: 'Damage and missing cases',
+    description: 'Missing-item and damage cases opened in a date range.',
+    routeId: 'get_housekeeping_report',
+    params: {
+      ...HK_DAY_RANGE,
+      filters: [codeFilter('status', 'Status', 'All statuses', HOUSEKEEPING_CASE_STATUSES)],
+    },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'kind', label: 'Case', type: 'text' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'guest', label: 'Guest', type: 'guest' },
+      { key: 'item', label: 'Item', type: 'text' },
+      { key: 'detail', label: 'Detail', type: 'text' },
+      { key: 'returned', label: 'Returned', type: 'text' },
+      { key: 'status', label: 'Status', type: 'text' },
+      { key: 'closedAt', label: 'Closed', type: 'datetime' },
+      { key: 'closureNote', label: 'Closing note', type: 'text' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_linen',
+    group: 'housekeeping',
+    title: 'Linen log',
+    description: 'Linen and towel movements in a date range.',
+    routeId: 'get_housekeeping_report',
+    params: {
+      ...HK_DAY_RANGE,
+      filters: [codeFilter('kind', 'Movement', 'All movements', LINEN_MOVEMENT_KINDS)],
+      lookupFilters: [{ name: 'item', label: 'Item', source: 'linen_items' }],
+    },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'item', label: 'Item', type: 'text' },
+      { key: 'kind', label: 'Movement', type: 'text' },
+      { key: 'quantity', label: 'Quantity', type: 'integer' },
+      { key: 'onHandAfter', label: 'On hand after', type: 'integer' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'attendant', label: 'Attendant', type: 'staff' },
+      { key: 'actor', label: 'Recorded by', type: 'staff' },
+      { key: 'note', label: 'Note', type: 'text' },
+    ],
+    hasTotals: false,
+  },
+  {
+    id: 'housekeeping_minibar',
+    group: 'housekeeping',
+    title: 'Minibar',
+    description: 'Minibar pickups in a date range, each with its stock and folio state. Totals count charged pickups only.',
+    routeId: 'get_housekeeping_report',
+    params: { ...HK_DAY_RANGE },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'guest', label: 'Guest', type: 'guest' },
+      { key: 'product', label: 'Product', type: 'text' },
+      { key: 'quantity', label: 'Quantity', type: 'integer' },
+      { key: 'unitAmount', label: 'Unit price', type: 'money' },
+      { key: 'amount', label: 'Amount', type: 'money' },
+      { key: 'status', label: 'Pickup', type: 'text' },
+      { key: 'folio', label: 'On the folio', type: 'text' },
+      { key: 'stock', label: 'Stock taken', type: 'text' },
+      { key: 'attendant', label: 'Attendant', type: 'staff' },
+    ],
+    hasTotals: true,
+  },
+  {
+    id: 'housekeeping_amenities',
+    group: 'housekeeping',
+    title: 'Amenity dispatches',
+    description: 'Amenities planned and confirmed for rooms in a date range, line by line.',
+    routeId: 'get_housekeeping_report',
+    params: {
+      ...HK_DAY_RANGE,
+      filters: [codeFilter('status', 'Status', 'All statuses', AMENITY_DISPATCH_STATUSES)],
+    },
+    columns: [
+      { key: 'date', label: 'Date', type: 'date' },
+      { key: 'room', label: 'Room', type: 'text' },
+      { key: 'rule', label: 'Rule', type: 'text' },
+      { key: 'when', label: 'When', type: 'text' },
+      { key: 'amenity', label: 'Amenity', type: 'text' },
+      { key: 'expected', label: 'Planned', type: 'integer' },
+      { key: 'actual', label: 'Given', type: 'integer' },
+      { key: 'status', label: 'Status', type: 'text' },
+      { key: 'exception', label: 'Exception', type: 'text' },
+      { key: 'confirmedAt', label: 'Confirmed', type: 'datetime' },
+      { key: 'confirmedBy', label: 'Confirmed by', type: 'staff' },
+    ],
+    hasTotals: false,
+  },
+];
+
 export const REPORT_DEFINITIONS: ReadonlyArray<ReportDefinition> = [
   {
     id: 'front_office_arrivals',
@@ -504,6 +944,8 @@ export const REPORT_DEFINITIONS: ReadonlyArray<ReportDefinition> = [
     hasTotals: true,
   },
   ...CASHIER_REPORT_DEFINITIONS,
+  ...NIGHT_AUDIT_REPORT_DEFINITIONS,
+  ...HOUSEKEEPING_REPORT_DEFINITIONS,
 ];
 
 /** Every permission a user needs to run a report: its group's, then any extra. */
@@ -563,7 +1005,8 @@ export function parseReportParams(
     const v = get(n);
     return v == null || v === '' ? undefined : v;
   };
-  if (def.params.kind === 'date') {
+  if (def.params.kind === 'none') return { ok: true, params: {} };
+  if (def.params.kind === 'date' || def.params.kind === 'closed_date') {
     const date = clean('date');
     if (date === undefined) return { ok: true, params: {} };
     if (!isRealIsoDate(date)) return { ok: false, error: 'invalid_query', detail: 'invalid_date' };
@@ -605,11 +1048,18 @@ export function parseReportParams(
     (params as Record<string, string>)[f.name] = v;
   }
   if (def.params.staffFilter) {
-    const v = clean(def.params.staffFilter.name);
+    const name = def.params.staffFilter.name;
+    const v = clean(name);
     if (v !== undefined) {
-      if (!REPORT_ID_PARAM.test(v)) return { ok: false, error: 'invalid_query', detail: 'invalid_cashier' };
-      params.cashier = v;
+      if (!REPORT_ID_PARAM.test(v)) return { ok: false, error: 'invalid_query', detail: `invalid_${name}` };
+      params[name] = v;
     }
+  }
+  for (const f of def.params.lookupFilters ?? []) {
+    const v = clean(f.name);
+    if (v === undefined) continue;
+    if (!REPORT_ID_PARAM.test(v)) return { ok: false, error: 'invalid_query', detail: `invalid_${f.name}` };
+    params[f.name] = v;
   }
   return { ok: true, params };
 }

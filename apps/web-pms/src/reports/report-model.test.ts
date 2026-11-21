@@ -10,6 +10,7 @@ import {
   minorToDecimal,
   reportCsvFileName,
   formatReportCell,
+  reportLookupKey,
   reportQueryKey,
   staffFallbackWord,
 } from './report-model.js';
@@ -206,5 +207,71 @@ describe('Part B: reservation parameter, staff and datetime columns, negative mo
     ]);
     expect(minorToDecimal(-100050, 2)).toBe('-1000.50');
     expect(minorToDecimal(-7, 0)).toBe('-7');
+  });
+});
+
+describe('Part C: closed-date and no-parameter reports', () => {
+  const revenue = reportDefinition('night_audit_revenue')!;
+  const roomStatus = reportDefinition('housekeeping_room_status')!;
+  const scores = reportDefinition('housekeeping_inspection_scores')!;
+  const stats = reportDefinition('night_audit_daily_statistics')!;
+
+  it('the closed date defaults to the last closed business date: the day before the business date', () => {
+    expect(defaultReportParams(revenue, '2026-11-20')).toEqual({ date: '2026-11-19' });
+    expect(defaultReportParams(revenue, '2026-03-01')).toEqual({ date: '2026-02-28' });
+    expect(defaultReportParams(roomStatus, '2026-11-20')).toEqual({});
+    expect(checkReportParams(revenue, {})).toEqual({ ok: false, message: 'Choose a date.' });
+    expect(checkReportParams(revenue, { date: '2026-11-19' })).toEqual({ ok: true, params: { date: '2026-11-19' } });
+    expect(checkReportParams(roomStatus, {})).toEqual({ ok: true, params: {} });
+  });
+
+  it('range defaults carry the inspector and room filters empty; the query key carries them when set', () => {
+    expect(defaultReportParams(scores, '2026-11-20')).toEqual({
+      from: '2026-11-20',
+      to: '2026-11-20',
+      inspector: '',
+      room: '',
+    });
+    expect(
+      reportQueryKey('p1', 'housekeeping_inspection_scores', { from: '2026-11-20', to: '2026-11-20', room: 'rm_1' }),
+    ).toEqual(['report', 'p1', 'housekeeping_inspection_scores', { from: '2026-11-20', to: '2026-11-20', room: 'rm_1' }]);
+  });
+
+  it('an undefined statistic is a dash on screen and empty in CSV', () => {
+    const fmt = {
+      money: (m: number) => `₹${m / 100}`,
+      date: (d: string) => d,
+      guest: (g: string) => g,
+      dateTime: (ms: number) => String(ms),
+      staff: (u: string) => u,
+    };
+    const row = { occupancy: null, adr: null, revpar: 2500, roomRevenue: 0 };
+    const cell = (key: string) => formatReportCell(stats.columns.find((c) => c.key === key)!, row, 'INR', fmt);
+    expect(cell('occupancy')).toBe('—');
+    expect(cell('adr')).toBe('—');
+    expect(cell('revpar')).toBe('₹25');
+    // A column that is not a statistic stays blank.
+    expect(formatReportCell(scores.columns.find((c) => c.key === 'attendant')!, { attendant: null }, 'INR', fmt)).toBe('');
+    const csv = buildReportCsv({
+      columns: stats.columns,
+      rows: [{ roomsAvailable: 0, roomsSold: 0, occupancy: null, roomRevenue: 0, adr: null, revpar: null }],
+      totals: null,
+      currency: 'INR',
+      guest: (g) => g,
+    });
+    expect(csv.split('\r\n')[1]).toBe('0,0,,0.00,,,,,,INR');
+  });
+
+  it('the printed parameters name the room and inspector filters in words', () => {
+    expect(
+      describeReportParams(
+        scores,
+        { from: '2026-11-20', to: '2026-11-20', inspector: 'staff_1', room: 'rm_101' },
+        (d) => d,
+        () => 'Ines',
+        (_n, id) => (id === 'rm_101' ? '101' : id),
+      ),
+    ).toBe('2026-11-20 · Inspector: Ines · Room: 101');
+    expect(reportLookupKey('p1', 'rooms')).toEqual(['report-lookup', 'p1', 'rooms']);
   });
 });

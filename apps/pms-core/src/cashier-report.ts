@@ -301,7 +301,8 @@ function stayLookup(deps: CashierReportDeps): (reservationId: string | null) => 
   };
 }
 
-function chargeCodeNames(deps: CashierReportDeps): Map<string, string> {
+/** Charge code to operator name, for reports that show a category (cashier and night-audit reports). */
+export function chargeCodeNames(deps: { sql: SqlStorageLike }): Map<string, string> {
   const rows = deps.sql.exec(`SELECT code, name FROM charge_code`).toArray() as Array<{
     code: string;
     name: string;
@@ -1178,6 +1179,7 @@ export function resolveCashierParams(
 ): ReportParams {
   if (def.params.kind === 'date') return { date: params.date ?? businessDate };
   if (def.params.kind === 'reservation') return { reservationId: params.reservationId ?? '' };
+  if (def.params.kind !== 'range') return {};
   const from = params.from ?? businessDate;
   const to = params.to ?? addDays(from, def.params.defaultSpan - 1);
   const out: ReportParams = { from, to };

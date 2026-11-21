@@ -1,19 +1,13 @@
-import type { NightAuditCheckId, NightAuditCheckSeverity, NightAuditFixedCheckId } from '@hospai/contracts';
+import {
+  NIGHT_AUDIT_CHECK_LABELS,
+  nightAuditCheckOutcomeWord,
+  type NightAuditCheckId,
+  type NightAuditCheckSeverity,
+  type NightAuditFixedCheckId,
+} from '@hospai/contracts';
 
-export const CHECK_LABELS: Record<NightAuditCheckId | NightAuditFixedCheckId, string> = {
-  queued_commands: 'Queued commands',
-  open_exceptions: 'Open exceptions',
-  arrivals_not_checked_in: 'Arrivals not checked in',
-  departures_not_checked_out: 'Departures not checked out',
-  cashier_shift_open: 'Cashier shifts still open',
-  dirty_room_assigned: 'Arrivals assigned a dirty room',
-  departed_with_balance: 'Departed with a balance',
-  id_proof_missing: 'In-house guests with no ID document recorded',
-  arrival_deposit_missing: 'Arrivals missing a required deposit',
-  open_folio_unsettled: 'Open folios with a balance',
-  open_folio_past_close_by: 'Open folios past close-by',
-  open_folio_zero_balance: 'Open folios at zero balance',
-};
+export const CHECK_LABELS: Record<NightAuditCheckId | NightAuditFixedCheckId, string> =
+  NIGHT_AUDIT_CHECK_LABELS;
 
 /** What the check counts, in operator language. Settings shows this beside the select. */
 export const CHECK_DESCRIPTIONS: Record<NightAuditCheckId | NightAuditFixedCheckId, string> = {
@@ -47,11 +41,7 @@ export function checkOutcomeWord(
   severity: NightAuditCheckSeverity,
   count: number | null,
 ): 'Off' | 'Clear' | 'Fail' | 'Warn' | 'Info' {
-  if (severity === 'off') return 'Off';
-  if (count == null || count <= 0) return 'Clear';
-  if (severity === 'fail') return 'Fail';
-  if (severity === 'warn') return 'Warn';
-  return 'Info';
+  return nightAuditCheckOutcomeWord(severity, count);
 }
 
 export const NIGHT_AUDIT_CHECK_HINT_ANY_FAIL =

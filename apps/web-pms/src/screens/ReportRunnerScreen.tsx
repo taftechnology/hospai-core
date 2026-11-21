@@ -49,6 +49,7 @@ import {
   formatReportCell,
   guestRefsOf,
   reportCsvFileName,
+  reportLookupKey,
   reportQueryKey,
   staffFallbackWord,
 } from '../reports/report-model.js';
@@ -113,8 +114,9 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [pickedStay, setPickedStay] = useState<PickedStay | null>(null);
   const isStayReport = def.params.kind === 'reservation';
+  const isNoParams = def.params.kind === 'none';
   const form: ReportParams | null =
-    draft ?? (today || isStayReport ? defaultReportParams(def, today ?? '') : null);
+    draft ?? (today || isStayReport || isNoParams ? defaultReportParams(def, today ?? '') : null);
 
   // Staff names (cashiers, actors) come from the property's member list, only for a viewer who may
   // read staff; otherwise a plain word stands in. Asked only when the report has staff in it.
@@ -137,11 +139,50 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
     retry: false,
   });
   const members = membersQ.data?.members ?? [];
+  // Housekeeping staff (attendants, inspectors) are roster people, not users: their names come from
+  // the roster, for a viewer who may read it.
+  const canReadRoster = Boolean(meQ.data && hasPropertyPermission(meQ.data as PropertyMe, 'roster:read'));
+  const rosterQ = useQuery({
+    queryKey: reportLookupKey(propertyId, 'roster'),
+    queryFn: () => api.listRoster(propertyId),
+    enabled: needsStaff && def.group === 'housekeeping' && canReadRoster,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const roster = rosterQ.data?.staff ?? [];
+  // Rooms and linen items for the form's dropdowns.
+  const lookups = def.params.kind === 'range' ? (def.params.lookupFilters ?? []) : [];
+  const roomsQ = useQuery({
+    queryKey: reportLookupKey(propertyId, 'rooms'),
+    queryFn: () => api.listRooms(propertyId),
+    enabled: lookups.some((l) => l.source === 'rooms'),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const itemsQ = useQuery({
+    queryKey: reportLookupKey(propertyId, 'linen_items'),
+    queryFn: () => api.getLinenMovements(propertyId),
+    enabled: lookups.some((l) => l.source === 'linen_items'),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+  const lookupOptions = (source: 'rooms' | 'linen_items'): Array<{ value: string; label: string }> =>
+    source === 'rooms'
+      ? [...(roomsQ.data?.rooms ?? [])]
+          .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+          .map((r) => ({ value: r.roomId, label: r.code }))
+      : (itemsQ.data?.items ?? []).map((i) => ({ value: i.itemId, label: i.name }));
+  const lookupName = (name: 'room' | 'item', id: string): string =>
+    lookupOptions(name === 'room' ? 'rooms' : 'linen_items').find((o) => o.value === id)?.label ?? id;
   const memberName = (userId: string): string | null => {
     const m = members.find((x) => x.userId === userId);
     return m ? (m.displayName ?? m.email ?? null) : null;
   };
-  const staffName = (userId: string) => memberName(userId) ?? staffFallbackWord(userId);
+  const rosterName = (staffId: string): string | null => {
+    const r = roster.find((x) => x.staffId === staffId);
+    return r ? (r.displayName ?? null) : null;
+  };
+  const staffName = (userId: string) => memberName(userId) ?? rosterName(userId) ?? staffFallbackWord(userId);
 
   const propertyQ = useQuery({
     queryKey: ['property', propertyId],
@@ -173,6 +214,18 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
   const states: Record<string, GuestRowState> = batchQ.data?.states ?? {};
   const guestName = (ref: string) => guestLabel(states[ref], ref);
 
+  // Cashiers are property members; inspectors are roster people.
+  const staffFilter = def.params.kind === 'range' ? def.params.staffFilter : undefined;
+  const staffOptions: Array<{ value: string; label: string }> =
+    staffFilter?.name === 'inspector'
+      ? roster
+          .filter((r) => r.status === 'active' && r.exitedAt == null)
+          .map((r) => ({ value: r.staffId, label: r.displayName ?? staffFallbackWord(r.staffId) }))
+      : members.map((m) => ({
+          value: m.userId,
+          label: m.displayName ?? m.email ?? staffFallbackWord(m.userId),
+        }));
+
   const set = (patch: ReportParams) => setDraft({ ...(form ?? {}), ...patch });
 
   function run() {
@@ -190,7 +243,7 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
 
   const fmt = { money, date, guest: guestName, dateTime: (ms: number) => dateTime(ms), staff: staffName };
   const canOutput = Boolean(result && result.rows.length > 0);
-  const paramsText = result ? describeReportParams(def, result.params, date, staffName) : '';
+  const paramsText = result ? describeReportParams(def, result.params, date, staffName, lookupName) : '';
 
   function downloadCsv() {
     if (!result) return;
@@ -232,7 +285,13 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
         data-testid="report-idle"
         title="Run the report"
         description={
-          isStayReport ? 'Find a stay above, then press Run.' : 'Choose the dates above, then press Run.'
+          isStayReport
+            ? 'Find a stay above, then press Run.'
+            : isNoParams
+              ? 'Press Run to read the rooms as they are now.'
+              : def.params.kind === 'range'
+                ? 'Choose the dates above, then press Run.'
+                : 'Choose the date above, then press Run.'
         }
       />
     );
@@ -249,6 +308,19 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
     );
   } else if (!result) {
     body = <Skeleton />;
+  } else if (result.emptyReason === 'no_closed_audit') {
+    body = (
+      <EmptyState
+        data-testid="report-no-audit"
+        kind="nomatch"
+        title="No completed night audit"
+        description={
+          result.params.date
+            ? `The night audit for ${date(result.params.date)} has not been completed. Choose a date the audit has closed.`
+            : 'Choose a date the audit has closed.'
+        }
+      />
+    );
   } else if (result.rows.length === 0) {
     body = (
       <EmptyState
@@ -284,9 +356,14 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
                 setDraft({});
               }}
             />
-          ) : def.params.kind === 'date' ? (
+          ) : def.params.kind === 'none' ? (
+            <p className="muted" data-testid="report-no-params">
+              This report has no dates. It reads the property as it is now.
+            </p>
+          ) : def.params.kind === 'date' || def.params.kind === 'closed_date' ? (
             <Field
               label={def.params.label}
+              hint={def.params.kind === 'closed_date' ? 'A date the night audit has closed.' : undefined}
               size="sm"
               error={formError ?? undefined}
               control={
@@ -341,19 +418,42 @@ function ReportRunner({ def }: { def: ReportDefinition }) {
                   }
                 />
               ))}
-              {def.params.staffFilter && members.length > 0 ? (
+              {lookups.map((l) => {
+                const options = lookupOptions(l.source);
+                return options.length > 0 ? (
+                  <Field
+                    key={l.name}
+                    label={l.label}
+                    size="md"
+                    control={
+                      <NativeSelect
+                        value={form?.[l.name] ?? ''}
+                        onChange={(e) => set({ [l.name]: e.target.value })}
+                      >
+                        <option value="">{l.source === 'rooms' ? 'All rooms' : 'All items'}</option>
+                        {options.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    }
+                  />
+                ) : null;
+              })}
+              {staffOptions.length > 0 && staffFilter ? (
                 <Field
-                  label={def.params.staffFilter.label}
+                  label={staffFilter.label}
                   size="md"
                   control={
                     <NativeSelect
-                      value={form?.cashier ?? ''}
-                      onChange={(e) => set({ cashier: e.target.value })}
+                      value={form?.[staffFilter.name] ?? ''}
+                      onChange={(e) => set({ [staffFilter.name]: e.target.value })}
                     >
-                      <option value="">All cashiers</option>
-                      {members.map((m) => (
-                        <option key={m.userId} value={m.userId}>
-                          {m.displayName ?? m.email ?? staffFallbackWord(m.userId)}
+                      <option value="">{`All ${staffFilter.label.toLowerCase()}s`}</option>
+                      {staffOptions.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
                         </option>
                       ))}
                     </NativeSelect>

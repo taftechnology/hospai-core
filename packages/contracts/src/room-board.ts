@@ -16,6 +16,17 @@ export const ROOM_BOARD_CONDITIONS = [
 
 export type RoomBoardCondition = (typeof ROOM_BOARD_CONDITIONS)[number];
 
+/** The word shown for each condition (the Live rooms screen and the room-status report). */
+export const ROOM_BOARD_CONDITION_WORDS: Record<RoomBoardCondition, string> = {
+  available: 'Available',
+  reserved: 'Reserved',
+  occupied: 'Occupied',
+  dirty: 'Dirty',
+  maintenance: 'Maintenance',
+  billed: 'Billed',
+  unavailable: 'Unavailable',
+};
+
 export function roomBoardCondition(input: {
   housekeepingStatus: string;
   oooCoversToday: boolean;

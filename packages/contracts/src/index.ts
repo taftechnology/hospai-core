@@ -47,3 +47,4 @@ export * from './tender.js';
 export * from './recurring-charge-due.js';
 export * from './room-board.js';
 export * from './reports.js';
+export * from './report-stats.js';

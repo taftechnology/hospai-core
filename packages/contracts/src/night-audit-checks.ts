@@ -81,3 +81,43 @@ export type NightAuditCheckLogDate = {
 export type NightAuditCheckLog = {
   dates: NightAuditCheckLogDate[];
 };
+
+/** Operator wording for every check (the Night audit and Settings screens, and the audit reports). */
+export const NIGHT_AUDIT_CHECK_LABELS: Record<NightAuditCheckId | NightAuditFixedCheckId, string> = {
+  queued_commands: 'Queued commands',
+  open_exceptions: 'Open exceptions',
+  arrivals_not_checked_in: 'Arrivals not checked in',
+  departures_not_checked_out: 'Departures not checked out',
+  cashier_shift_open: 'Cashier shifts still open',
+  dirty_room_assigned: 'Arrivals assigned a dirty room',
+  departed_with_balance: 'Departed with a balance',
+  id_proof_missing: 'In-house guests with no ID document recorded',
+  arrival_deposit_missing: 'Arrivals missing a required deposit',
+  open_folio_unsettled: 'Open folios with a balance',
+  open_folio_past_close_by: 'Open folios past close-by',
+  open_folio_zero_balance: 'Open folios at zero balance',
+};
+
+/** Operator wording for the night-audit steps. */
+export const NIGHT_AUDIT_STEP_LABELS: Record<string, string> = {
+  PRE_CHECK: 'Pre-check',
+  POST_ROOM_CHARGES: 'Post room charges',
+  PROCESS_NO_SHOWS: 'Process no-shows',
+  AUTO_TRANSFER: 'Auto transfer',
+  CLOSE_CASHIER_SHIFTS: 'Close cashier shifts',
+  SNAPSHOT_REPORTS: 'Snapshot reports',
+  ROLL_BUSINESS_DATE: 'Roll business date',
+  ARCHIVE: 'Archive',
+};
+
+/** The word for one check result: Off, Clear (nothing counted), or the severity that applied. */
+export function nightAuditCheckOutcomeWord(
+  severity: NightAuditCheckSeverity,
+  count: number | null,
+): 'Off' | 'Clear' | 'Fail' | 'Warn' | 'Info' {
+  if (severity === 'off') return 'Off';
+  if (count == null || count <= 0) return 'Clear';
+  if (severity === 'fail') return 'Fail';
+  if (severity === 'warn') return 'Warn';
+  return 'Info';
+}

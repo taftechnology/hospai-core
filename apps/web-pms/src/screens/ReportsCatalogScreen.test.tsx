@@ -106,7 +106,7 @@ describe('ReportsCatalogScreen', () => {
     expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
   });
 
-  it('lists the four night-audit reports for night_audit:run and no housekeeping group', async () => {
+  it('lists the Manager Report and the four night-audit reports for night_audit:run and no housekeeping group', async () => {
     getMe.mockResolvedValue(me(['night_audit:run']));
     renderCatalog();
     const group = await screen.findByTestId('reports-group-night_audit');
@@ -116,6 +116,7 @@ describe('ReportsCatalogScreen', () => {
         .getAllByRole('link')
         .map((a) => [a.textContent, a.getAttribute('href')]),
     ).toEqual([
+      ['Manager Report', '/reports/manager'],
       ['Night audit report', '/reports/night_audit_report'],
       ['Night-audit revenue', '/reports/night_audit_revenue'],
       ['Daily statistics', '/reports/night_audit_daily_statistics'],
@@ -123,6 +124,14 @@ describe('ReportsCatalogScreen', () => {
     ]);
     expect(screen.queryByTestId('reports-group-housekeeping')).toBeNull();
     expect(screen.queryByTestId('reports-group-front_office')).toBeNull();
+  });
+
+  it('does not offer the Manager Report without night_audit:run', async () => {
+    getMe.mockResolvedValue(me(['reservations:read']));
+    renderCatalog();
+    await screen.findByTestId('reports-group-front_office');
+    expect(screen.queryByTestId('report-link-manager_report')).toBeNull();
+    expect(screen.queryByTestId('reports-group-night_audit')).toBeNull();
   });
 
   it('lists the twelve housekeeping reports for housekeeping:read and no night-audit group', async () => {

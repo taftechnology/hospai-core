@@ -275,6 +275,8 @@ import {
   HK_MINIBAR_PICKUP_LINES_MAX,
   MINIBAR_CONFIG_KEY,
   MinibarConfigSchema,
+  readManagerReportConfig,
+  type ManagerReportResponse,
   type MinibarConfig,
   type MinibarSetupView,
   STAFF_EXITED,
@@ -532,6 +534,14 @@ import {
   type RevenueSnapshot,
 } from './audit-report.js';
 import { readCashierReport, type CashierReportResult } from './cashier-report.js';
+import {
+  buildDayStats,
+  buildManagerReport,
+  insertDayStats,
+  readDayExtras,
+  type DayStats,
+  type PaymentLine,
+} from './manager-report.js';
 import { readHousekeepingReport, type HousekeepingReportResult } from './housekeeping-report.js';
 import {
   readFrontOfficeReport,
@@ -1939,6 +1949,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'idempotency',
   'invoice',
   'night_audit_check_result',
+  'night_audit_day_stats',
   'night_audit_report',
   'night_audit_run',
   'outbox',
@@ -2019,6 +2030,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM invoice) +
       (SELECT COUNT(*) FROM night_audit_check_result) +
+      (SELECT COUNT(*) FROM night_audit_day_stats) +
       (SELECT COUNT(*) FROM night_audit_report) +
       (SELECT COUNT(*) FROM night_audit_run) +
       (SELECT COUNT(*) FROM outbox) +
@@ -2114,6 +2126,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     string,
     Array<{ reportId: string; r2Key: string; sha256: string; generatedAt: number }>
   >();
+
+  /** Day statistics (R4.32) computed by SNAPSHOT_REPORTS, inserted in the step's own transaction. */
+  private pendingDayStats = new Map<string, DayStats>();
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -4089,6 +4104,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           this.runAutoTransferSync(businessDate);
         } else if (step === 'SNAPSHOT_REPORTS') {
           this.indexReportPutsSync(businessDate);
+          this.indexDayStatsSync(businessDate);
           this.postPendingCityLedgerChargesForBusinessDateSync(businessDate);
         } else if (step === 'ARCHIVE') {
           this.indexManifestSync(businessDate);
@@ -5183,12 +5199,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }>;
     const tenderRows = this.ctx.storage.sql
       .exec(
-        `SELECT txn_currency, source, amount_minor
-         FROM folio_line
-         WHERE business_date = ? AND charge_code = 'PAYMENT'`,
+        `SELECT f.txn_currency, f.source, f.amount_minor, f.ledger_amount_minor, p.tender_type
+         FROM folio_line f LEFT JOIN payment p ON p.payment_id = f.payment_id
+         WHERE f.business_date = ? AND f.charge_code = 'PAYMENT'`,
         businessDate,
       )
-      .toArray() as Array<{ txn_currency: string; source: string | null; amount_minor: number }>;
+      .toArray() as Array<{
+      txn_currency: string;
+      source: string | null;
+      amount_minor: number;
+      ledger_amount_minor: number;
+      tender_type: string | null;
+    }>;
     const tenders = new Map<string, { currency: string; capturedMinor: number; refundedMinor: number }>();
     for (const row of tenderRows) {
       const currency = row.txn_currency;
@@ -5220,9 +5242,76 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       await this.putReportObject(bucket, propertyId, businessDate, 'cashier', cashier, generatedAt),
     ];
     this.pendingReportPuts.set(businessDate, pending);
+    this.prepareDayStats(businessDate, {
+      occupancy,
+      revenue,
+      payments: tenderRows.map(
+        (r): PaymentLine => ({
+          source: r.source,
+          amountMinor: Number(r.amount_minor),
+          ledgerAmountMinor: Number(r.ledger_amount_minor),
+          tenderType: r.tender_type,
+        }),
+      ),
+    });
     if (this.snapshotFailureAfterPutForTest) {
       throw new Error(this.snapshotFailureAfterPutForTest);
     }
+  }
+
+  /**
+   * R4.32: the day's statistics row, computed from the very figures just written to R2 (the same
+   * `occupancy` and `revenue` objects, and the payment lines the cashier snapshot reads) plus the
+   * counts no snapshot carries. A failure leaves the day without a row ("not recorded" on the
+   * report); it never halts the audit.
+   */
+  private prepareDayStats(
+    businessDate: string,
+    figures: {
+      occupancy: { physical: number; sold: number; blocked: number };
+      revenue: {
+        currency: string | null;
+        roomNet: number;
+        taxTotal: number;
+        byChargeCodeAndSource: Array<{ chargeCode: string; source: string | null; ledgerAmountMinor: number }>;
+      };
+      payments: PaymentLine[];
+    },
+  ): void {
+    this.pendingDayStats.delete(businessDate);
+    try {
+      const currency = this.readStoredLedgerCurrencySync();
+      if (!currency) return;
+      const timeZone = this.readStoredTimeZoneSync() ?? 'UTC';
+      const config = readManagerReportConfig(this.readConfigValueSync('pms.reports.manager_report'));
+      const nextDate = new Date(`${businessDate}T00:00:00Z`);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      const extras = readDayExtras(
+        this.ctx.storage.sql,
+        businessDate,
+        nextDate.toISOString().slice(0, 10),
+        (d) => zonedMidnightMs(d, timeZone),
+      );
+      this.pendingDayStats.set(
+        businessDate,
+        buildDayStats({
+          businessDate,
+          currency,
+          figures,
+          payments: figures.payments,
+          fnbChargeCodes: config.fnbChargeCodes,
+          extras,
+        }),
+      );
+    } catch (e) {
+      console.warn('[manager-report] day statistics skipped', businessDate, e instanceof Error ? e.message : e);
+    }
+  }
+
+  private indexDayStatsSync(businessDate: string): void {
+    const stats = this.pendingDayStats.get(businessDate);
+    if (stats) insertDayStats(this.ctx.storage.sql, stats, Date.now());
+    this.pendingDayStats.delete(businessDate);
   }
 
   private async archiveAsync(businessDate: string): Promise<void> {
@@ -14987,6 +15076,24 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       reportId,
       params,
     );
+  }
+
+  /**
+   * Manager Report (R4.32): Day, month-to-date and fiscal-year-to-date columns from the stored
+   * per-day statistics rows. One range read of at most 366 rows; no R2 and no scan of folios.
+   */
+  async readManagerReportView(
+    params: { date?: string },
+  ): Promise<
+    ManagerReportResponse | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    const config = readManagerReportConfig(this.readConfigValueSync('pms.reports.manager_report'));
+    return buildManagerReport({ sql: this.ctx.storage.sql, businessDate, currency, config }, params.date);
   }
 
   /** Net GUEST payments on one window, floored at 0 (see `netAdvancePaidMinor`). */

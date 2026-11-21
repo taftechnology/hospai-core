@@ -319,17 +319,17 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 55', () => {
+  it('applies property migrations through version 56', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(55);
+    expect(v1).toBe(56);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(55);
-    expect(sql.schemaVersion).toHaveLength(55);
+    expect(v2).toBe(56);
+    expect(sql.schemaVersion).toHaveLength(56);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50, 51, 52, 53, 54, 55,
+      49, 50, 51, 52, 53, 54, 55, 56,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -915,7 +915,7 @@ describe('housekeeping depth C v55', () => {
       expect(ddl, t).toContain(`CREATE TABLE ${t} (`);
     }
     expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b/i);
-    expect(PROPERTY_SCHEMA_HEAD).toBe(55);
+    expect(PROPERTY_SCHEMA_HEAD).toBeGreaterThanOrEqual(55);
   });
 
   it('copies existing stock rows into the rebuilt tables on a real SQLite database', async () => {
@@ -938,7 +938,7 @@ describe('housekeeping depth C v55', () => {
        VALUES ('m1', 'i1', 'receive', 7, 7, 'first', 'usr_a', '2026-11-20', 2)`,
     );
     const head = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(head).toBe(55);
+    expect(head).toBe(56);
     const items = sql.exec(`SELECT item_id, name, category, on_hand, archived_at FROM housekeeping_inventory_item ORDER BY item_id`).toArray();
     expect(items).toEqual([
       { item_id: 'i1', name: 'Bath towel', category: 'towels', on_hand: 7, archived_at: null },
@@ -973,9 +973,40 @@ describe('housekeeping depth C v55', () => {
   });
 });
 
+describe('manager report v56', () => {
+  it('adds the per-day statistics table with integer columns and no guest PII', () => {
+    const v56 = PROPERTY_MIGRATIONS.find((m) => m.version === 56);
+    expect(v56?.name).toBe('manager_report');
+    const ddl = (v56?.statements ?? []).join('\n');
+    expect(ddl).toContain('CREATE TABLE night_audit_day_stats (');
+    expect(ddl).toContain('business_date          TEXT PRIMARY KEY');
+    expect(ddl).toContain('source_mix_json');
+    expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b|guest_ref/i);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(56);
+  });
+
+  it('stores one row per business date on a real SQLite database', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    const sql: SqlStorageLike = {
+      exec(query: string, ...bindings: unknown[]) {
+        const rows = db.prepare(query).all(...(bindings as never[]));
+        return { toArray: () => rows };
+      },
+    };
+    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(56);
+    const insert = `INSERT INTO night_audit_day_stats (business_date, currency, physical, blocked, sold, no_show_nights, arrivals, departures, no_shows, cancellations, in_house_adults, in_house_children, room_revenue_minor, fnb_revenue_minor, other_revenue_minor, tax_minor, pay_card_minor, pay_cash_minor, pay_upi_minor, pay_other_minor, recorded_at) VALUES (?, 'USD', 5, 0, 1, 0, 0, 0, 0, 0, 1, 0, 10000, 0, 0, 0, 0, 0, 0, 0, 1)`;
+    sql.exec(insert, '2026-11-20');
+    expect(() => sql.exec(insert, '2026-11-20')).toThrow();
+    const row = sql.exec(`SELECT comp_nights, source_mix_json FROM night_audit_day_stats`).toArray();
+    expect(row).toEqual([{ comp_nights: 0, source_mix_json: '{}' }]);
+    db.close();
+  });
+});
+
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(55);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(56);
     expect(ORG_SCHEMA_HEAD).toBe(13);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

@@ -65,3 +65,16 @@ describe('getReport: Part C routes', () => {
     ]);
   });
 });
+
+describe('getManagerReport', () => {
+  it('asks the manager route, with the date only when one is given', async () => {
+    const seen: string[] = [];
+    const client = testClient(seen);
+    await client.getManagerReport('p 1');
+    await client.getManagerReport('p 1', '2026-11-19');
+    expect(seen).toEqual([
+      '/v1/properties/p%201/reports/manager',
+      '/v1/properties/p%201/reports/manager?date=2026-11-19',
+    ]);
+  });
+});

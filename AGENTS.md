@@ -219,14 +219,14 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.14 Part C (night-audit and housekeeping reports, 2026-11-20; Parts A and B before it) — update this table when you bump them:
+After roadmap R4.32 (Manager Report and MIS settings, 2026-11-20; R4.14 Parts A to C before it) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **147** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **249** routes, last id **`get_housekeeping_report`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `V1_HTTP_ROUTE_AUDIT` | **250** routes, last id **`get_manager_report`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `AUDIT_WRITER_COMMAND_IDS` | **113** | `packages/contracts/src/register.test.ts` |
-| `PROPERTY_SCHEMA_HEAD` | **55** | `packages/do-runtime` migrate tests |
+| `PROPERTY_SCHEMA_HEAD` | **56** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length **10**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, and **`arrival_deposit_missing`** | `packages/contracts/src/register.test.ts` |

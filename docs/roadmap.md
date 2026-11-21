@@ -864,7 +864,14 @@ Four findings collided with existing locks. **The user accepted these on 2026-10
   - **Decided F3:** when Q10 arrives, add exactly the reports the client names, then the list is closed again. R4.23's open-folio register and BluePMS's other reports join only if named there. Excel or PDF only if Q10 shows they are needed.
   - **Scope out:** occupancy and demand **trends** (warehouse, §7.8); a report builder; the BluePMS catalogue; the Manager Report (**R4.32**).
 
-- [ ] **R4.32 Manager Report and MIS settings**
+- [x] **R4.32 Manager Report and MIS settings**
+  - **Done (2026-11-21):** [spec](superpowers/specs/2026-11-20-manager-report-design.md).
+    - **Day snapshot:** migration 56 adds `night_audit_day_stats`, one row per closed date. It is written inside the existing `SNAPSHOT_REPORTS` step from the same occupancy and revenue objects stored in R2 (asserted equal), plus movements, in-house persons, payments by tender and room nights and revenue by source code. A stats failure leaves the day "not recorded"; it does not halt the audit. `NIGHT_AUDIT_STEPS` is unchanged.
+    - **Report:** `get_manager_report` (`night_audit:run`) gives Day, Month to date and fiscal Year to date from those rows, in one DO read with no R2. Ratios (occupancy, ADR, RevPAR) are recomputed from summed parts with `roundedRatio`.
+    - **Settings:** the DOMAIN key `pms.reports.manager_report` holds the occupancy rules (exclude out of order, count no-shows as sold; checkout day fixed), the built-in row list (show, label, decimals, order — a fixed registry, not formulas), source buckets over the R1.6 codes, F&B charge codes (added because HospAI had no F&B classification) and the fiscal-year start month (default April). It is edited in Settings → Reports.
+    - **Approximation:** cancellations are counted from the audit log by property-local day.
+    - **Out:** nationality rows (they need a non-PII stay code), day-wise sale and expenditure, and a backfill before migration 56.
+    - Pins: routes 250 (last `get_manager_report`), `PROPERTY_SCHEMA_HEAD` 56, config +1.
   - **Answered (client, 2026-11-19):** a **standard Manager Report**; it need not match the client's current one, so no sample is needed and this slice is no longer blocked.
   - **Depends:** **R4.14**, **R1.10** (`SNAPSHOT_REPORTS`), **R1.6** (sources), **R3.1**, **R3.6**. **A sample of the client's real report (Q8, Q9) comes first.**
   - **Pilot checklist:** *Manager settings*. **Page:** [Front Office](https://www.bluepms.com/modules/front-office/), Manager Reporting And MIS Settings. **Prototype:** none.

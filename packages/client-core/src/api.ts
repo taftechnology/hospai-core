@@ -38,6 +38,7 @@ import type {
   HousekeepingDashboard,
   ReportDefinition,
   ReportParams,
+  ManagerReportResponse,
   ReportResponse,
   HousekeepingTaskList,
   HousekeepingTaskStageList,
@@ -2335,6 +2336,12 @@ export function createClient(opts: {
       const q = qs.toString();
       const { body } = await getJson(`${reportPath(propertyId, def)}${q ? `?${q}` : ''}`);
       return body as ReportResponse;
+    },
+    /** The Manager Report (R4.32): Day, month to date and fiscal year to date for one closed date. */
+    async getManagerReport(propertyId: string, date?: string): Promise<ManagerReportResponse> {
+      const q = date ? `?${new URLSearchParams({ date }).toString()}` : '';
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/reports/manager${q}`);
+      return body as ManagerReportResponse;
     },
     async getHousekeepingDashboard(
       propertyId: string,

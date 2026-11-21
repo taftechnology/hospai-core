@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import {
+  MANAGER_REPORT_CATALOG_ENTRY,
   REPORT_DEFINITIONS,
   REPORT_GROUPS,
   REPORT_GROUP_LABELS,
+  REPORT_GROUP_PERMISSION,
   reportPermissions,
   reportsForGroup,
   type ReportDefinition,
@@ -48,7 +50,13 @@ export function ReportsCatalogScreen() {
   const allowed = (d: ReportDefinition) =>
     unknownAuthority ||
     (me !== undefined && reportPermissions(d).every((p) => hasPropertyPermission(me, p)));
-  const groups = REPORT_GROUPS.filter((g) => REPORT_DEFINITIONS.some((d) => d.group === g && allowed(d)));
+  // The Manager Report (R4.32) has its own screen; it sits in the Night audit group and needs that group's permission.
+  const managerAllowed =
+    unknownAuthority || (me !== undefined && hasPropertyPermission(me, REPORT_GROUP_PERMISSION.night_audit));
+  const groups = REPORT_GROUPS.filter(
+    (g) =>
+      REPORT_DEFINITIONS.some((d) => d.group === g && allowed(d)) || (g === 'night_audit' && managerAllowed),
+  );
 
   let body;
   if (meQ.isPending) {
@@ -94,6 +102,19 @@ export function ReportsCatalogScreen() {
               </DataTableRow>
             </DataTableHead>
             <DataTableBody>
+              {g === 'night_audit' && managerAllowed ? (
+                <DataTableRow>
+                  <DataTableCell>
+                    <Link to={MANAGER_REPORT_CATALOG_ENTRY.path} data-testid="report-link-manager_report">
+                      {MANAGER_REPORT_CATALOG_ENTRY.title}
+                    </Link>
+                  </DataTableCell>
+                  <DataTableCell>
+                    <span className="muted">{MANAGER_REPORT_CATALOG_ENTRY.description}</span>
+                    <VisuallyHidden> Opens the {MANAGER_REPORT_CATALOG_ENTRY.title}.</VisuallyHidden>
+                  </DataTableCell>
+                </DataTableRow>
+              ) : null}
               {reportsForGroup(g).filter(allowed).map((d) => (
                 <DataTableRow key={d.id}>
                   <DataTableCell>

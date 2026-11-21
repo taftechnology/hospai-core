@@ -100,6 +100,7 @@ if (process.argv.includes('--self-test')) {
   let HOUSEKEEPING_DEPTH_A_V53_SQL;
   let HOUSEKEEPING_DEPTH_B_V54_SQL;
   let HOUSEKEEPING_DEPTH_C_V55_SQL;
+  let MANAGER_REPORT_V56_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -175,6 +176,7 @@ if (process.argv.includes('--self-test')) {
       HOUSEKEEPING_DEPTH_A_V53_SQL,
       HOUSEKEEPING_DEPTH_B_V54_SQL,
       HOUSEKEEPING_DEPTH_C_V55_SQL,
+      MANAGER_REPORT_V56_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -714,6 +716,15 @@ const doPropertyTargets = [
 
 `,
     sql: HOUSEKEEPING_DEPTH_C_V55_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0056_manager_report.sql'),
+    header: `-- PropertyDO night-audit day statistics (Manager Report) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: MANAGER_REPORT_V56_SQL,
   },
 ];
 

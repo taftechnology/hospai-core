@@ -225,6 +225,7 @@ import {
   isOooBlockType,
   HK_TASK_SEARCH_MAX,
   HK_DASHBOARD_ROOM_SEARCH_LEN_MAX,
+  parseManagerReportDate,
   parseReportParams,
   reportDefinition,
   HK_REQUEST_SEARCH_MAX,
@@ -9879,6 +9880,35 @@ async function handleGetHousekeepingReport(ctx: V1DispatchContext): Promise<Resp
   }
 }
 
+/**
+ * Manager Report (R4.32). Permission is the route's `night_audit:run`, the permission of the
+ * night-audit statistics underneath. A date with no statistics row is a 200 that lists it as not
+ * recorded, not an error.
+ */
+async function handleGetManagerReport(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const parsed = parseManagerReportDate((n) => ctx.url.searchParams.get(n));
+  if (!parsed.ok) return json({ error: 'invalid_query', detail: parsed.detail }, 400);
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readManagerReportView(
+      parsed.date === undefined ? {} : { date: parsed.date },
+    );
+    if (!result.ok) {
+      return json(result, commandErrorHttpStatus(result.error));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
 async function handleGetFrontDeskSummary(ctx: V1DispatchContext): Promise<Response> {
   const propertyId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.propertyId = propertyId;
@@ -14102,6 +14132,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     handler: handleGetHousekeepingReport,
+  },
+  {
+    id: 'get_manager_report',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reports\/manager$/,
+    permission: 'night_audit:run',
+    entitlement: 'pms.core',
+    handler: handleGetManagerReport,
   },
 ];
 

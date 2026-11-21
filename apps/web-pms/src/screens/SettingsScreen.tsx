@@ -37,6 +37,7 @@ import { ProductsSettings } from './settings-products.js';
 import { PackagesSettings } from './settings-packages.js';
 import { DocumentsSettings } from './settings-documents.js';
 import { MaintenanceSettings } from './settings-maintenance.js';
+import { ManagerReportSettings } from './settings-manager-report.js';
 import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
 import { SettingsUsersTab } from './settings-users.js';
@@ -469,7 +470,8 @@ export function SettingsScreen({
     | 'system'
     | 'logs'
     | 'guests'
-    | 'accommodations';
+    | 'accommodations'
+    | 'reports';
 }) {
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
@@ -649,6 +651,7 @@ export function SettingsScreen({
           <Link className="ui-tab" to="/settings/packages" aria-current={activeTab === 'packages' ? 'page' : undefined}>Packages</Link>
         ) : null}
         <Link className="ui-tab" to="/settings/documents" aria-current={activeTab === 'documents' ? 'page' : undefined}>Documents</Link>
+        <Link className="ui-tab" to="/settings/reports" aria-current={activeTab === 'reports' ? 'page' : undefined}>Reports</Link>
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
@@ -1122,6 +1125,21 @@ export function SettingsScreen({
           <Skeleton label="Loading settings" lines={3} />
         ) : (
           <DocumentsSettings
+            keys={keys}
+            reason={reason}
+            propertyId={propertyId}
+            onSaved={onSaved}
+            reasonControl={
+              <SettingsSystemReasonField reason={reason} onReasonChange={setReason} />
+            }
+          />
+        )
+      ) : null}
+      {activeTab === 'reports' ? (
+        configQ.isPending ? (
+          <Skeleton label="Loading settings" lines={3} />
+        ) : (
+          <ManagerReportSettings
             keys={keys}
             reason={reason}
             propertyId={propertyId}

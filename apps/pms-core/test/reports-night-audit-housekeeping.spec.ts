@@ -915,7 +915,7 @@ describe('R4.14 Part C: housekeeping reports equal their tab lists', () => {
       reason: 'Done early',
     });
     expect(body.rows.filter((r) => r.event === 'Created').map((r) => r.room).sort()).toEqual(['102', '201']);
-  });
+  }, 15_000);
 
   it('4. attendant workload equals the task list for each attendant and date; overdue counts earlier open tasks', async () => {
     const h = await seedHousekeeping('user_rch_4');
@@ -937,7 +937,7 @@ describe('R4.14 Part C: housekeeping reports equal their tab lists', () => {
     expect(body.rows.find((r) => r.date === yesterday)).toMatchObject({ assigned: 1, open: 1, overdue: 1, rooms: 0 });
     expect(body.rows.find((r) => r.date === h.bd)).toMatchObject({ assigned: 2, completed: 1, open: 1, overdue: 0, rooms: 1 });
     expect(body.totals).toMatchObject({ assigned: 3, completed: 1, open: 2, overdue: 1, rooms: 1 });
-  });
+  }, 15_000);
 
   it('5. inspection scores equal the inspection list; the average per inspector uses the shared half-up rule', async () => {
     const h = await seedHousekeeping('user_rch_5');

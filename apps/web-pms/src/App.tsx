@@ -39,6 +39,7 @@ import { AppShell } from './shell/AppShell.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
 import { UiGallery } from './dev/UiGallery.js';
 import { ReportRunnerGate } from './reports/ReportRunnerGate.js';
+import { ManagerReportScreen } from './screens/ManagerReportScreen.js';
 import { ReportRunnerScreen } from './screens/ReportRunnerScreen.js';
 import { ReportsCatalogScreen } from './screens/ReportsCatalogScreen.js';
 
@@ -78,6 +79,10 @@ export const router = createBrowserRouter(
             <Route path="dashboard" element={<DashboardScreen />} />
             {/* R4.14: the catalogue of named operational reports; each runs from its definition. */}
             <Route path="reports" element={<ReportsCatalogScreen />} />
+            {/* R4.32: the Manager Report is its own screen, ahead of the report-by-id route. */}
+            <Route path="reports/manager" element={<PermissionRoute permission="night_audit:run" fallback="/reports" />}>
+              <Route index element={<ManagerReportScreen />} />
+            </Route>
             <Route path="reports/:reportId" element={<ReportRunnerGate />}>
               <Route index element={<ReportRunnerScreen />} />
             </Route>
@@ -202,6 +207,11 @@ export const router = createBrowserRouter(
               <Route path="documents" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="documents" />
+                </Suspense>
+              } />
+              <Route path="reports" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="reports" />
                 </Suspense>
               } />
               <Route path="maintenance" element={

@@ -1575,6 +1575,12 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'housekeeping:read',
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
+  },  {
+    id: 'get_manager_report',
+    scope: 'property',
+    permission: 'night_audit:run',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
   },
 ];
 

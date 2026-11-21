@@ -14,6 +14,11 @@ import {
   HousekeepingRequestTypesSchema,
 } from '../housekeeping-requests.js';
 import { DEFAULT_MINIBAR_CONFIG, MinibarConfigSchema } from '../housekeeping-stock.js';
+import {
+  MANAGER_REPORT_CONFIG_DEFAULT,
+  MANAGER_REPORT_KEY,
+  ManagerReportConfigSchema,
+} from '../manager-report.js';
 import { NIGHT_AUDIT_CHECKS_DEFAULT, NightAuditChecksSchema } from '../night-audit-checks.js';
 import type { Permission } from '../permissions.js';
 
@@ -162,6 +167,16 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     default: NIGHT_AUDIT_CHECKS_DEFAULT,
     permission: 'settings:configure',
     consumers: night,
+  }),
+  // R4.32 — Manager Report. Read by pms-core when the day closes (F&B codes) and when the report is built.
+  entry({
+    key: MANAGER_REPORT_KEY,
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: ManagerReportConfigSchema,
+    default: MANAGER_REPORT_CONFIG_DEFAULT,
+    permission: 'settings:configure',
+    consumersExempt: true,
   }),
   entry({
     key: 'pms.booking.same_day_bookings',

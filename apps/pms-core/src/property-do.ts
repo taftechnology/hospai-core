@@ -1216,9 +1216,12 @@ class GuestRefChangedError extends Error {
 }
 
 class InvoiceAlreadyExistsError extends Error {
-  constructor() {
+  /** The same property's own active invoice for the window, so a client can open it. */
+  readonly invoiceId: string | undefined;
+  constructor(invoiceId?: string) {
     super(INVOICE_ALREADY_EXISTS);
     this.name = 'InvoiceAlreadyExistsError';
+    this.invoiceId = invoiceId;
   }
 }
 class InvoiceR2UnboundError extends Error {
@@ -1535,7 +1538,7 @@ function mapReservationPreconditionError(e: unknown):
   | { ok: false; error: typeof BALANCE_DUE }
   | { ok: false; error: typeof PREPAYMENT_REQUIRED }
   | { ok: false; error: typeof FOLIO_BALANCE_DUE }
-  | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+  | { ok: false; error: typeof INVOICE_ALREADY_EXISTS; invoiceId?: string }
   | { ok: false; error: typeof INVOICE_REQUIRED }
   | { ok: false; error: typeof INVOICE_R2_UNBOUND }
   | { ok: false; error: typeof INVOICE_NOT_FOUND }
@@ -1592,7 +1595,13 @@ function mapReservationPreconditionError(e: unknown):
   if (e instanceof BalanceDueError) return { ok: false, error: BALANCE_DUE };
   if (e instanceof PrepaymentRequiredError) return { ok: false, error: PREPAYMENT_REQUIRED };
   if (e instanceof FolioBalanceDueError) return { ok: false, error: FOLIO_BALANCE_DUE };
-  if (e instanceof InvoiceAlreadyExistsError) return { ok: false, error: INVOICE_ALREADY_EXISTS };
+  if (e instanceof InvoiceAlreadyExistsError) {
+    return {
+      ok: false,
+      error: INVOICE_ALREADY_EXISTS,
+      ...(e.invoiceId ? { invoiceId: e.invoiceId } : {}),
+    };
+  }
   if (e instanceof InvoiceRequiredError) return { ok: false, error: INVOICE_REQUIRED };
   if (e instanceof InvoiceR2UnboundError) return { ok: false, error: INVOICE_R2_UNBOUND };
   if (e instanceof InvoiceNotFoundError) return { ok: false, error: INVOICE_NOT_FOUND };
@@ -5621,14 +5630,21 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   private hasActiveInvoiceForWindowSync(reservationId: string, folioWindowId: string): boolean {
+    return this.activeInvoiceIdForWindowSync(reservationId, folioWindowId) !== null;
+  }
+
+  private activeInvoiceIdForWindowSync(
+    reservationId: string,
+    folioWindowId: string,
+  ): string | null {
     const rows = this.ctx.storage.sql
       .exec(
-        `SELECT 1 FROM invoice WHERE reservation_id = ? AND folio_window_id = ? AND voided_at IS NULL LIMIT 1`,
+        `SELECT invoice_id FROM invoice WHERE reservation_id = ? AND folio_window_id = ? AND voided_at IS NULL LIMIT 1`,
         reservationId,
         folioWindowId,
       )
-      .toArray();
-    return rows.length > 0;
+      .toArray() as Array<{ invoice_id: string }>;
+    return rows[0]?.invoice_id ?? null;
   }
 
   private buildInvoiceSnapshotSync(input: {
@@ -14221,7 +14237,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: true }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof CHECK_OUT_NOT_TODAY }
-    | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+    | { ok: false; error: typeof INVOICE_ALREADY_EXISTS; invoiceId?: string }
     | { ok: false; error: typeof INVALID_REQUEST }
     | { ok: false; error: typeof BUSINESS_DATE_UNSET }
     | { ok: false; error: typeof ROOM_ALREADY_ASSIGNED }
@@ -14285,9 +14301,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           }
 
           const guestWindowId = this.guestFolioWindowId(input.reservationId);
-          if (this.hasActiveInvoiceForWindowSync(input.reservationId, guestWindowId)) {
-            throw new InvoiceAlreadyExistsError();
-          }
+          const existingGuestInvoiceId = this.activeInvoiceIdForWindowSync(
+            input.reservationId,
+            guestWindowId,
+          );
+          if (existingGuestInvoiceId) throw new InvoiceAlreadyExistsError(existingGuestInvoiceId);
 
           if (reservation.room_id) {
             this.assertRoomVacantNowSync(reservation.room_id, input.reservationId);
@@ -30026,7 +30044,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       }
     | { ok: false; error: typeof NOT_FOUND }
     | { ok: false; error: typeof INVALID_STATUS_TRANSITION }
-    | { ok: false; error: typeof INVOICE_ALREADY_EXISTS }
+    | { ok: false; error: typeof INVOICE_ALREADY_EXISTS; invoiceId?: string }
     | { ok: false; error: typeof FOLIO_BALANCE_DUE }
     | { ok: false; error: typeof INVOICE_R2_UNBOUND }
     | { ok: false; error: typeof BUYER_GSTIN_REQUIRED | typeof INVALID_GSTIN | typeof BUYER_STATE_CODE_MISMATCH | typeof VALIDATION_ERROR }
@@ -30108,9 +30126,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           return { ok: false as const, error: NOT_FOUND };
         }
 
-        if (this.hasActiveInvoiceForWindowSync(input.reservationId, resolvedWindow)) {
-          throw new InvoiceAlreadyExistsError();
-        }
+        const existingInvoiceId = this.activeInvoiceIdForWindowSync(
+          input.reservationId,
+          resolvedWindow,
+        );
+        if (existingInvoiceId) throw new InvoiceAlreadyExistsError(existingInvoiceId);
 
         const balanceMinor = this.windowBalanceMinorSync(resolvedWindow);
         const allowPending = this.readConfigValueSync('pms.invoice.allow_pending') === true;
@@ -30188,9 +30208,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     try {
       return this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
-          if (this.hasActiveInvoiceForWindowSync(input.reservationId, resolvedWindow)) {
-            throw new InvoiceAlreadyExistsError();
-          }
+          const existingInvoiceId = this.activeInvoiceIdForWindowSync(
+            input.reservationId,
+            resolvedWindow,
+          );
+          if (existingInvoiceId) throw new InvoiceAlreadyExistsError(existingInvoiceId);
           this.bumpInvoiceCounterSync(prepared.counterKey, prepared.nextCounter);
           const generatedAt = Date.now();
           const generatedBy =
@@ -30360,6 +30382,51 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       return { ok: false, error: INTERNAL_ERROR };
     }
+  }
+
+  /** Every invoice of one stay at this property, newest first, voided included. */
+  async readReservationInvoices(reservationId: string): Promise<
+    | {
+        ok: true;
+        invoices: Array<{
+          invoiceId: string;
+          invoiceNumber: string;
+          folioWindowId: string;
+          generatedAt: number;
+          voidedAt: number | null;
+        }>;
+      }
+    | { ok: false; error: typeof NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    const res = this.ctx.storage.sql
+      .exec(`SELECT 1 FROM reservation WHERE reservation_id = ? LIMIT 1`, reservationId)
+      .toArray();
+    if (res.length === 0) return { ok: false, error: NOT_FOUND };
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT invoice_id, invoice_number, folio_window_id, generated_at, voided_at
+         FROM invoice WHERE reservation_id = ?
+         ORDER BY generated_at DESC, invoice_number DESC`,
+        reservationId,
+      )
+      .toArray() as Array<{
+      invoice_id: string;
+      invoice_number: string;
+      folio_window_id: string;
+      generated_at: number;
+      voided_at: number | null;
+    }>;
+    return {
+      ok: true,
+      invoices: rows.map((r) => ({
+        invoiceId: r.invoice_id,
+        invoiceNumber: r.invoice_number,
+        folioWindowId: r.folio_window_id,
+        generatedAt: r.generated_at,
+        voidedAt: r.voided_at,
+      })),
+    };
   }
 
   async readInvoiceIndex(invoiceId: string): Promise<{

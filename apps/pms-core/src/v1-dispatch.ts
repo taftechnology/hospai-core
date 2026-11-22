@@ -9096,6 +9096,14 @@ async function handlePostInvoices(ctx: V1DispatchContext): Promise<Response> {
     successStatus: 201,
     onFailure: (result) => {
       if (result.error === 'not_member' || result.error === NOT_FOUND) return json({ error: 'not_found' }, 404);
+      if (result.error === INVOICE_ALREADY_EXISTS) {
+        // The same property's own active invoice: safe to name, lets the desk open it.
+        const invoiceId = (result as { invoiceId?: string }).invoiceId;
+        return json(
+          { ok: false, error: INVOICE_ALREADY_EXISTS, ...(invoiceId ? { invoiceId } : {}) },
+          commandErrorHttpStatus(INVOICE_ALREADY_EXISTS),
+        );
+      }
       return null;
     },
   });
@@ -9158,6 +9166,22 @@ async function handleGetInvoice(ctx: V1DispatchContext): Promise<Response> {
     if (!obj) return json({ error: 'not_found' }, 404);
     const snapshot = JSON.parse(await obj.text()) as Record<string, unknown>;
     return json({ ...index, snapshot }, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetReservationInvoices(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservationInvoices(reservationId);
+    if (!result.ok) return json({ error: 'not_found' }, 404);
+    return json({ ok: true, invoices: result.invoices }, 200);
   } catch (e) {
     if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
     throw e;
@@ -14703,6 +14727,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'accounting:export',
     entitlement: 'accounting_export.enabled',
     handler: handleGetAccountingJournal,
+  },
+  {
+    id: 'get_reservation_invoices',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/invoices$/,
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationInvoices,
   },
 ];
 

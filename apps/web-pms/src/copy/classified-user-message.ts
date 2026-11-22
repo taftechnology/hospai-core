@@ -212,6 +212,8 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     'Place an open-folio hold to post charges after checkout.',
   check_out_not_today: () =>
     'This stay checked out on an earlier business date and cannot be reopened.',
+  invoice_already_exists: () =>
+    'This stay already has an invoice, so it was opened instead of creating another.',
   form_c_not_applicable: () => 'Form C applies to properties in India only.',
   form_c_not_foreign: () => 'Form C is for foreign nationals. An Indian national does not need one.',
   form_c_not_in_house: () => 'A person can be added only while the guest is checked in.',

@@ -3716,6 +3716,12 @@ export function createClient(opts: {
     async getInvoice(propertyId: string, invoiceId: string) {
       return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}`);
     },
+    /** Every invoice of one stay, newest first, voided included. */
+    async getReservationInvoices(propertyId: string, reservationId: string) {
+      return getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/invoices`,
+      );
+    },
     async getInvoiceBuyer(propertyId: string, invoiceId: string) {
       return getJson(`/v1/properties/${enc(propertyId)}/invoices/${enc(invoiceId)}/buyer`);
     },

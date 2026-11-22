@@ -713,6 +713,25 @@ function OpenFolioCard(props: {
   );
 }
 
+function activeInvoiceIdFromList(body: unknown, guestWindowId: string): string | null {
+  const invoices = (body as { invoices?: unknown } | undefined)?.invoices;
+  if (!Array.isArray(invoices)) return null;
+  let best: { invoiceId: string; generatedAt: number } | null = null;
+  for (const row of invoices) {
+    const r = row as {
+      invoiceId?: unknown;
+      folioWindowId?: unknown;
+      generatedAt?: unknown;
+      voidedAt?: unknown;
+    };
+    if (typeof r.invoiceId !== 'string' || r.folioWindowId !== guestWindowId) continue;
+    if (r.voidedAt !== null && r.voidedAt !== undefined) continue;
+    const at = typeof r.generatedAt === 'number' ? r.generatedAt : 0;
+    if (!best || at > best.generatedAt) best = { invoiceId: r.invoiceId, generatedAt: at };
+  }
+  return best?.invoiceId ?? null;
+}
+
 type InvoiceSnapshotLine = {
   chargeName?: string;
   chargeCode?: string;
@@ -1409,29 +1428,6 @@ export function FolioScreen() {
   const activeFolioHold = folioHoldQ.data?.hold ?? null;
   const folioHoldHistory = folioHoldQ.data?.history ?? [];
 
-  const activeInvoiceKey = ['invoice-active', propertyId, reservationId] as const;
-  const activeInvoiceQ = useQuery<string | null>({
-    queryKey: activeInvoiceKey,
-    queryFn: () => null,
-    initialData: null,
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-  const activeInvoiceId = activeInvoiceQ.data ?? null;
-
-  const invoiceQ = useQuery({
-    queryKey: ['invoice', propertyId, activeInvoiceId],
-    queryFn: () => api.getInvoice(propertyId, activeInvoiceId!),
-    enabled: Boolean(activeInvoiceId),
-  });
-  const invoiceBuyerQ = useQuery({
-    queryKey: ['invoice-buyer', propertyId, activeInvoiceId],
-    queryFn: () => api.getInvoiceBuyer(propertyId, activeInvoiceId!),
-    enabled:
-      Boolean(activeInvoiceId) &&
-      (invoiceQ.data?.body as { snapshot?: InvoiceSnapshot } | undefined)?.snapshot?.buyer?.party ===
-        'INDIVIDUAL',
-  });
   const cityLedgerForBuyerQ = useQuery({
     queryKey: ['city-ledger-accounts', propertyId],
     queryFn: () => api.fetchCityLedgerAccounts(propertyId),
@@ -1487,6 +1483,34 @@ export function FolioScreen() {
     meShell.kind !== 'authority' ||
     meShell.authority.kind !== 'live' ||
     hasPropertyPermission(meShell.authority.me, 'folio:read');
+
+  // The stay's invoices come from the server, so an invoice issued earlier still shows after a
+  // reload. The screen works on the guest window only (generate sends no folioWindowId, so the
+  // server uses `${reservationId}:GUEST`); the active invoice is its newest non-voided one.
+  const reservationInvoicesKey = ['reservation-invoices', propertyId, reservationId] as const;
+  const reservationInvoicesQ = useQuery({
+    queryKey: reservationInvoicesKey,
+    queryFn: () => api.getReservationInvoices(propertyId, reservationId),
+    enabled: Boolean(propertyId && reservationId) && canReadFolio,
+  });
+  const activeInvoiceId = activeInvoiceIdFromList(
+    reservationInvoicesQ.data?.body,
+    `${reservationId}:GUEST`,
+  );
+
+  const invoiceQ = useQuery({
+    queryKey: ['invoice', propertyId, activeInvoiceId],
+    queryFn: () => api.getInvoice(propertyId, activeInvoiceId!),
+    enabled: Boolean(activeInvoiceId),
+  });
+  const invoiceBuyerQ = useQuery({
+    queryKey: ['invoice-buyer', propertyId, activeInvoiceId],
+    queryFn: () => api.getInvoiceBuyer(propertyId, activeInvoiceId!),
+    enabled:
+      Boolean(activeInvoiceId) &&
+      (invoiceQ.data?.body as { snapshot?: InvoiceSnapshot } | undefined)?.snapshot?.buyer?.party ===
+        'INDIVIDUAL',
+  });
 
   const cityLedgerAccountsQ = useQuery({
     queryKey: ['city-ledger-accounts-active', propertyId],
@@ -1643,6 +1667,7 @@ export function FolioScreen() {
     folioQ.isSuccess &&
     reservationQ.isSuccess &&
     (reservationStatus === 'checked_in' || reservationStatus === 'checked_out') &&
+    reservationInvoicesQ.isSuccess &&
     !activeInvoiceId &&
     ((balanceMinor ?? 0) === 0 || invoiceAllowPending);
   const noPost = Boolean(folioQ.data?.noPost);
@@ -2099,8 +2124,9 @@ export function FolioScreen() {
         const gen = await generateInvoiceForFolio(`invoice:checkout:${reservationId}`, {
           generatedBy: 'checkout',
         });
-        const invoiceId = invoiceIdFromGenerateResult(gen);
-        if (invoiceId) setActiveInvoiceId(invoiceId);
+        if (invoiceIdFromGenerateResult(gen)) {
+          void queryClient.invalidateQueries({ queryKey: reservationInvoicesKey });
+        }
       }
       return api.checkOut(
         propertyId,
@@ -2408,10 +2434,6 @@ export function FolioScreen() {
     },
   });
 
-  function setActiveInvoiceId(invoiceId: string | null) {
-    queryClient.setQueryData(activeInvoiceKey, invoiceId);
-  }
-
   function invoiceIdFromGenerateResult(result: {
     body: unknown;
     classified: { class: string; status?: number; body?: unknown };
@@ -2471,9 +2493,19 @@ export function FolioScreen() {
     onSuccess: (result) => {
       const invoiceId = invoiceIdFromGenerateResult(result);
       if (invoiceId) {
-        setActiveInvoiceId(invoiceId);
         setBuyerOpen(false);
-        setSettledNotice('Invoice opened.');
+        const body = result.body as { error?: string } | undefined;
+        setSettledNotice(
+          body?.error === 'invoice_already_exists'
+            ? classifiedUserMessage(
+                { ...result.classified, body: result.body } as Parameters<
+                  typeof classifiedUserMessage
+                >[0],
+                { fallback: 'Invoice opened.', fmt },
+              )
+            : 'Invoice opened.',
+        );
+        void queryClient.invalidateQueries({ queryKey: reservationInvoicesKey });
         void queryClient.invalidateQueries({ queryKey: ['folio', propertyId, reservationId] });
         void queryClient.invalidateQueries({ queryKey: ['invoice', propertyId, invoiceId] });
         void queryClient.invalidateQueries({ queryKey: ['invoice-buyer', propertyId, invoiceId] });
@@ -2508,7 +2540,7 @@ export function FolioScreen() {
       });
     },
     onSuccess: () => {
-      setActiveInvoiceId(null);
+      void queryClient.invalidateQueries({ queryKey: reservationInvoicesKey });
       void queryClient.removeQueries({ queryKey: ['invoice', propertyId, activeInvoiceId] });
       setVoidInvoiceReason('');
       setSettledNotice('Invoice voided.');
@@ -2681,7 +2713,7 @@ export function FolioScreen() {
               reason: session.reason,
               idempotencyKey: step.opId,
             });
-            setActiveInvoiceId(null);
+            void queryClient.invalidateQueries({ queryKey: reservationInvoicesKey });
             void queryClient.removeQueries({
               queryKey: ['invoice', propertyId, step.invoiceId],
             });

@@ -47,7 +47,17 @@ const scheduleRecurringCharge = vi.fn();
 const cancelRecurringCharge = vi.fn();
 const openFolioWindowMock = vi.fn();
 const generateInvoice = vi.fn();
+const getReservationInvoices = vi.fn();
 const getInvoice = vi.fn();
+type ListedInvoice = {
+  invoiceId: string;
+  invoiceNumber: string;
+  folioWindowId: string;
+  generatedAt: number;
+  voidedAt: number | null;
+};
+/** What the server would list for res_1: generate adds a row, void marks it voided. */
+let listedInvoices: ListedInvoice[] = [];
 const getInvoiceBuyer = vi.fn();
 const voidInvoice = vi.fn();
 const undoCheckOut = vi.fn();
@@ -133,10 +143,28 @@ vi.mock('../client.js', () => ({
     listRecurringCharges: (...args: unknown[]) => listRecurringCharges(...args),
     scheduleRecurringCharge: (...args: unknown[]) => scheduleRecurringCharge(...args),
     cancelRecurringCharge: (...args: unknown[]) => cancelRecurringCharge(...args),
-    generateInvoice: (...args: unknown[]) => generateInvoice(...args),
+    generateInvoice: async (...args: unknown[]) => {
+      const result = await generateInvoice(...args);
+      const id = (result as { body?: { invoiceId?: unknown } } | undefined)?.body?.invoiceId;
+      if (typeof id === 'string' && !listedInvoices.some((i) => i.invoiceId === id)) {
+        listedInvoices.push({
+          invoiceId: id,
+          invoiceNumber: `INV-${id}`,
+          folioWindowId: 'res_1:GUEST',
+          generatedAt: listedInvoices.length + 1,
+          voidedAt: null,
+        });
+      }
+      return result;
+    },
+    getReservationInvoices: (...args: unknown[]) => getReservationInvoices(...args),
     getInvoice: (...args: unknown[]) => getInvoice(...args),
     getInvoiceBuyer: (...args: unknown[]) => getInvoiceBuyer(...args),
-    voidInvoice: (...args: unknown[]) => voidInvoice(...args),
+    voidInvoice: async (...args: unknown[]) => {
+      const result = await voidInvoice(...args);
+      for (const row of listedInvoices) if (row.invoiceId === args[1]) row.voidedAt = 99;
+      return result;
+    },
     undoCheckOut: (...args: unknown[]) => undoCheckOut(...args),
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
     listOperationalConfig: (...args: unknown[]) => listOperationalConfig(...args),
@@ -343,6 +371,11 @@ describe('FolioScreen wiring', () => {
       plans: [{ ratePlanId: 'rp_bar', code: 'BAR', name: 'Best Available Rate' }],
     });
     vi.clearAllMocks();
+    listedInvoices = [];
+    getReservationInvoices.mockImplementation(async () => ({
+      body: { ok: true, invoices: [...listedInvoices].reverse() },
+      classified: { class: 'live' },
+    }));
     businessDateMock('2026-08-12');
     queuedStore.entries = [];
     listRooms.mockResolvedValue({ ok: true, rooms: [] });
@@ -3031,6 +3064,211 @@ describe('FolioScreen wiring', () => {
     );
   });
 
+  it('reload: an invoice that already exists shows and Generate is disabled', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    listedInvoices = [
+      {
+        invoiceId: 'inv_old',
+        invoiceNumber: 'INV-OLD',
+        folioWindowId: 'res_1:GUEST',
+        generatedAt: 1,
+        voidedAt: 5,
+      },
+      {
+        invoiceId: 'inv_new',
+        invoiceNumber: 'INV-NEW',
+        folioWindowId: 'res_1:GUEST',
+        generatedAt: 2,
+        voidedAt: null,
+      },
+      {
+        invoiceId: 'inv_company',
+        invoiceNumber: 'INV-CO',
+        folioWindowId: 'res_1:COMPANY:1',
+        generatedAt: 3,
+        voidedAt: null,
+      },
+    ];
+    getInvoice.mockResolvedValue({
+      body: {
+        invoiceId: 'inv_new',
+        snapshot: { totals: { chargesMinor: 10000, balanceMinor: 0 }, lines: [] },
+      },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('invoice-view')).toBeTruthy());
+    expect(getReservationInvoices).toHaveBeenCalledWith('prop_demo', 'res_1');
+    expect(getInvoice).toHaveBeenCalledWith('prop_demo', 'inv_new');
+    expect(getInvoice).not.toHaveBeenCalledWith('prop_demo', 'inv_old');
+    expect(getInvoice).not.toHaveBeenCalledWith('prop_demo', 'inv_company');
+    expect(screen.queryByTestId('invoice-generate')).toBeNull();
+    expect(generateInvoice).not.toHaveBeenCalled();
+  });
+
+  it('only voided invoices on the list: Generate is offered again', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    listedInvoices = [
+      {
+        invoiceId: 'inv_old',
+        invoiceNumber: 'INV-OLD',
+        folioWindowId: 'res_1:GUEST',
+        generatedAt: 1,
+        voidedAt: 5,
+      },
+    ];
+    renderFolio();
+    expect(await screen.findByTestId('invoice-generate')).toBeTruthy();
+    expect(screen.queryByTestId('invoice-view')).toBeNull();
+    expect(getInvoice).not.toHaveBeenCalled();
+  });
+
+  it('Generate is not offered until the invoice list has loaded', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    getReservationInvoices.mockImplementation(() => new Promise(() => {}));
+    renderFolio();
+    await waitFor(() => expect(screen.getByTestId('folio-balance')).toBeTruthy());
+    expect(screen.queryByTestId('invoice-generate')).toBeNull();
+  });
+
+  it('generate and void invalidate the reservation-invoices key', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_k' },
+      classified: { class: 'live' },
+    });
+    getInvoice.mockResolvedValue({
+      body: { invoiceId: 'inv_k', snapshot: { totals: { balanceMinor: 0 }, lines: [] } },
+      classified: { class: 'live' },
+    });
+    voidInvoice.mockResolvedValue({ ok: true });
+    const key = JSON.stringify({ queryKey: ['reservation-invoices', 'prop_demo', 'res_1'] });
+
+    const { invalidateSpy } = renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() => expect(screen.getByTestId('invoice-void')).toBeTruthy());
+    expect(invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]))).toContain(key);
+
+    invalidateSpy.mockClear();
+    fireEvent.click(screen.getByTestId('invoice-void'));
+    fireEvent.change(screen.getByTestId('invoice-void-reason'), { target: { value: 'Oops' } });
+    fireEvent.click(screen.getByTestId('invoice-void-confirm'));
+    await waitFor(() => expect(voidInvoice).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]))).toContain(key),
+    );
+    await waitFor(() => expect(screen.queryByTestId('invoice-view')).toBeNull());
+    expect(await screen.findByTestId('invoice-generate')).toBeTruthy();
+  });
+
+  it('checkout auto-generate invalidates the reservation-invoices key', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    listDomainConfig.mockResolvedValue({
+      ok: true,
+      keys: [{ key: 'pms.invoice.gen_mode', value: 'Automatically' }],
+    });
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue(liveReservation);
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: true, invoiceId: 'inv_co' },
+      classified: { class: 'live' },
+    });
+    checkOut.mockResolvedValue({ classified: { class: 'live' }, body: { ok: true } });
+    const key = JSON.stringify({ queryKey: ['reservation-invoices', 'prop_demo', 'res_1'] });
+
+    const { invalidateSpy } = renderFolio();
+    await waitFor(() => expect(screen.getByTestId('check-out')).toBeTruthy());
+    screen.getByTestId('check-out').click();
+    await waitFor(() => expect(generateInvoice).toHaveBeenCalled());
+    expect(generateInvoice.mock.calls[0]?.[1]).toMatchObject({ generatedBy: 'checkout' });
+    await waitFor(() =>
+      expect(invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]))).toContain(key),
+    );
+  });
+
+  it('a 409 invoice_already_exists race opens the existing invoice with a clear message', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFolio.mockResolvedValue({
+      ok: true,
+      window: { folioWindowId: 'res_1:GUEST', kind: 'GUEST', status: 'OPEN' },
+      windows: [],
+      balanceMinor: 0,
+      lines: [],
+    });
+    getReservation.mockResolvedValue({ ...liveReservation, status: 'checked_out' });
+    getFolioPayments.mockResolvedValue({ ok: true, payments: [] });
+    generateInvoice.mockResolvedValue({
+      body: { ok: false, error: 'invoice_already_exists', invoiceId: 'inv_race' },
+      classified: { class: 'live', status: 409 },
+    });
+    getInvoice.mockResolvedValue({
+      body: { invoiceId: 'inv_race', snapshot: { totals: { balanceMinor: 0 }, lines: [] } },
+      classified: { class: 'live' },
+    });
+
+    renderFolio();
+    fireEvent.click(await screen.findByTestId('invoice-generate'));
+    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
+    await waitFor(() => expect(screen.getByTestId('invoice-view')).toBeTruthy());
+    expect(getInvoice).toHaveBeenCalledWith('prop_demo', 'inv_race');
+    expect(screen.getByTestId('folio-message').textContent).toBe(
+      classifiedUserMessage(
+        {
+          class: 'live',
+          status: 409,
+          body: { ok: false, error: 'invoice_already_exists', invoiceId: 'inv_race' },
+        } as never,
+        { fallback: 'x' },
+      ),
+    );
+    expect(screen.getByTestId('folio-message').textContent).toMatch(/already has an invoice/i);
+  });
+
   it('Lock 12 SPA 3: active invoice hides generate button', async () => {
     getMe.mockResolvedValue(ownerMe);
     getFolio.mockResolvedValue({
@@ -4028,9 +4266,8 @@ describe('FolioScreen wiring', () => {
     cleanup();
     getMe.mockResolvedValue(ownerMe);
     voidInvoice.mockResolvedValue({ ok: true });
+    // A fresh render is a reload: the invoice issued above comes back from the list route.
     renderFolio();
-    fireEvent.click(await screen.findByTestId('invoice-generate'));
-    fireEvent.click(await screen.findByTestId('invoice-buyer-confirm'));
     await waitFor(() => expect(screen.getByTestId('invoice-void')).toBeTruthy());
     fireEvent.click(screen.getByTestId('invoice-void'));
     expect((screen.getByTestId('invoice-void-confirm') as HTMLButtonElement).disabled).toBe(true);

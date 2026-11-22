@@ -624,3 +624,5 @@ Rebuild `@hospai/contracts` before pms-core if dispatch imports change.
 | Number gap after failed put | Txn rolls back counter bump |
 | Double invoice on retry | Partial unique index + idempotency |
 | Auto mode silent skip | Checkout abort + consumer stretch without skip |
+
+**Amendment 2026-11-22:** added the read route `get_reservation_invoices` (`GET /v1/properties/:pid/reservations/:rid/invoices`, `folio:read`, `pms.core`, FAIL_CLOSED) returning `{ ok, invoices: [{ invoiceId, invoiceNumber, folioWindowId, generatedAt, voidedAt }] }` newest first, voided included, 404 for a reservation not at that property. The `invoice_already_exists` 409 now also carries the property's own active `invoiceId`. The folio screen derives its active invoice from the list (newest non-voided on the guest window) instead of in-memory state. No migration; no schema change.

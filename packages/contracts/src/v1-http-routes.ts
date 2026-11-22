@@ -1634,6 +1634,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'accounting_export.enabled',
     degradedRead: 'FAIL_CLOSED',
   },
+  {
+    id: 'get_reservation_invoices',
+    scope: 'property',
+    permission: 'folio:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

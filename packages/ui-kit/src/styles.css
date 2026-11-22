@@ -597,9 +597,15 @@
   gap: 0;
   border-radius: var(--radius-lg);
   background: var(--selected);
+  /* A long strip (Settings) scrolls inside itself instead of widening the page. */
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .ui-tab {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;

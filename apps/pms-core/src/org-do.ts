@@ -59,6 +59,11 @@ import {
   parseProfileGstBuyer,
   canonicalGstBuyerJson,
   gstBuyerFieldsSha256,
+  canonicalFormCJson,
+  formCDisplayName,
+  formCFieldsSha256,
+  type FormCPersonFields,
+  type FormCSummary,
   type GstBuyerFields,
   GUEST_DOCUMENT_KINDS,
   ConsentWriteSchema,
@@ -377,6 +382,8 @@ const ORG_CONFIG_ROW = '*';
 const ORG_PURGE_INVENTORY_TABLES = [
   'alarm_schedule',
   'data_key',
+  'form_c_access',
+  'form_c_person',
   'guest',
   'guest_blind_index',
   'guest_consent',
@@ -403,6 +410,8 @@ function countOrgInventoryRows(sql: DurableObjectState['storage']['sql']): numbe
       `SELECT
       (SELECT COUNT(*) FROM alarm_schedule) +
       (SELECT COUNT(*) FROM data_key) +
+      (SELECT COUNT(*) FROM form_c_access) +
+      (SELECT COUNT(*) FROM form_c_person) +
       (SELECT COUNT(*) FROM guest) +
       (SELECT COUNT(*) FROM guest_blind_index) +
       (SELECT COUNT(*) FROM guest_consent) +
@@ -3603,10 +3612,329 @@ export class OrgDO extends DurableObject<PmsEnv> {
     );
   }
 
-  /** Check-in policy. Unreachable callers fail closed; this method itself does not catch transport. */
-  async checkInIdentityGate(input: { guestRef: string; propertyId: string }): Promise<{ required: boolean; hasDocument: boolean }> {
+  /**
+   * Check-in policy. Unreachable callers fail closed; this method itself does not catch transport.
+   * `foreignPassport` (R6.2) is true when the guest has a live PASSPORT at this property whose
+   * nationality is not India. Only the boolean leaves OrgDO, so no access row is written.
+   */
+  async checkInIdentityGate(input: {
+    guestRef: string;
+    propertyId: string;
+  }): Promise<{ required: boolean; hasDocument: boolean; foreignPassport: boolean }> {
     this.assertRpcAvailable();
-    return identityGate(this.ctx.storage.sql, this.readGuestSettingsSync(), input);
+    const gate = identityGate(this.ctx.storage.sql, this.readGuestSettingsSync(), input);
+    const foreignPassport = input.guestRef ? await this.hasForeignPassport(input) : false;
+    return { ...gate, foreignPassport };
+  }
+
+  private async hasForeignPassport(input: { guestRef: string; propertyId: string }): Promise<boolean> {
+    const guestRows = this.ctx.storage.sql
+      .exec(`SELECT pii_key_id, erased_at FROM guest WHERE guest_id = ?`, input.guestRef)
+      .toArray() as Array<{ pii_key_id: string; erased_at: number | null }>;
+    const guest = guestRows[0];
+    if (!guest || guest.erased_at != null) return false;
+    const docs = this.ctx.storage.sql
+      .exec(
+        `SELECT id, doc_cipher, doc_iv FROM guest_document
+         WHERE guest_ref = ? AND property_id = ? AND kind = 'PASSPORT' AND removed_at IS NULL
+         ORDER BY created_at DESC, id DESC`,
+        input.guestRef,
+        input.propertyId,
+      )
+      .toArray() as Array<{ id: string; doc_cipher: unknown; doc_iv: unknown }>;
+    if (docs.length === 0) return false;
+    const vault = await this.vault();
+    for (const doc of docs) {
+      try {
+        const fields = await vault.openDocument<{ nationality?: string }>(
+          guest.pii_key_id,
+          doc.id,
+          blobToBytes(doc.doc_cipher),
+          blobToBytes(doc.doc_iv),
+        );
+        const nationality = typeof fields.nationality === 'string' ? fields.nationality.toUpperCase() : '';
+        if (nationality && nationality !== 'IN') return true;
+      } catch {
+        // An unreadable passport does not block check-in. The clerk can still add the record by hand.
+      }
+    }
+    return false;
+  }
+
+  // ----- Form C persons (R6.2) -----
+
+  private async sealFormC(
+    id: string,
+    plain: string,
+    suffix = '',
+  ): Promise<{ cipher: Uint8Array; iv: Uint8Array }> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) throw new Error(ORG_ID_UNSET);
+    const key = await this.legalRetentionKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aad = new TextEncoder().encode(`${orgId}:${id}${suffix}`);
+    const cipher = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, additionalData: aad as BufferSource },
+        key,
+        new TextEncoder().encode(plain) as BufferSource,
+      ),
+    );
+    return { cipher, iv };
+  }
+
+  private async openFormC<T>(id: string, cipher: unknown, iv: unknown, suffix = ''): Promise<T> {
+    const orgId = this.getOrgIdSync();
+    if (!orgId) throw new Error(ORG_ID_UNSET);
+    const key = await this.legalRetentionKey();
+    const aad = new TextEncoder().encode(`${orgId}:${id}${suffix}`);
+    const plain = new Uint8Array(
+      await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: blobToBytes(iv) as BufferSource, additionalData: aad as BufferSource },
+        key,
+        blobToBytes(cipher) as BufferSource,
+      ),
+    );
+    return JSON.parse(new TextDecoder().decode(plain)) as T;
+  }
+
+  /**
+   * Seal a person's Form C details under the org legal-retention key.
+   * AAD `orgId:id` for the fields and `orgId:id:summary` for the name-and-nationality summary.
+   * Same id + same fields hash is a replay. A different hash replaces the details (the tracker
+   * row decides whether an edit is allowed). A row at another property is a miss.
+   * Ciphertext is prepared before `transactionSync`.
+   */
+  async putFormCPerson(input: {
+    id: string;
+    propertyId: string;
+    reservationId: string;
+    guestRef?: string | null;
+    fields: FormCPersonFields;
+    updatedBy: string;
+  }): Promise<{ ok: true } | { ok: false; error: typeof NOT_FOUND | typeof ORG_ID_UNSET | typeof INTERNAL_ERROR }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const fieldsSha256 = await formCFieldsSha256(input.fields);
+    const sealed = await this.sealFormC(input.id, canonicalFormCJson(input.fields));
+    const summary: FormCSummary = {
+      displayName: formCDisplayName(input.fields),
+      nationality: input.fields.nationality,
+    };
+    const sealedSummary = await this.sealFormC(input.id, JSON.stringify(summary), ':summary');
+    const guestRef = input.guestRef ?? null;
+    try {
+      return this.ctx.storage.transactionSync(() => {
+        const rows = this.ctx.storage.sql
+          .exec(
+            `SELECT property_id, reservation_id, fields_sha256, removed_at FROM form_c_person WHERE id = ?`,
+            input.id,
+          )
+          .toArray() as Array<{
+          property_id: string;
+          reservation_id: string;
+          fields_sha256: string;
+          removed_at: number | null;
+        }>;
+        const row = rows[0];
+        const now = Date.now();
+        if (row) {
+          if (row.property_id !== input.propertyId || row.reservation_id !== input.reservationId) {
+            return { ok: false as const, error: NOT_FOUND };
+          }
+          // A cleared row of the same stay is reused: a cancelled check-in drops the tracker row
+          // and clears the details, and the deterministic booked-guest id comes back on re-check-in.
+          // PropertyDO is the gate on whether a removed tracker row may be saved again.
+          const revive = row.removed_at != null;
+          if (!revive && row.fields_sha256 === fieldsSha256) return { ok: true as const };
+          this.ctx.storage.sql.exec(
+            `UPDATE form_c_person
+             SET cipher = ?, iv = ?, fields_sha256 = ?, summary_cipher = ?, summary_iv = ?, guest_ref = ?,
+                 updated_at = ?, updated_by = ?, removed_at = NULL
+             WHERE id = ?`,
+            sealed.cipher,
+            sealed.iv,
+            fieldsSha256,
+            sealedSummary.cipher,
+            sealedSummary.iv,
+            guestRef,
+            now,
+            input.updatedBy,
+            input.id,
+          );
+          return { ok: true as const };
+        }
+        this.ctx.storage.sql.exec(
+          `INSERT INTO form_c_person (
+             id, property_id, reservation_id, guest_ref, cipher, iv, key_version, fields_sha256,
+             summary_cipher, summary_iv, updated_at, updated_by
+           ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+          input.id,
+          input.propertyId,
+          input.reservationId,
+          guestRef,
+          sealed.cipher,
+          sealed.iv,
+          fieldsSha256,
+          sealedSummary.cipher,
+          sealedSummary.iv,
+          now,
+          input.updatedBy,
+        );
+        return { ok: true as const };
+      });
+    } catch {
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /**
+   * Name and nationality for a list. Only rows at `propertyId` are read. A summary that cannot
+   * be decrypted is `null`; a miss is absent. No access row: nothing but the summary leaves.
+   */
+  async readFormCSummaries(input: {
+    propertyId: string;
+    ids: string[];
+  }): Promise<{ ok: true; summaries: Record<string, FormCSummary | null> }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const summaries: Record<string, FormCSummary | null> = {};
+    const ids = [...new Set(input.ids)].slice(0, 200);
+    for (const id of ids) {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT summary_cipher, summary_iv FROM form_c_person
+           WHERE id = ? AND property_id = ? AND removed_at IS NULL`,
+          id,
+          input.propertyId,
+        )
+        .toArray() as Array<{ summary_cipher: unknown; summary_iv: unknown }>;
+      const row = rows[0];
+      if (!row) continue;
+      try {
+        summaries[id] = await this.openFormC<FormCSummary>(id, row.summary_cipher, row.summary_iv, ':summary');
+      } catch {
+        summaries[id] = null;
+      }
+    }
+    return { ok: true, summaries };
+  }
+
+  /**
+   * The audited full read: decrypt, then one `form_c_access` row in the same call.
+   * A row at another property, or a removed row, is `not_found` with nothing else.
+   */
+  async readFormCPerson(input: {
+    id: string;
+    propertyId: string;
+    actorUserId: string;
+  }): Promise<
+    | { ok: true; fields: FormCPersonFields }
+    | { ok: false; error: typeof NOT_FOUND | typeof DECRYPT_UNRESOLVED | typeof ORG_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    if (!this.getOrgIdSync()) return { ok: false, error: ORG_ID_UNSET };
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT cipher, iv FROM form_c_person WHERE id = ? AND property_id = ? AND removed_at IS NULL`,
+        input.id,
+        input.propertyId,
+      )
+      .toArray() as Array<{ cipher: unknown; iv: unknown }>;
+    const row = rows[0];
+    if (!row) return { ok: false, error: NOT_FOUND };
+    let fields: FormCPersonFields;
+    try {
+      fields = await this.openFormC<FormCPersonFields>(input.id, row.cipher, row.iv);
+    } catch {
+      return { ok: false, error: DECRYPT_UNRESOLVED };
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO form_c_access (id, record_id, property_id, actor_user_id, at) VALUES (?, ?, ?, ?, ?)`,
+        crypto.randomUUID(),
+        input.id,
+        input.propertyId,
+        input.actorUserId,
+        Date.now(),
+      );
+    });
+    return { ok: true, fields };
+  }
+
+  /** Clear a removed row's ciphertext. Idempotent; a row at another property is left alone. */
+  async clearFormCPerson(input: {
+    id: string;
+    propertyId: string;
+  }): Promise<{ ok: true; cleared: boolean }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const cleared = this.ctx.storage.transactionSync(() => {
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT removed_at FROM form_c_person WHERE id = ? AND property_id = ?`,
+          input.id,
+          input.propertyId,
+        )
+        .toArray() as Array<{ removed_at: number | null }>;
+      if (rows.length === 0 || rows[0]!.removed_at != null) return false;
+      this.ctx.storage.sql.exec(
+        `UPDATE form_c_person
+         SET cipher = x'', iv = x'', summary_cipher = x'', summary_iv = x'', removed_at = ?
+         WHERE id = ? AND property_id = ?`,
+        Date.now(),
+        input.id,
+        input.propertyId,
+      );
+      return true;
+    });
+    return { ok: true, cleared };
+  }
+
+  /** Org purge count: every Form C person row, removed shells included. */
+  async countFormCPersons(): Promise<number> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS n FROM form_c_person`)
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /** Guest erasure count: the guest's live BOOKED_GUEST records, kept as an immigration record. */
+  async countFormCPersonsForGuest(guestRef: string): Promise<number> {
+    this.assertRpcAvailable();
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS n FROM form_c_person WHERE guest_ref = ? AND removed_at IS NULL`, guestRef)
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  async countFormCAccessForTest(recordId: string): Promise<number> {
+    this.assertUnsafeLocal('countFormCAccessForTest');
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT COUNT(*) AS n FROM form_c_access WHERE record_id = ?`, recordId)
+      .toArray() as Array<{ n: number }>;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  async readFormCPersonRowForTest(
+    id: string,
+  ): Promise<{ guestRef: string | null; propertyId: string; removed: boolean; cipherBytes: number } | null> {
+    this.assertUnsafeLocal('readFormCPersonRowForTest');
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT guest_ref, property_id, removed_at, cipher FROM form_c_person WHERE id = ?`, id)
+      .toArray() as Array<{ guest_ref: string | null; property_id: string; removed_at: number | null; cipher: unknown }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      guestRef: row.guest_ref,
+      propertyId: row.property_id,
+      removed: row.removed_at != null,
+      cipherBytes: blobToBytes(row.cipher).byteLength,
+    };
   }
 
   async listGuestDocumentPurgeKeys(

@@ -60,11 +60,12 @@ describe('report registry', () => {
       expect(route, d.routeId).toBeDefined();
       expect(route).toMatchObject({ permission: REPORT_GROUP_PERMISSION[d.group] });
     }
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)?.id).toBe('get_manager_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)?.id).toBe('get_housekeeping_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-4)?.id).toBe('get_audit_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('get_cashier_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('get_front_office_report');
+    const manager = V1_HTTP_ROUTE_AUDIT.findIndex((r) => r.id === 'get_manager_report');
+    expect(V1_HTTP_ROUTE_AUDIT[manager]?.id).toBe('get_manager_report');
+    expect(V1_HTTP_ROUTE_AUDIT[manager - 1]?.id).toBe('get_housekeeping_report');
+    expect(V1_HTTP_ROUTE_AUDIT[manager - 2]?.id).toBe('get_audit_report');
+    expect(V1_HTTP_ROUTE_AUDIT[manager - 3]?.id).toBe('get_cashier_report');
+    expect(V1_HTTP_ROUTE_AUDIT[manager - 4]?.id).toBe('get_front_office_report');
     expect(reportPath('p 1', reportDefinition('front_office_in_house')!)).toBe(
       `/v1/properties/p%201/reports/${REPORT_ROUTE_SEGMENT.get_front_office_report}/front_office_in_house`,
     );

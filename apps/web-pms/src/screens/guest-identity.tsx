@@ -108,11 +108,11 @@ const EMPTY_ID_FORM: IdForm = {
 
 type WriteResult = { body?: unknown; classified: Parameters<typeof classifiedUserMessage>[0] };
 
-function documentsKey(propertyId: string, guestRef: string) {
+export function documentsKey(propertyId: string, guestRef: string) {
   return ['guest-documents', propertyId, guestRef] as const;
 }
 
-function documentKey(propertyId: string, guestRef: string, documentId: string) {
+export function documentKey(propertyId: string, guestRef: string, documentId: string) {
   return ['guest-document', propertyId, guestRef, documentId] as const;
 }
 

@@ -264,8 +264,9 @@ describe('night audit checks', () => {
       'open_folio_unsettled',
       'open_folio_past_close_by',
       'open_folio_zero_balance',
+      'form_c_overdue',
     ]);
-    expect(checks).toHaveLength(10);
+    expect(checks).toHaveLength(11);
     expect(checkCount(checks, 'arrivals_not_checked_in')).toMatchObject({ severity: 'warn', count: 4 });
     expect(checkCount(checks, 'departures_not_checked_out')).toMatchObject({ severity: 'warn', count: 2 });
     expect(checkCount(checks, 'dirty_room_assigned')).toMatchObject({ severity: 'warn', count: 1 });

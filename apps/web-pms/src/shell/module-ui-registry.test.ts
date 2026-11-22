@@ -15,6 +15,7 @@ describe('module UI nav merge', () => {
       'housekeeping',
       'maintenance',
       'guests',
+      'form-c',
       'rates',
       'folios',
       'night-audit',
@@ -46,6 +47,13 @@ describe('module UI nav merge', () => {
     expect(ALL_NAV.find((e) => e.id === 'arrivals')?.label).toBe('Front Desk');
     expect(ALL_NAV.find((e) => e.id === 'book')?.label).toBe('New Booking');
     expect(ALL_NAV.find((e) => e.id === 'night-audit')?.label).toBe('Night Audit');
+    // R6.2: the Form C register is a guests:read page that shows for India properties only.
+    expect(ALL_NAV.find((e) => e.id === 'form-c')).toMatchObject({
+      label: 'Form C',
+      path: '/form-c',
+      permission: 'guests:read',
+      indiaOnly: true,
+    });
 
     for (const id of ['inventory', 'staff', 'roster', 'exceptions', 'city-ledger', 'shift'] as const) {
       expect(ALL_NAV.find((e) => e.id === id)?.tone).toBe('quiet');

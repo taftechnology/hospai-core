@@ -125,6 +125,7 @@ const WARN_CHECKS = {
   open_folio_unsettled: 'warn',
   open_folio_past_close_by: 'warn',
   open_folio_zero_balance: 'warn',
+  form_c_overdue: 'warn',
 };
 
 const OPEN_FOLIO_DEFAULT = {

@@ -25,6 +25,8 @@ export function stayMutationQueryKeys(propertyId: string, reservationId: string)
     ['reservation-search', propertyId],
     ['availability', propertyId],
     ['guest-stays', propertyId],
+    ['reservation-form-c', propertyId, reservationId],
+    ['form-c-register', propertyId],
   ];
 }
 

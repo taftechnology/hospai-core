@@ -537,8 +537,12 @@ describe('R4.16 copilot route', () => {
       const matched = V1_ROUTES.find((r) => r.method === method && r.pattern.test(new URL(path, 'http://x').pathname));
       expect(matched?.id, `${tool.toolId}: ${path}`).toBe(tool.routeId);
     }
-    // The route itself is the only copilot route, and it is registered last.
-    expect(V1_ROUTES.at(-1)).toMatchObject({ id: 'post_copilot_message', method: 'POST', permission: 'copilot:use' });
+    // The route itself is the only copilot route; the Form C routes (R6.2) are registered after it.
+    expect(V1_ROUTES.find((r) => r.id === 'post_copilot_message')).toMatchObject({
+      id: 'post_copilot_message',
+      method: 'POST',
+      permission: 'copilot:use',
+    });
     expect(V1_ROUTES.filter((r) => r.id.includes('copilot'))).toHaveLength(1);
   });
 

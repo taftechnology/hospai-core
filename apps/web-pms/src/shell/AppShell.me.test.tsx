@@ -93,6 +93,46 @@ describe('AppShell /me states', () => {
     vi.restoreAllMocks();
   });
 
+  it('R6.2 the Form C link needs guests:read and an India property', async () => {
+    getOrgEntitlements.mockResolvedValue(null);
+    getMe.mockResolvedValue({ ...liveOwner, permissions: [...liveOwner.permissions, 'guests:read'] });
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'Asia/Kolkata', name: 'Demo' },
+      businessDate: '2026-03-05',
+      formCApplicable: true,
+    });
+    renderShell();
+    const nav = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() =>
+      expect(within(nav).getByRole('link', { name: 'Form C' }).getAttribute('href')).toBe('/form-c'),
+    );
+    cleanup();
+
+    // Not an India property.
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo' },
+      businessDate: '2026-03-05',
+      formCApplicable: false,
+    });
+    renderShell();
+    const nav2 = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() => expect(within(nav2).getByRole('link', { name: 'Guests' })).toBeTruthy());
+    expect(within(nav2).queryByRole('link', { name: 'Form C' })).toBeNull();
+    cleanup();
+
+    // India, but no guests:read.
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'Asia/Kolkata', name: 'Demo' },
+      businessDate: '2026-03-05',
+      formCApplicable: true,
+    });
+    getMe.mockResolvedValue(liveOwner);
+    renderShell();
+    const nav3 = await screen.findByRole('navigation', { name: /hospai pms/i });
+    await waitFor(() => expect(within(nav3).getByRole('link', { name: 'Front Desk' })).toBeTruthy());
+    expect(within(nav3).queryByRole('link', { name: 'Form C' })).toBeNull();
+  });
+
   it('R4.16 the Copilot link needs copilot:use and the plan: shown only when both hold', async () => {
     const entitled = {
       orgId: 'org_demo',

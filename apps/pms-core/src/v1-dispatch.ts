@@ -311,7 +311,15 @@ import { finishPropertyDoInvoke } from './finish-property-do-invoke.js';
 import { commandEnvelope } from './command-envelope.js';
 import { isPropertyDoTransportFailure } from './property-do-transport.js';
 import { OrgDO } from './org-do.js';
-import { NIGHT_AUDIT_HALTED } from '@hospai/contracts';
+import {
+  FORM_C_KINDS,
+  FORM_C_REGISTER_FILTERS,
+  formCFieldsSha256,
+  parseFormCPersonFields,
+  type FormCKind,
+  type FormCRegisterFilter,
+  NIGHT_AUDIT_HALTED,
+} from '@hospai/contracts';
 import { NIGHT_AUDIT_STEPS, type NightAuditStep, type PropertyDO } from './property-do.js';
 import { consumerRegistry } from './event-consumers.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
@@ -878,6 +886,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
     const schemaVersion = await resolved.stub.getSchemaVersion();
     const ledgerCurrency = await resolved.stub.readStoredLedgerCurrency();
     const businessDate = await resolved.stub.readBusinessDate();
+    const formCApplicable = await resolved.stub.readFormCApplicable();
     return json({
       property: resolved.property,
       locationHint: resolved.locationHint,
@@ -885,6 +894,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
       schemaVersion,
       ledgerCurrency,
       businessDate: businessDate ?? null,
+      formCApplicable,
     });
   } catch (e) {
     if (!isPropertyDoTransportFailure(e, ctx.env)) throw e;
@@ -896,6 +906,7 @@ async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
       propertyDo: 'unreachable',
       ledgerCurrency: null,
       businessDate: null,
+      formCApplicable: false,
     });
   }
 }
@@ -12091,6 +12102,195 @@ async function handlePostFolioFxAdjustment(ctx: V1DispatchContext): Promise<Resp
   });
 }
 
+// ----- Form C tracker (R6.2) -----
+
+function formCFailure(
+  result: { ok: false; error: CommandError },
+  permission: Permission,
+): Response {
+  if (result.error === ORG_UNREACHABLE) return degradedFailClosedOrgReadResponse();
+  return commandFailureResponse(result.error, permission);
+}
+
+async function handleGetFormCRegister(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+  const filter = ctx.url.searchParams.get('filter') ?? 'to_file';
+  if (!(FORM_C_REGISTER_FILTERS as readonly string[]).includes(filter)) {
+    return json({ ok: false, error: VALIDATION_ERROR }, 422);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const result = await resolvedCtx.resolved.stub.readFormCRegister(filter as FormCRegisterFilter);
+    if (!result.ok) return formCFailure(result, 'guests:read');
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetReservationFormC(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  try {
+    const result = await resolvedCtx.resolved.stub.readReservationFormC(reservationId);
+    if (!result.ok) return formCFailure(result, 'guests:read');
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handleGetFormCPerson(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const recordId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  try {
+    const result = await resolvedCtx.resolved.stub.readFormCPerson(actor, recordId);
+    if (!result.ok) return formCFailure(result as { ok: false; error: CommandError }, 'guests:read');
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+async function handlePostFormCPerson(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const reservationId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{
+    recordId?: string;
+    kind?: string;
+    fields?: unknown;
+    idempotencyKey?: string;
+  }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  if (
+    !bodyParsed ||
+    typeof bodyParsed !== 'object' ||
+    !onlyKeys(bodyParsed, ['recordId', 'kind', 'fields', 'idempotencyKey'])
+  ) {
+    return json({ ok: false, error: VALIDATION_ERROR }, 422);
+  }
+  const { recordId, kind, fields, idempotencyKey } = bodyParsed;
+  if (!recordId || !kind || !idempotencyKey || fields === undefined) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  try {
+    validateTenantId(recordId);
+  } catch (e) {
+    if (e instanceof InvalidTenantIdError) return json({ error: 'invalid_tenant_id' }, 400);
+    throw e;
+  }
+  if (!(FORM_C_KINDS as readonly string[]).includes(kind)) {
+    return json({ ok: false, error: VALIDATION_ERROR }, 422);
+  }
+  const parsed = parseFormCPersonFields(fields);
+  if (!parsed.ok) return json({ ok: false, error: parsed.error }, commandErrorHttpStatus(parsed.error));
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  const sent = { recordId, reservationId, kind: kind as FormCKind, fields: parsed.fields };
+  const commandPayload = {
+    recordId,
+    reservationId,
+    kind,
+    fieldsSha256: await formCFieldsSha256(parsed.fields),
+  };
+  const fingerprint = await commandFingerprint('form_c.save_person', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['trySaveFormCPerson']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'form_c.save_person',
+      routeId: 'post_form_c_person',
+      idempotencyKey,
+      requestFingerprint: fingerprint,
+      // The queue envelope never carries the details: this command is FAIL_CLOSED and is never queued.
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.trySaveFormCPerson(actor, sent, idem),
+  });
+  return finishPropertyDoInvoke({
+    invoked,
+    permission: 'guests:write',
+    successStatus: 200,
+    onFailure: (r) => (r.error === ORG_UNREACHABLE ? degradedFailClosedOrgReadResponse() : null),
+  });
+}
+
+async function handlePostFormCFiled(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const recordId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{ reference?: string; idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  if (!bodyParsed || typeof bodyParsed !== 'object' || !onlyKeys(bodyParsed, ['reference', 'idempotencyKey'])) {
+    return json({ ok: false, error: VALIDATION_ERROR }, 422);
+  }
+  if (typeof bodyParsed.reference !== 'string' || !bodyParsed.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = { recordId, reference: bodyParsed.reference };
+  const fingerprint = await commandFingerprint('form_c.mark_filed', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: bodyParsed.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryMarkFormCFiled']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'form_c.mark_filed',
+      routeId: 'post_form_c_filed',
+      idempotencyKey: bodyParsed.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryMarkFormCFiled(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({ invoked, permission: 'guests:write', successStatus: 200 });
+}
+
+async function handlePostFormCRemove(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  const recordId = decodeURIComponent(ctx.match[2]!);
+  ctx.observability.propertyId = propertyId;
+  const bodyParsed = await parseJsonBody<{ reason?: string; idempotencyKey?: string }>(ctx.request);
+  if (bodyParsed instanceof Response) return bodyParsed;
+  if (!bodyParsed || typeof bodyParsed !== 'object' || !onlyKeys(bodyParsed, ['reason', 'idempotencyKey'])) {
+    return json({ ok: false, error: VALIDATION_ERROR }, 422);
+  }
+  if (typeof bodyParsed.reason !== 'string' || !bodyParsed.idempotencyKey) {
+    return json({ error: 'invalid_body' }, 400);
+  }
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+  const commandPayload = { recordId, reason: bodyParsed.reason };
+  const fingerprint = await commandFingerprint('form_c.remove_person', commandPayload);
+  const actor = { kind: 'user' as const, userId: ctx.actor.userId };
+  const idem = { key: bodyParsed.idempotencyKey, fingerprint };
+  const invoked = await invokePropertyDo<Awaited<ReturnType<PropertyDO['tryRemoveFormCPerson']>>>({
+    ...commandEnvelope(ctx, resolvedCtx, {
+      commandId: 'form_c.remove_person',
+      routeId: 'post_form_c_remove',
+      idempotencyKey: bodyParsed.idempotencyKey,
+      requestFingerprint: fingerprint,
+      commandPayload,
+    }),
+    invoke: () => resolvedCtx.resolved.stub.tryRemoveFormCPerson(actor, commandPayload, idem),
+  });
+  return finishPropertyDoInvoke({ invoked, permission: 'guests:write', successStatus: 200 });
+}
+
 export const V1_ROUTES: V1RouteDef[] = [
   {
     id: 'post_orgs',
@@ -14403,6 +14603,60 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'copilot:use',
     entitlement: 'ai_ops.enabled',
     handler: handlePostCopilotMessage,
+  },
+  {
+    id: 'get_form_c_register',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/form-c$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetFormCRegister,
+  },
+  {
+    id: 'get_reservation_form_c',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/form-c$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetReservationFormC,
+  },
+  {
+    id: 'get_form_c_person',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/form-c\/([^/]+)$/,
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    handler: handleGetFormCPerson,
+  },
+  {
+    id: 'post_form_c_person',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/reservations\/([^/]+)\/form-c$/,
+    permission: 'guests:write',
+    commandId: 'form_c.save_person',
+    handler: handlePostFormCPerson,
+  },
+  {
+    id: 'post_form_c_filed',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/form-c\/([^/]+)\/filed$/,
+    permission: 'guests:write',
+    commandId: 'form_c.mark_filed',
+    handler: handlePostFormCFiled,
+  },
+  {
+    id: 'post_form_c_remove',
+    scope: 'property',
+    method: 'POST',
+    pattern: /^\/v1\/properties\/([^/]+)\/form-c\/([^/]+)\/remove$/,
+    permission: 'guests:write',
+    commandId: 'form_c.remove_person',
+    handler: handlePostFormCRemove,
   },
 ];
 

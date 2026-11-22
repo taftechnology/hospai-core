@@ -27,6 +27,8 @@ export const CHECK_DESCRIPTIONS: Record<NightAuditCheckId | NightAuditFixedCheck
   open_folio_unsettled: 'Active open-folio holds whose guest window balance is greater than zero.',
   open_folio_past_close_by: 'Active open-folio holds whose close-by date is before the closing date.',
   open_folio_zero_balance: 'Active open-folio holds whose guest window balance is zero.',
+  form_c_overdue:
+    'Foreign nationals whose Form C is not filed 24 hours after check-in. Only India properties have any.',
 };
 
 export const SEVERITY_WORD: Record<NightAuditCheckSeverity | 'clear', string> = {

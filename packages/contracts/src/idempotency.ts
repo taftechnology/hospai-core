@@ -273,6 +273,14 @@ export const BUYER_GSTIN_REQUIRED = 'buyer_gstin_required' as const;
 export const BUYER_STATE_CODE_MISMATCH = 'buyer_state_code_mismatch' as const;
 export const INVALID_HSN_SAC = 'invalid_hsn_sac' as const;
 
+/** Form C wire codes (R6.2) */
+export const FORM_C_NOT_APPLICABLE = 'form_c_not_applicable' as const;
+export const FORM_C_NOT_FOREIGN = 'form_c_not_foreign' as const;
+export const FORM_C_NOT_IN_HOUSE = 'form_c_not_in_house' as const;
+export const FORM_C_BOOKED_GUEST_EXISTS = 'form_c_booked_guest_exists' as const;
+export const FORM_C_DETAILS_MISSING = 'form_c_details_missing' as const;
+export const FORM_C_ALREADY_FILED = 'form_c_already_filed' as const;
+
 export const STAFF_NOT_FOUND = 'staff_not_found' as const;
 export const STAFF_EXITED = 'staff_exited' as const;
 export const STAFF_NOT_ASSIGNABLE = 'staff_not_assignable' as const;

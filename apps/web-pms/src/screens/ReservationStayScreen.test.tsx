@@ -30,6 +30,7 @@ const recordUpiPayment = vi.fn();
 const authorizePayment = vi.fn();
 const getHousekeepingRequests = vi.fn();
 const createHousekeepingRequest = vi.fn();
+const getReservationFormC = vi.fn();
 
 const businessDate = { current: '2026-11-09' };
 
@@ -70,6 +71,7 @@ vi.mock('../client.js', () => ({
     authorizePayment: (...args: unknown[]) => authorizePayment(...args),
     getHousekeepingRequests: (...args: unknown[]) => getHousekeepingRequests(...args),
     createHousekeepingRequest: (...args: unknown[]) => createHousekeepingRequest(...args),
+    getReservationFormC: (...args: unknown[]) => getReservationFormC(...args),
   },
 }));
 
@@ -209,6 +211,59 @@ describe('ReservationStayScreen', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('R6.2: the Form C panel shows on an India property for a user who can read guests, and not elsewhere', async () => {
+    getReservation.mockResolvedValue(stay('checked_in'));
+    getReservationFormC.mockResolvedValue({
+      ok: true,
+      rows: [
+        {
+          recordId: 'fcb_res_1',
+          reservationId: 'res_1',
+          kind: 'BOOKED_GUEST',
+          status: 'TO_FILE',
+          detailsSaved: false,
+          deadlineAt: Date.UTC(2026, 10, 10, 10),
+          overdue: false,
+          filedReference: null,
+          filedAt: null,
+          displayName: null,
+          nationality: null,
+        },
+      ],
+    });
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'Asia/Kolkata', name: 'Demo Inn' },
+      ledgerCurrency: 'INR',
+      formCApplicable: true,
+    });
+    getMe.mockResolvedValue({
+      ok: true,
+      orgId: 'org_demo',
+      propertyId: 'prop_demo',
+      userId: 'user_x',
+      role: 'staff',
+      permissions: ['reservations:read', 'guests:read'],
+      orgPermissions: [],
+    });
+    renderStay();
+    await waitFor(() => expect(screen.getByTestId('form-c-panel-table')).toBeTruthy());
+    expect(getReservationFormC).toHaveBeenCalledWith('prop_demo', 'res_1');
+    expect(screen.getByText('Details needed')).toBeTruthy();
+    cleanup();
+
+    getReservationFormC.mockClear();
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'Asia/Kolkata', name: 'Demo Inn' },
+      ledgerCurrency: 'INR',
+      formCApplicable: false,
+    });
+    renderStay();
+    await waitFor(() => expect(screen.getByText('Stay')).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(getReservationFormC).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('form-c-panel-table')).toBeNull();
+  });
 
   it('inquiry can confirm, modify and cancel, and says why check-in is disabled', async () => {
     getReservation.mockResolvedValue(stay('inquiry'));

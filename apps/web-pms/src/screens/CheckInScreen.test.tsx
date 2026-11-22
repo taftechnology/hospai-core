@@ -17,6 +17,7 @@ const listOperationalConfig = vi.fn();
 const listDomainConfig = vi.fn();
 const getFolioPayments = vi.fn();
 const listGuestDocuments = vi.fn();
+const readGuestDocument = vi.fn();
 const getMe = vi.fn();
 const getGuest = vi.fn();
 const addGuestDocument = vi.fn();
@@ -55,6 +56,7 @@ vi.mock('../client.js', () => ({
     listDomainConfig: (...args: unknown[]) => listDomainConfig(...args),
     getFolioPayments: (...args: unknown[]) => getFolioPayments(...args),
     listGuestDocuments: (...args: unknown[]) => listGuestDocuments(...args),
+    readGuestDocument: (...args: unknown[]) => readGuestDocument(...args),
     getMe: (...args: unknown[]) => getMe(...args),
     getGuest: (...args: unknown[]) => getGuest(...args),
     addGuestDocument: (...args: unknown[]) => addGuestDocument(...args),
@@ -526,6 +528,82 @@ describe('CheckInScreen', () => {
       expect(keys).toContainEqual(JSON.stringify({ queryKey: ['front-desk-tape', 'prop_demo'] }));
       expect(keys).toContainEqual(JSON.stringify({ queryKey: ['front-desk-free', 'prop_demo'] }));
     });
+  });
+
+  it('R6.2: check-in invalidates the stay Form C key and the register prefix', async () => {
+    const { invalidateSpy } = renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    screen.getByTestId('check-in').click();
+    await waitFor(() => expect(checkIn).toHaveBeenCalled());
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      expect(keys).toContainEqual(
+        JSON.stringify({ queryKey: ['reservation-form-c', 'prop_demo', 'res_1'] }),
+      );
+      expect(keys).toContainEqual(JSON.stringify({ queryKey: ['form-c-register', 'prop_demo'] }));
+    });
+  });
+
+  it('R6.2: a foreign passport at an India property shows the Form C line; an Indian one does not', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'Asia/Kolkata', name: 'Demo Inn' },
+      formCApplicable: true,
+    });
+    listGuestDocuments.mockResolvedValue({
+      ok: true,
+      documents: [{ id: 'doc_p', kind: 'PASSPORT', hasScan: false, scanContentType: null, createdAt: 1 }],
+      requireIdAtCheckIn: false,
+    });
+    readGuestDocument.mockResolvedValue({
+      ok: true,
+      id: 'doc_p',
+      kind: 'PASSPORT',
+      fields: { number: 'ZZ1234567', issuingCountry: 'ZA', nationality: 'ZA' },
+      hasScan: false,
+      createdAt: 1,
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('form-c-check-in-notice')).toBeTruthy());
+    expect(screen.getByTestId('form-c-check-in-notice').textContent).toBe(
+      'A Form C is due within 24 hours of check-in. It will appear on the stay card.',
+    );
+    cleanup();
+
+    readGuestDocument.mockResolvedValue({
+      ok: true,
+      id: 'doc_p',
+      kind: 'PASSPORT',
+      fields: { number: 'P1234567', issuingCountry: 'IN', nationality: 'IN' },
+      hasScan: false,
+      createdAt: 1,
+    });
+    renderCheckIn();
+    await waitFor(() => expect(readGuestDocument).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    expect(screen.queryByTestId('form-c-check-in-notice')).toBeNull();
+  });
+
+  it('R6.2: no Form C line outside India, even with a foreign passport', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', timeZone: 'UTC', name: 'Demo Inn' },
+      formCApplicable: false,
+    });
+    listGuestDocuments.mockResolvedValue({
+      ok: true,
+      documents: [{ id: 'doc_p', kind: 'PASSPORT', hasScan: false, scanContentType: null, createdAt: 1 }],
+      requireIdAtCheckIn: false,
+    });
+    readGuestDocument.mockResolvedValue({
+      ok: true,
+      id: 'doc_p',
+      kind: 'PASSPORT',
+      fields: { number: 'ZZ1234567', issuingCountry: 'ZA', nationality: 'ZA' },
+      hasScan: false,
+      createdAt: 1,
+    });
+    renderCheckIn();
+    await waitFor(() => expect(screen.getByTestId('check-in')).toBeTruthy());
+    expect(screen.queryByTestId('form-c-check-in-notice')).toBeNull();
   });
 
   it('58: assign-room success invalidates board prefix', async () => {

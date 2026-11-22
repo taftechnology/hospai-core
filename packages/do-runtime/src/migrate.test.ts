@@ -285,6 +285,7 @@ class MemorySql implements SqlStorageLike {
     if (q.startsWith('ALTER TABLE recurring_charge_v49 RENAME TO recurring_charge')) {
       return { toArray: () => [] };
     }
+    if (q.startsWith('ALTER TABLE reservation ADD COLUMN checked_in_at')) return { toArray: () => [] };
     if (q.startsWith('ALTER TABLE reservation ADD COLUMN package_id')) {
       return { toArray: () => [] };
     }
@@ -319,17 +320,17 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 56', () => {
+  it('applies property migrations through version 57', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(56);
+    expect(v1).toBe(57);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(56);
-    expect(sql.schemaVersion).toHaveLength(56);
+    expect(v2).toBe(57);
+    expect(sql.schemaVersion).toHaveLength(57);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50, 51, 52, 53, 54, 55, 56,
+      49, 50, 51, 52, 53, 54, 55, 56, 57,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -768,9 +769,9 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(13);
-    expect(sql.schemaVersion).toHaveLength(13);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(14);
+    expect(sql.schemaVersion).toHaveLength(14);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -938,7 +939,7 @@ describe('housekeeping depth C v55', () => {
        VALUES ('m1', 'i1', 'receive', 7, 7, 'first', 'usr_a', '2026-11-20', 2)`,
     );
     const head = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(head).toBe(56);
+    expect(head).toBe(57);
     const items = sql.exec(`SELECT item_id, name, category, on_hand, archived_at FROM housekeeping_inventory_item ORDER BY item_id`).toArray();
     expect(items).toEqual([
       { item_id: 'i1', name: 'Bath towel', category: 'towels', on_hand: 7, archived_at: null },
@@ -982,7 +983,7 @@ describe('manager report v56', () => {
     expect(ddl).toContain('business_date          TEXT PRIMARY KEY');
     expect(ddl).toContain('source_mix_json');
     expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b|guest_ref/i);
-    expect(PROPERTY_SCHEMA_HEAD).toBe(56);
+    expect(PROPERTY_SCHEMA_HEAD).toBeGreaterThanOrEqual(56);
   });
 
   it('stores one row per business date on a real SQLite database', async () => {
@@ -994,7 +995,7 @@ describe('manager report v56', () => {
         return { toArray: () => rows };
       },
     };
-    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(56);
+    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(57);
     const insert = `INSERT INTO night_audit_day_stats (business_date, currency, physical, blocked, sold, no_show_nights, arrivals, departures, no_shows, cancellations, in_house_adults, in_house_children, room_revenue_minor, fnb_revenue_minor, other_revenue_minor, tax_minor, pay_card_minor, pay_cash_minor, pay_upi_minor, pay_other_minor, recorded_at) VALUES (?, 'USD', 5, 0, 1, 0, 0, 0, 0, 0, 1, 0, 10000, 0, 0, 0, 0, 0, 0, 0, 1)`;
     sql.exec(insert, '2026-11-20');
     expect(() => sql.exec(insert, '2026-11-20')).toThrow();
@@ -1004,10 +1005,50 @@ describe('manager report v56', () => {
   });
 });
 
+describe('form c v57 and org v14', () => {
+  it('adds checked_in_at and a PII-free tracker table with one live booked guest per stay', async () => {
+    const v57 = PROPERTY_MIGRATIONS.find((m) => m.version === 57);
+    expect(v57?.name).toBe('form_c');
+    const ddl = (v57?.statements ?? []).join('\n');
+    expect(ddl).toContain('ALTER TABLE reservation ADD COLUMN checked_in_at');
+    expect(ddl).toContain('CREATE TABLE form_c_record (');
+    expect(ddl).toContain('form_c_one_booked_guest');
+    expect(ddl).not.toMatch(/surname|given_name|passport|display_name|guest_ref/i);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    const sql: SqlStorageLike = {
+      exec(query: string, ...bindings: unknown[]) {
+        const rows = db.prepare(query).all(...(bindings as never[]));
+        return { toArray: () => rows };
+      },
+    };
+    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(57);
+    const ins = `INSERT INTO form_c_record (id, reservation_id, kind, status, deadline_at, created_at, created_by) VALUES (?, 'r1', ?, ?, 1, 1, 'u')`;
+    sql.exec(ins, 'a', 'BOOKED_GUEST', 'TO_FILE');
+    expect(() => sql.exec(ins, 'b', 'BOOKED_GUEST', 'TO_FILE')).toThrow();
+    sql.exec(ins, 'c', 'ADDITIONAL', 'TO_FILE');
+    sql.exec(ins, 'd', 'ADDITIONAL', 'TO_FILE');
+    sql.exec(`UPDATE form_c_record SET status = 'REMOVED' WHERE id = 'a'`);
+    sql.exec(ins, 'e', 'BOOKED_GUEST', 'TO_FILE');
+    expect(() => sql.exec(ins, 'f', 'ADDITIONAL', 'BOGUS')).toThrow();
+    db.close();
+  });
+
+  it('org v14 holds encrypted person rows and an access log with no plaintext columns', () => {
+    const v14 = ORG_MIGRATIONS.find((m) => m.version === 14);
+    expect(v14?.name).toBe('0014_form_c');
+    const ddl = (v14?.statements ?? []).join('\n');
+    expect(ddl).toContain('CREATE TABLE form_c_person (');
+    expect(ddl).toContain('CREATE TABLE form_c_access (');
+    expect(ddl).not.toMatch(/surname|passport_number|display_name/i);
+    expect(ORG_SCHEMA_HEAD).toBe(14);
+  });
+});
+
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(56);
-    expect(ORG_SCHEMA_HEAD).toBe(13);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(57);
+    expect(ORG_SCHEMA_HEAD).toBe(14);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
 

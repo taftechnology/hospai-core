@@ -41,6 +41,8 @@ describe('stay mutation query keys', () => {
       ['reservation-search', 'prop_1', 'ada'],
       ['availability', 'prop_1', '2026-11-09', '2026-11-12'],
       ['guest-stays', 'prop_1', 'guest_1'],
+      ['reservation-form-c', 'prop_1', 'res_1'],
+      ['form-c-register', 'prop_1', 'overdue'],
     ];
     for (const full of consumers) {
       expect(seen.some((prefix) => prefix.every((part, i) => full[i] === part))).toBe(true);

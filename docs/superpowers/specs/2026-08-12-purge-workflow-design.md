@@ -39,7 +39,7 @@ A purge certificate is **not** a boolean success. It records:
 | `certified?` | Set only when `outcome = certified` — when coverage was attested |
 | `started` | Run start |
 
-**Five stores, always enumerated** (auditor maps 1:1 to §4.8):
+**Five §4.8 stores, always enumerated** (auditor maps 1:1 to §4.8), **plus** the extra `stores[]` names `org_do_tax_invoice_buyer`, `org_do_form_c` and `r2_guest_documents` for data that is kept or deleted on a different rule from the store around it:
 
 | `store` | Phase 0 reality |
 |---|---|
@@ -47,6 +47,8 @@ A purge certificate is **not** a boolean success. It records:
 | `property_do` | Starts `pending`. After the property step: `reached` (org: wipe; guest: nothing applicable → `deleted: 0`) |
 | `org_do` | Starts `pending`. After the org step: `reached`; may include OrgEntitlementDO wipe folded in (`note: includes_entitlement_do`, `deleted` summed) — not a sixth §4.8 name |
 | `r2` | **Derived at init:** binding absent → `skipped: no_r2_binding`; binding present → `pending` until the R2 step. Org step → `reached` + prefix delete ([event-log](./2026-08-12-event-log-r2-design.md)); guest step → `retained, reason: pii_by_reference_event_log` (no `deleted`) |
+| `org_do_tax_invoice_buyer` | Starts `pending` (R4.22). Org step → `reached` with `deleted: n`, or `skipped: none` when n = 0. Guest step → `retained, reason: tax_invoice_retention, count` (the individual buyer snapshots the guest is named on) |
+| `org_do_form_c` | Starts `pending` (R6.2, [Form C tracker](./2026-11-22-form-c-tracker-design.md)). Org step (`count-form-c-persons`, then the OrgDO wipe) → `reached` with `deleted: n` (every `form_c_person` row, removed shells included), or `skipped: none` when n = 0. Guest step (`retain-form-c`, after `retain-invoice-buyer`) → `retained, reason: immigration_record_retention, count` = that guest's live `BOOKED_GUEST` rows; `ADDITIONAL` rows have no `guest_ref` and are not counted. The PropertyDO tracker rows (`form_c_record`, no PII) go with the property's own deletion. The advisor confirms the retention period; nothing expires on its own. |
 | `iceberg` | Skipped from init — `reason: no_iceberg_binding` (out of scope this deployment) |
 
 **Hard rules:**
@@ -202,6 +204,10 @@ Admin route creates the Workflow **before** any status flip — if `create()` fa
 3. PURGE_PROPERTY_DO  reached, deleted: 0 (declared guest-PII column set empty — checked)
 4. PURGE_ORG_DO    UPDATE guest SET profile_cipher = x'', profile_iv = x''
                    (columns are BLOB NOT NULL — must not assign NULL)
+4b. RETAIN         retain-invoice-buyer (tax_invoice_retention) then retain-form-c
+                   (R6.2: org_do_form_c retained, immigration_record_retention, count of
+                   the guest's BOOKED_GUEST records). Sealed under the org legal-retention
+                   key; an org purge deletes them (count-form-c-persons, org_do_form_c reached).
 5. R2 / ICEBERG    R2: when binding present → retained, reason pii_by_reference_event_log
                    (no deleted; event log kept — PII by reference). Current-state only:
                    event log is the only guest-touching R2 this chunk creates; ID-document

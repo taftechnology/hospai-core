@@ -17,6 +17,7 @@ const getProperty = vi.fn();
 const listEventConsumerExceptions = vi.fn();
 const retryEventConsumerException = vi.fn();
 const dismissEventConsumerException = vi.fn();
+const getFormCRegister = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -34,6 +35,7 @@ vi.mock('../client.js', () => ({
     listEventConsumerExceptions: (...a: unknown[]) => listEventConsumerExceptions(...a),
     retryEventConsumerException: (...a: unknown[]) => retryEventConsumerException(...a),
     dismissEventConsumerException: (...a: unknown[]) => dismissEventConsumerException(...a),
+    getFormCRegister: (...a: unknown[]) => getFormCRegister(...a),
   },
   asClassified: (err: unknown) => {
     if (err instanceof ClassifiedError) return err.classified;
@@ -124,9 +126,39 @@ describe('ExceptionsScreen', () => {
     listEventConsumerExceptions.mockResolvedValue({ ok: true, count: 0, exceptions: [] });
     retryEventConsumerException.mockResolvedValue({ ok: true });
     dismissEventConsumerException.mockResolvedValue({ ok: true });
+    getFormCRegister.mockResolvedValue({ ok: true, rows: [] });
   });
 
   afterEach(() => cleanup());
+
+  it('R6.2: an India property with overdue Form C records shows an alert linking to the register', async () => {
+    getProperty.mockResolvedValue({
+      property: { propertyId: 'prop_demo', name: 'Harbor Inn', timeZone: 'UTC' },
+      formCApplicable: true,
+    });
+    getFormCRegister.mockResolvedValue({
+      ok: true,
+      rows: [{ recordId: 'fcb_1' }, { recordId: 'fcb_2' }, { recordId: 'fcb_3' }],
+    });
+    getMe.mockResolvedValue(ownerMe);
+    renderScreen();
+    const alert = await screen.findByTestId('form-c-overdue-alert');
+    expect(getFormCRegister).toHaveBeenCalledWith('prop_demo', 'overdue');
+    expect(alert.textContent).toContain('3 Form C records are past their 24-hour deadline.');
+    expect(within(alert).getByRole('link').getAttribute('href')).toBe('/form-c?filter=overdue');
+  });
+
+  it('R6.2: no Form C alert outside India or at zero overdue', async () => {
+    getMe.mockResolvedValue(ownerMe);
+    getFormCRegister.mockResolvedValue({ ok: true, rows: [{ recordId: 'fcb_1' }] });
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { level: 1, name: 'Exceptions' })).toBeTruthy(),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(getFormCRegister).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('form-c-overdue-alert')).toBeNull();
+  });
 
   it('T8: subtitle uses live property name not hardcoded Meridian', async () => {
     getProperty.mockResolvedValue({

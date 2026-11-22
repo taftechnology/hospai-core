@@ -242,6 +242,12 @@ import {
   BUYER_GSTIN_REQUIRED,
   BUYER_STATE_CODE_MISMATCH,
   INVALID_HSN_SAC,
+  FORM_C_NOT_APPLICABLE,
+  FORM_C_NOT_FOREIGN,
+  FORM_C_NOT_IN_HOUSE,
+  FORM_C_BOOKED_GUEST_EXISTS,
+  FORM_C_DETAILS_MISSING,
+  FORM_C_ALREADY_FILED,
   type CommandError,
   type FeatureKey,
   type Permission,
@@ -504,6 +510,12 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case BUYER_GSTIN_REQUIRED:
     case BUYER_STATE_CODE_MISMATCH:
     case INVALID_HSN_SAC:
+    case FORM_C_NOT_APPLICABLE:
+    case FORM_C_NOT_FOREIGN:
+    case FORM_C_NOT_IN_HOUSE:
+    case FORM_C_BOOKED_GUEST_EXISTS:
+    case FORM_C_DETAILS_MISSING:
+    case FORM_C_ALREADY_FILED:
     case PRODUCT_NOT_POSTABLE:
     case RECURRING_CHARGE_DATES_INVALID:
     case DATE_OUTSIDE_STAY:

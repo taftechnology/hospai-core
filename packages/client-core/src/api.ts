@@ -1,5 +1,11 @@
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import type {
+  FormCKind,
+  FormCPersonFields,
+  FormCPersonRead,
+  FormCRegister,
+  FormCRegisterFilter,
+  FormCReservationList,
   GuestDocumentList,
   GuestSettings,
   AmenityDispatchList,
@@ -139,6 +145,8 @@ export type PropertyRead = {
   ledgerCurrency?: string | null;
   /** The property's open business date (night audit rolls it), or null when unset / unreachable. */
   businessDate?: string | null;
+  /** True when the property's tax location is India: the only place a Form C surface shows (R6.2). */
+  formCApplicable?: boolean;
 };
 
 /** `get_products` (R1.5). `taxGroup` is the charge code's — read-only on a product. */
@@ -1898,6 +1906,58 @@ export function createClient(opts: {
           body: JSON.stringify({ reason, idempotencyKey }),
         },
       );
+    },
+
+    /** Form C register (R6.2). Names come from one OrgDO summary batch; no access row is written. */
+    async getFormCRegister(propertyId: string, filter: FormCRegisterFilter): Promise<FormCRegister> {
+      const qs = new URLSearchParams({ filter });
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/form-c?${qs.toString()}`);
+      return body as FormCRegister;
+    },
+
+    async getReservationFormC(propertyId: string, reservationId: string): Promise<FormCReservationList> {
+      const { body } = await getJson(
+        `/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/form-c`,
+      );
+      return body as FormCReservationList;
+    },
+
+    /** The audited decrypt: one access row per read. Callers use `gcTime: 0`. */
+    async getFormCPerson(propertyId: string, recordId: string): Promise<FormCPersonRead> {
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/form-c/${enc(recordId)}`);
+      return body as FormCPersonRead;
+    },
+
+    async saveFormCPerson(
+      propertyId: string,
+      reservationId: string,
+      input: { recordId: string; kind: FormCKind; fields: FormCPersonFields },
+      opId: string,
+    ) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/reservations/${enc(reservationId)}/form-c`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, idempotencyKey }),
+      });
+    },
+
+    async markFormCFiled(propertyId: string, recordId: string, reference: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/form-c/${enc(recordId)}/filed`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference, idempotencyKey }),
+      });
+    },
+
+    async removeFormCPerson(propertyId: string, recordId: string, reason: string, opId: string) {
+      const idempotencyKey = stableKeyForOperation(opId, opts.keyStore);
+      return getJson(`/v1/properties/${enc(propertyId)}/form-c/${enc(recordId)}/remove`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason, idempotencyKey }),
+      });
     },
 
     async getGuestConsent(propertyId: string, guestRef: string) {

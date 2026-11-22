@@ -260,6 +260,27 @@ import {
   RESERVATION_SEARCH_ROW_LIMIT,
   configUndeclared,
   isCommandError,
+  FORM_C_ALREADY_FILED,
+  FORM_C_BOOKED_GUEST_EXISTS,
+  FORM_C_DEADLINE_MS,
+  FORM_C_DETAILS_MISSING,
+  FORM_C_MAX_PER_RESERVATION,
+  FORM_C_NOT_APPLICABLE,
+  FORM_C_NOT_IN_HOUSE,
+  FORM_C_REFERENCE_MAX,
+  FORM_C_REFERENCE_PATTERN,
+  FORM_C_REGISTER_CAP,
+  FORM_C_REMOVE_REASON_MAX,
+  formCBookedGuestRecordId,
+  isFormCCountry,
+  parseFormCPersonFields,
+  type FormCKind,
+  type FormCPersonFields,
+  type FormCPersonRead,
+  type FormCRegisterFilter,
+  type FormCRegisterRow,
+  type FormCStatus,
+  type FormCSummary,
   type CommandError,
   type InclusionBasis,
   type InclusionPriceMode,
@@ -1921,6 +1942,7 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'event_consumer_exception',
   'folio_hold',
   'folio_hold_event',
+  'form_c_record',
   'folio_routing_rule',
   'folio_line',
   'folio_window',
@@ -2002,6 +2024,7 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM event_consumer_exception) +
       (SELECT COUNT(*) FROM folio_hold) +
       (SELECT COUNT(*) FROM folio_hold_event) +
+      (SELECT COUNT(*) FROM form_c_record) +
       (SELECT COUNT(*) FROM folio_routing_rule) +
       (SELECT COUNT(*) FROM folio_line) +
       (SELECT COUNT(*) FROM folio_window) +
@@ -4257,6 +4280,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
                FROM folio_line fl
                WHERE fl.folio_window_id = h.folio_window_id
              ) = 0`,
+        );
+      case 'form_c_overdue':
+        return this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM form_c_record WHERE status = 'TO_FILE' AND deadline_at < ?`,
+          Date.now(),
         );
       default: {
         const _exhaustive: never = checkId;
@@ -12524,6 +12552,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const previewRow = preview[0];
 
     let idDocumentOnFile = 0;
+    let foreignPassport = false;
     let gatedGuestRef: string | null = null;
     if (previewRow && previewRow.status === 'confirmed') {
       gatedGuestRef = previewRow.guest_ref;
@@ -12535,6 +12564,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (!gate || !('required' in gate)) return { ok: false, error: ORG_UNREACHABLE };
       if (gate.required && !gate.hasDocument) return { ok: false, error: ID_DOCUMENT_REQUIRED };
       idDocumentOnFile = gate.hasDocument ? 1 : 0;
+      foreignPassport = gate.foreignPassport === true;
     }
 
     try {
@@ -12670,11 +12700,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET status = 'checked_in', id_document_on_file = ?, updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET status = 'checked_in', id_document_on_file = ?, checked_in_at = ?, updated_at = ? WHERE reservation_id = ?`,
             idDocumentOnFile,
+            now,
             now,
             input.reservationId,
           );
+          const formCRecordId = foreignPassport
+            ? this.insertCheckInFormCRowSync(input.reservationId, now, this.auditActorForCommandSync(actor, provisional))
+            : null;
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -12701,6 +12735,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
               roomId: resolvedRoomId,
               ...(input.overrideCleanliness ? { overrideCleanliness: true } : {}),
               ...(autoAssigned ? { autoAssigned: true } : {}),
+              ...(formCRecordId ? { formCRecordId } : {}),
             },
             reservationId: input.reservationId,
           });
@@ -12716,6 +12751,584 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (mapped) return mapped;
       return { ok: false, error: INTERNAL_ERROR };
     }
+  }
+
+  // ----- Form C tracker (R6.2) -----
+  // PropertyDO holds one non-PII row per foreign national. The person's details are sealed in
+  // OrgDO under the org legal-retention key. Nothing about Form C goes on the event bus.
+
+  private formCApplicableSync(): boolean {
+    const location = this.readConfigValueSync('pms.tax.location') as { country?: string } | null;
+    return isFormCCountry(location?.country);
+  }
+
+  /**
+   * The instant the stay was checked in. Stays checked in before migration 57 have no column:
+   * fall back to the check-in audit row, then to now.
+   */
+  private readStayCheckInInstantSync(reservationId: string): number | null {
+    const rows = this.ctx.storage.sql
+      .exec(`SELECT checked_in_at FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray() as Array<{ checked_in_at: number | null }>;
+    const direct = rows[0]?.checked_in_at;
+    if (direct != null) return Number(direct);
+    const audit = this.ctx.storage.sql
+      .exec(
+        `SELECT at FROM audit_log
+         WHERE reservation_id = ? AND command_id = 'reservations.check_in'
+         ORDER BY at DESC, seq DESC LIMIT 1`,
+        reservationId,
+      )
+      .toArray() as Array<{ at: number }>;
+    return audit[0] ? Number(audit[0].at) : null;
+  }
+
+  /** Check-in transaction step: the booked guest's row. Skips when a live or earlier row exists. */
+  private insertCheckInFormCRowSync(reservationId: string, now: number, createdBy: string): string | null {
+    if (!this.formCApplicableSync()) return null;
+    const id = formCBookedGuestRecordId(reservationId);
+    const clash = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS one FROM form_c_record
+         WHERE id = ? OR (reservation_id = ? AND kind = 'BOOKED_GUEST' AND status <> 'REMOVED') LIMIT 1`,
+        id,
+        reservationId,
+      )
+      .toArray();
+    if (clash.length > 0) return null;
+    this.ctx.storage.sql.exec(
+      `INSERT INTO form_c_record (
+         id, reservation_id, kind, status, details_saved, deadline_at, created_at, created_by
+       ) VALUES (?, ?, 'BOOKED_GUEST', 'TO_FILE', 0, ?, ?, ?)`,
+      id,
+      reservationId,
+      now + FORM_C_DEADLINE_MS,
+      now,
+      createdBy,
+    );
+    return id;
+  }
+
+  /** Cancel check-in: unfiled rows go. Returns the ids that had details sealed in OrgDO. */
+  private dropToFileFormCRowsSync(reservationId: string): string[] {
+    const rows = this.ctx.storage.sql
+      .exec(
+        `SELECT id, details_saved FROM form_c_record WHERE reservation_id = ? AND status = 'TO_FILE'`,
+        reservationId,
+      )
+      .toArray() as Array<{ id: string; details_saved: number }>;
+    if (rows.length === 0) return [];
+    this.ctx.storage.sql.exec(
+      `DELETE FROM form_c_record WHERE reservation_id = ? AND status = 'TO_FILE'`,
+      reservationId,
+    );
+    return rows.filter((r) => Number(r.details_saved) === 1).map((r) => r.id);
+  }
+
+  /** A failed clear is logged and swept by the org purge. The clerk never sees it. */
+  private async clearFormCPersonsBestEffort(orgId: string, propertyId: string, ids: string[]): Promise<void> {
+    for (const id of ids) {
+      try {
+        const cleared = await this.gateOrgRef(orgId, (org) => org.clearFormCPerson({ id, propertyId }));
+        if (!('ok' in cleared) || cleared.ok !== true) {
+          console.warn('[form-c] clear deferred to org purge', id);
+        }
+      } catch {
+        console.warn('[form-c] clear failed, left for org purge', id);
+      }
+    }
+  }
+
+  private formCActorId(actor: ActorContext): string {
+    return actor.kind === 'user' ? actor.userId : 'system';
+  }
+
+  private formCRowsSync(whereSql: string, ...binds: unknown[]): Array<{
+    id: string;
+    reservation_id: string;
+    kind: FormCKind;
+    status: FormCStatus;
+    details_saved: number;
+    deadline_at: number;
+    filed_reference: string | null;
+    filed_at: number | null;
+  }> {
+    return this.ctx.storage.sql
+      .exec(
+        `SELECT id, reservation_id, kind, status, details_saved, deadline_at, filed_reference, filed_at
+         FROM form_c_record ${whereSql}`,
+        ...binds,
+      )
+      .toArray() as never;
+  }
+
+  private async formCWireRows(
+    orgId: string,
+    propertyId: string,
+    rows: ReturnType<PropertyDO['formCRowsSync']>,
+  ): Promise<{ ok: true; rows: FormCRegisterRow[] } | { ok: false; error: typeof ORG_UNREACHABLE }> {
+    const now = Date.now();
+    const ids = rows.filter((r) => Number(r.details_saved) === 1).map((r) => r.id);
+    let summaries: Record<string, FormCSummary | null> = {};
+    if (ids.length > 0) {
+      const read = await this.gateOrgRef(orgId, (org) => org.readFormCSummaries({ propertyId, ids }));
+      if (!('summaries' in read)) return { ok: false, error: ORG_UNREACHABLE };
+      summaries = read.summaries;
+    }
+    return {
+      ok: true,
+      rows: rows.map((r) => {
+        const summary = summaries[r.id] ?? null;
+        const status = r.status as Exclude<FormCStatus, 'REMOVED'>;
+        return {
+          recordId: r.id,
+          reservationId: r.reservation_id,
+          kind: r.kind,
+          status,
+          detailsSaved: Number(r.details_saved) === 1,
+          deadlineAt: Number(r.deadline_at),
+          overdue: status === 'TO_FILE' && Number(r.deadline_at) < now,
+          filedReference: r.filed_reference,
+          filedAt: r.filed_at == null ? null : Number(r.filed_at),
+          displayName: summary?.displayName ?? null,
+          nationality: summary?.nationality ?? null,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Save a foreign national's Form C details. Implements catalog `form_c.save_person`.
+   * Fingerprint (built by the route): `{ recordId, reservationId, kind, fieldsSha256 }`.
+   * OrgDO is written before the transaction; every rule is checked again inside it.
+   */
+  async trySaveFormCPerson(
+    actor: ActorContext,
+    input: { recordId: string; reservationId: string; kind: FormCKind; fields: FormCPersonFields },
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true; recordId: string } | { ok: false; error: CommandError }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'guests:write');
+    if (permDenied) return permDenied;
+
+    if (input.kind !== 'BOOKED_GUEST' && input.kind !== 'ADDITIONAL') {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    const parsed = parseFormCPersonFields(input.fields);
+    if (!parsed.ok) return parsed;
+
+    try {
+      const replay = readIdempotentCacheSync<{ ok: true; recordId: string } | { ok: false; error: CommandError }>(
+        this.ctx.storage.sql,
+        idem,
+        actor,
+      );
+      if (replay) return replay;
+
+      const pre = this.checkFormCSaveSync(input);
+      if (!pre.ok) return pre;
+
+      const sealed = await this.gateOrgRef(orgId, (org) =>
+        org.putFormCPerson({
+          id: input.recordId,
+          propertyId,
+          reservationId: input.reservationId,
+          guestRef: input.kind === 'BOOKED_GUEST' ? pre.guestRef : null,
+          fields: parsed.fields,
+          updatedBy: this.formCActorId(actor),
+        }),
+      );
+      if (!('ok' in sealed)) return { ok: false, error: ORG_UNREACHABLE };
+      if (!sealed.ok) {
+        return { ok: false, error: sealed.error === NOT_FOUND ? NOT_FOUND : INTERNAL_ERROR };
+      }
+
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(
+          this.ctx.storage.sql,
+          idem,
+          () => {
+            const again = this.checkFormCSaveSync(input);
+            if (!again.ok) throw new Error(again.error);
+            const now = Date.now();
+            if (again.existing) {
+              this.ctx.storage.sql.exec(
+                `UPDATE form_c_record SET details_saved = 1 WHERE id = ?`,
+                input.recordId,
+              );
+            } else {
+              this.ctx.storage.sql.exec(
+                `INSERT INTO form_c_record (
+                   id, reservation_id, kind, status, details_saved, deadline_at, created_at, created_by
+                 ) VALUES (?, ?, ?, 'TO_FILE', 1, ?, ?, ?)`,
+                input.recordId,
+                input.reservationId,
+                input.kind,
+                again.deadlineAt,
+                now,
+                this.formCActorId(actor),
+              );
+            }
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'form_c.save_person',
+              entityType: 'form_c_record',
+              entityId: input.recordId,
+              afterJson: { kind: input.kind, status: 'TO_FILE', detailsSaved: true, created: !again.existing },
+              reservationId: input.reservationId,
+            });
+            return { ok: true as const, recordId: input.recordId };
+          },
+          actor,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** Every save rule, read-only. Used before the OrgDO write and again inside the transaction. */
+  private checkFormCSaveSync(input: {
+    recordId: string;
+    reservationId: string;
+    kind: FormCKind;
+  }):
+    | { ok: true; existing: boolean; guestRef: string; deadlineAt: number }
+    | { ok: false; error: CommandError } {
+    if (!this.formCApplicableSync()) return { ok: false, error: FORM_C_NOT_APPLICABLE };
+    const res = this.ctx.storage.sql
+      .exec(`SELECT guest_ref, status FROM reservation WHERE reservation_id = ?`, input.reservationId)
+      .toArray() as Array<{ guest_ref: string; status: string }>;
+    const reservation = res[0];
+    if (!reservation) return { ok: false, error: NOT_FOUND };
+    const existingRows = this.formCRowsSync(`WHERE id = ?`, input.recordId);
+    const existing = existingRows[0];
+    const checkedInAt = this.readStayCheckInInstantSync(input.reservationId) ?? Date.now();
+    const deadlineAt = checkedInAt + FORM_C_DEADLINE_MS;
+    if (existing) {
+      if (
+        existing.reservation_id !== input.reservationId ||
+        existing.kind !== input.kind ||
+        existing.status === 'REMOVED'
+      ) {
+        return { ok: false, error: NOT_FOUND };
+      }
+      if (existing.status === 'FILED') return { ok: false, error: FORM_C_ALREADY_FILED };
+      return { ok: true, existing: true, guestRef: reservation.guest_ref, deadlineAt: Number(existing.deadline_at) };
+    }
+    if (reservation.status !== 'checked_in') return { ok: false, error: FORM_C_NOT_IN_HOUSE };
+    if (input.kind === 'BOOKED_GUEST') {
+      const live = this.formCRowsSync(
+        `WHERE reservation_id = ? AND kind = 'BOOKED_GUEST' AND status <> 'REMOVED'`,
+        input.reservationId,
+      );
+      if (live.length > 0) return { ok: false, error: FORM_C_BOOKED_GUEST_EXISTS };
+    }
+    const count = this.countQuerySync(
+      `SELECT COUNT(*) AS n FROM form_c_record WHERE reservation_id = ? AND status <> 'REMOVED'`,
+      input.reservationId,
+    );
+    if (count >= FORM_C_MAX_PER_RESERVATION) return { ok: false, error: LIMIT_EXCEEDED };
+    return { ok: true, existing: false, guestRef: reservation.guest_ref, deadlineAt };
+  }
+
+  /** Record the portal reference. Implements catalog `form_c.mark_filed`. Fingerprint: `{ recordId, reference }`. */
+  async tryMarkFormCFiled(
+    actor: ActorContext,
+    input: { recordId: string; reference: string },
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true; recordId: string } | { ok: false; error: CommandError }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    if (!this.getPropertyIdSync()) return { ok: false, error: PROPERTY_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'guests:write');
+    if (permDenied) return permDenied;
+
+    const reference = typeof input.reference === 'string' ? input.reference.trim() : '';
+    if (
+      reference.length < 1 ||
+      reference.length > FORM_C_REFERENCE_MAX ||
+      !FORM_C_REFERENCE_PATTERN.test(reference)
+    ) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(
+          this.ctx.storage.sql,
+          idem,
+          () => {
+            if (!this.formCApplicableSync()) throw new Error(FORM_C_NOT_APPLICABLE);
+            const row = this.formCRowsSync(`WHERE id = ?`, input.recordId)[0];
+            if (!row || row.status === 'REMOVED') throw new Error(NOT_FOUND);
+            if (row.status === 'FILED') throw new Error(FORM_C_ALREADY_FILED);
+            if (Number(row.details_saved) !== 1) throw new Error(FORM_C_DETAILS_MISSING);
+            const now = Date.now();
+            this.ctx.storage.sql.exec(
+              `UPDATE form_c_record
+               SET status = 'FILED', filed_reference = ?, filed_at = ?, filed_by = ?
+               WHERE id = ?`,
+              reference,
+              now,
+              this.formCActorId(actor),
+              input.recordId,
+            );
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'form_c.mark_filed',
+              entityType: 'form_c_record',
+              entityId: input.recordId,
+              beforeJson: { status: 'TO_FILE' },
+              afterJson: { status: 'FILED', reference },
+              reservationId: row.reservation_id,
+            });
+            return { ok: true as const, recordId: input.recordId };
+          },
+          actor,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+  }
+
+  /** Remove an unfiled row. Implements catalog `form_c.remove_person`. Fingerprint: `{ recordId, reason }`. */
+  async tryRemoveFormCPerson(
+    actor: ActorContext,
+    input: { recordId: string; reason: string },
+    idem: IdempotencyKey,
+  ): Promise<{ ok: true; recordId: string } | { ok: false; error: CommandError }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const denied = await this.gateCoreEntitlement(orgId);
+    if (denied) return denied;
+    const permDenied = await this.gatePermission(actor, 'guests:write');
+    if (permDenied) return permDenied;
+
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 1 || reason.length > FORM_C_REMOVE_REASON_MAX) {
+      return { ok: false, error: VALIDATION_ERROR };
+    }
+    let result: { ok: true; recordId: string } | { ok: false; error: CommandError };
+    try {
+      result = this.ctx.storage.transactionSync(() =>
+        runIdempotent(
+          this.ctx.storage.sql,
+          idem,
+          () => {
+            if (!this.formCApplicableSync()) throw new Error(FORM_C_NOT_APPLICABLE);
+            const row = this.formCRowsSync(`WHERE id = ?`, input.recordId)[0];
+            if (!row || row.status === 'REMOVED') throw new Error(NOT_FOUND);
+            if (row.status === 'FILED') throw new Error(FORM_C_ALREADY_FILED);
+            this.ctx.storage.sql.exec(
+              `UPDATE form_c_record
+               SET status = 'REMOVED', removed_reason = ?, removed_at = ?, removed_by = ?
+               WHERE id = ?`,
+              reason,
+              Date.now(),
+              this.formCActorId(actor),
+              input.recordId,
+            );
+            this.appendAuditLogSync({
+              actor: this.auditActorSync(actor),
+              commandId: 'form_c.remove_person',
+              entityType: 'form_c_record',
+              entityId: input.recordId,
+              beforeJson: { status: 'TO_FILE' },
+              afterJson: { status: 'REMOVED', reason },
+              reservationId: row.reservation_id,
+            });
+            return { ok: true as const, recordId: input.recordId };
+          },
+          actor,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      const mapped = mapPropertyCommandError(e);
+      if (mapped) return mapped;
+      return { ok: false, error: INTERNAL_ERROR };
+    }
+    if (result.ok) await this.clearFormCPersonsBestEffort(orgId, propertyId, [input.recordId]);
+    return result;
+  }
+
+  private formCFilterSql(filter: FormCRegisterFilter, now: number): { where: string; binds: unknown[] } {
+    switch (filter) {
+      case 'to_file':
+        return { where: `WHERE status = 'TO_FILE'`, binds: [] };
+      case 'overdue':
+        return { where: `WHERE status = 'TO_FILE' AND deadline_at < ?`, binds: [now] };
+      case 'filed':
+        return { where: `WHERE status = 'FILED'`, binds: [] };
+      case 'all':
+        return { where: `WHERE status <> 'REMOVED'`, binds: [] };
+    }
+  }
+
+  /** The register. Names come from one OrgDO summary batch for this property. No access row. */
+  async readFormCRegister(
+    filter: FormCRegisterFilter = 'to_file',
+  ): Promise<{ ok: true; rows: FormCRegisterRow[] } | { ok: false; error: CommandError }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const { where, binds } = this.formCFilterSql(filter, Date.now());
+    const rows = this.formCRowsSync(
+      `${where} ORDER BY deadline_at DESC, id DESC LIMIT ${FORM_C_REGISTER_CAP}`,
+      ...binds,
+    );
+    return this.formCWireRows(orgId, propertyId, rows);
+  }
+
+  /** One stay's rows, every status but REMOVED. */
+  async readReservationFormC(
+    reservationId: string,
+  ): Promise<{ ok: true; rows: FormCRegisterRow[] } | { ok: false; error: CommandError }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const exists = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM reservation WHERE reservation_id = ?`, reservationId)
+      .toArray();
+    if (exists.length === 0) return { ok: false, error: NOT_FOUND };
+    const rows = this.formCRowsSync(
+      `WHERE reservation_id = ? AND status <> 'REMOVED' ORDER BY created_at ASC, id ASC`,
+      reservationId,
+    );
+    return this.formCWireRows(orgId, propertyId, rows);
+  }
+
+  /** The audited decrypt: one `form_c_access` row in OrgDO for each read that returns details. */
+  async readFormCPerson(
+    actor: ActorContext,
+    recordId: string,
+  ): Promise<FormCPersonRead | { ok: false; error: CommandError }> {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    const orgId = this.getOrgIdSync();
+    if (!orgId) return { ok: false, error: ORG_ID_UNSET };
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const row = this.formCRowsSync(`WHERE id = ?`, recordId)[0];
+    if (!row || row.status === 'REMOVED') return { ok: false, error: NOT_FOUND };
+    let fields: FormCPersonFields | null = null;
+    if (Number(row.details_saved) === 1) {
+      const read = await this.gateOrgRef(orgId, (org) =>
+        org.readFormCPerson({ id: recordId, propertyId, actorUserId: this.formCActorId(actor) }),
+      );
+      if (!('ok' in read)) return { ok: false, error: ORG_UNREACHABLE };
+      if (!read.ok) {
+        if (read.error !== NOT_FOUND) return { ok: false, error: read.error };
+      } else {
+        fields = read.fields;
+      }
+    }
+    return {
+      ok: true,
+      recordId: row.id,
+      reservationId: row.reservation_id,
+      kind: row.kind,
+      status: row.status as Exclude<FormCStatus, 'REMOVED'>,
+      deadlineAt: Number(row.deadline_at),
+      checkedInAt: this.readStayCheckInInstantSync(row.reservation_id),
+      filedReference: row.filed_reference,
+      filedAt: row.filed_at == null ? null : Number(row.filed_at),
+      fields,
+    };
+  }
+
+  /** True when the property's tax location is India. The SPA shows every Form C surface from this one flag. */
+  async readFormCApplicable(): Promise<boolean> {
+    this.assertRpcAvailable();
+    return this.formCApplicableSync();
+  }
+
+  /** Test helper (unsafe-local only): tracker rows with raw columns. */
+  async listFormCRowsForTest(reservationId?: string): Promise<
+    Array<{
+      id: string;
+      reservationId: string;
+      kind: string;
+      status: string;
+      detailsSaved: number;
+      deadlineAt: number;
+      removedReason: string | null;
+    }>
+  > {
+    this.assertUnsafeLocal('listFormCRowsForTest');
+    const rows = (
+      reservationId
+        ? this.ctx.storage.sql.exec(
+            `SELECT id, reservation_id, kind, status, details_saved, deadline_at, removed_reason
+             FROM form_c_record WHERE reservation_id = ? ORDER BY created_at ASC, id ASC`,
+            reservationId,
+          )
+        : this.ctx.storage.sql.exec(
+            `SELECT id, reservation_id, kind, status, details_saved, deadline_at, removed_reason
+             FROM form_c_record ORDER BY created_at ASC, id ASC`,
+          )
+    ).toArray() as Array<{
+      id: string;
+      reservation_id: string;
+      kind: string;
+      status: string;
+      details_saved: number;
+      deadline_at: number;
+      removed_reason: string | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      reservationId: r.reservation_id,
+      kind: r.kind,
+      status: r.status,
+      detailsSaved: Number(r.details_saved),
+      deadlineAt: Number(r.deadline_at),
+      removedReason: r.removed_reason,
+    }));
+  }
+
+  /** Test helper (unsafe-local only): move the stay's check-in instant, for the 24-hour clock cases. */
+  async setReservationCheckedInAtForTest(reservationId: string, checkedInAt: number | null): Promise<void> {
+    this.assertUnsafeLocal('setReservationCheckedInAtForTest');
+    this.ctx.storage.sql.exec(
+      `UPDATE reservation SET checked_in_at = ? WHERE reservation_id = ?`,
+      checkedInAt,
+      reservationId,
+    );
+  }
+
+  /** Test helper (unsafe-local only): move a row's deadline, for overdue and night-audit cases. */
+  async setFormCDeadlineForTest(recordId: string, deadlineAt: number): Promise<void> {
+    this.assertUnsafeLocal('setFormCDeadlineForTest');
+    this.ctx.storage.sql.exec(`UPDATE form_c_record SET deadline_at = ? WHERE id = ?`, deadlineAt, recordId);
   }
 
   /**
@@ -13731,8 +14344,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     const permDenied = await this.gatePermission(actor, 'reservations:write');
     if (permDenied) return permDenied;
 
+    let droppedFormC: string[] = [];
     try {
-      return this.ctx.storage.transactionSync(() =>
+      const result = this.ctx.storage.transactionSync(() =>
         runIdempotent(this.ctx.storage.sql, idem, () => {
           this.assertProvisionalBusinessDateOpen(provisional);
           const expiredTouch = this.expireIfDueSync(input.reservationId, Date.now());
@@ -13752,10 +14366,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
           const now = Date.now();
           this.ctx.storage.sql.exec(
-            `UPDATE reservation SET status = 'confirmed', updated_at = ? WHERE reservation_id = ?`,
+            `UPDATE reservation SET status = 'confirmed', checked_in_at = NULL, updated_at = ? WHERE reservation_id = ?`,
             now,
             input.reservationId,
           );
+          // The stay did not happen: its unfiled Form C rows go with it. Filed rows stay.
+          droppedFormC = this.dropToFileFormCRowsSync(input.reservationId);
 
           this.appendPropertyOutbox({
             eventId: crypto.randomUUID(),
@@ -13774,6 +14390,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           return { ok: true as const, reservationId: input.reservationId };
         }, actor),
       );
+      if (droppedFormC.length > 0) await this.clearFormCPersonsBestEffort(orgId, propertyId, droppedFormC);
+      return result;
     } catch (e) {
       if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
       const mapped = mapPropertyCommandError(e);

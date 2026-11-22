@@ -1588,6 +1588,45 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'copilot:use',
     entitlement: 'ai_ops.enabled',
   },
+  {
+    id: 'get_form_c_register',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_reservation_form_c',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'get_form_c_person',
+    scope: 'property',
+    permission: 'guests:read',
+    entitlement: 'pms.core',
+    degradedRead: 'FAIL_CLOSED',
+  },
+  {
+    id: 'post_form_c_person',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'form_c.save_person',
+  },
+  {
+    id: 'post_form_c_filed',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'form_c.mark_filed',
+  },
+  {
+    id: 'post_form_c_remove',
+    scope: 'property',
+    permission: 'guests:write',
+    commandId: 'form_c.remove_person',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

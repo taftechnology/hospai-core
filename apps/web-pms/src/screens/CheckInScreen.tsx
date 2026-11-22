@@ -41,6 +41,7 @@ import {
 } from './guest-identity.js';
 import { isStayGuarantee, stayGuaranteeText } from './tender-label.js';
 import { AdvancePayments } from './AdvancePayments.js';
+import { FormCCheckInNotice, invalidateFormC } from './form-c.js';
 
 function bodyErrorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -305,6 +306,8 @@ export function CheckInScreen() {
       void queryClient.invalidateQueries({ queryKey: ['board'] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-tape', tenant.propertyId] });
       void queryClient.invalidateQueries({ queryKey: ['front-desk-free', tenant.propertyId] });
+      // A foreign passport makes check-in create the booked guest's Form C row.
+      invalidateFormC(queryClient, tenant.propertyId, reservationId);
     },
   });
 
@@ -705,6 +708,7 @@ export function CheckInScreen() {
             <div className="ui-stack">
               {idNotice ? <Alert intent="settled">{idNotice}</Alert> : null}
               <GuestDocumentBadges propertyId={tenant.propertyId} guestRef={guestRef} />
+              <FormCCheckInNotice guestRef={guestRef} />
               <GuestPreferenceBadges preferences={preferences} />
               {canRecordId ? (
                 <Button type="button" onClick={() => setRecordIdOpen(true)}>

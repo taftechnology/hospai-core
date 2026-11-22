@@ -212,6 +212,12 @@ const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageConte
     'Place an open-folio hold to post charges after checkout.',
   check_out_not_today: () =>
     'This stay checked out on an earlier business date and cannot be reopened.',
+  form_c_not_applicable: () => 'Form C applies to properties in India only.',
+  form_c_not_foreign: () => 'Form C is for foreign nationals. An Indian national does not need one.',
+  form_c_not_in_house: () => 'A person can be added only while the guest is checked in.',
+  form_c_booked_guest_exists: () => 'This stay already has a record for the booked guest.',
+  form_c_details_missing: () => 'Save the details before marking this Form C as filed.',
+  form_c_already_filed: () => 'This Form C is already filed and cannot be changed.',
   copilot_unavailable: () =>
     'The copilot is not set up, or is not answering right now. Ask a manager to check the assistant settings.',
 };

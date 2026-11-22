@@ -297,6 +297,7 @@ describe('PurgeWorkflow spine', () => {
       'property-do-guest-pii',
       'clear-guest-blobs',
       'retain-invoice-buyer',
+      'retain-form-c',
       'org-do-guest-documents',
       'retain-r2',
       'skip-iceberg',
@@ -338,6 +339,68 @@ describe('PurgeWorkflow spine', () => {
     expect('deleted' in r2).toBe(false);
     expect(stores.every((s) => s.status !== 'pending')).toBe(true);
     expect(JSON.parse(row!.limitations_json)).toContain(PITR_LIMITATION);
+  });
+
+  it('guest erasure keeps the guest\'s Form C record as an immigration record and counts only booked-guest rows', async () => {
+    const orgId = `org_fcg_${crypto.randomUUID().slice(0, 8)}`;
+    const org = await provisionedOrg(orgId);
+    const propertyId = `prop_fcg_${crypto.randomUUID().slice(0, 8)}`;
+    const guestId = `guest_fcg_${crypto.randomUUID().slice(0, 8)}`;
+    const refs = await createGuest(org, propertyId, guestId, 'Form C Guest');
+    const fields = {
+      surname: 'Mokoena',
+      givenNames: 'Zanele',
+      gender: 'F' as const,
+      dateOfBirth: '1990-04-01',
+      nationality: 'ZA',
+      passportNumber: 'ZZ9988776',
+    };
+    expect(
+      await org.putFormCPerson({ id: 'fcb_res_fcg', propertyId, reservationId: 'res_fcg', guestRef: guestId, fields, updatedBy: actor }),
+    ).toEqual({ ok: true });
+    expect(
+      await org.putFormCPerson({ id: 'fca_res_fcg', propertyId, reservationId: 'res_fcg', guestRef: null, fields, updatedBy: actor }),
+    ).toEqual({ ok: true });
+    expect(
+      await org.tryEraseGuest(
+        TEST_OWNER_ACTOR,
+        propertyId,
+        { guestId },
+        await idemFor(`erase-${guestId}`, { guestId }),
+      ),
+    ).toMatchObject({ ok: true });
+    await org.resetLaneGuardForTest();
+
+    const workflowId = guestPurgeWorkflowId(guestId);
+    await runPurgeWorkflow({
+      kind: 'guest',
+      workflowId,
+      orgId,
+      guestRef: guestId,
+      piiKeyId: refs.piiKeyId,
+      operatorUserId: null,
+      started: Date.now(),
+    });
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT stores_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ stores_json: string }>();
+    const stores = JSON.parse(row!.stores_json) as PurgeStoreRecord[];
+    expect(stores.find((s) => s.store === 'org_do_form_c')).toEqual({
+      store: 'org_do_form_c',
+      status: 'retained',
+      reason: 'immigration_record_retention',
+      count: 1,
+    });
+    expect(stores.every((s) => s.status !== 'pending')).toBe(true);
+    // Kept, and still readable under the legal-retention key.
+    expect(await org.readFormCPerson({ id: 'fcb_res_fcg', propertyId, actorUserId: actor })).toMatchObject({
+      ok: true,
+      fields: { passportNumber: 'ZZ9988776' },
+    });
+    expect(await org.countFormCPersonsForGuest(guestId)).toBe(1);
   });
 
   it('guest purge retains event-log objects under the org prefix', async () => {
@@ -519,6 +582,7 @@ describe('PurgeWorkflow org plan', () => {
       'shred-keys',
       'purge-property-do-page-0',
       'count-invoice-buyer-snapshots',
+      'count-form-c-persons',
       'purge-org-do',
       'purge-r2',
       'purge-pending-command-open',
@@ -554,6 +618,74 @@ describe('PurgeWorkflow org plan', () => {
       deleted: expect.any(Number),
     });
     expect(stores.every((s) => s.status !== 'pending')).toBe(true);
+  });
+
+  it('org purge deletes every Form C person row and the certificate counts them', async () => {
+    const orgId = `org_fco_${crypto.randomUUID().slice(0, 8)}`;
+    const propertyId = `prop_fco_${crypto.randomUUID().slice(0, 8)}`;
+    expect(await createOrg(env, orgId, 'Purge Form C')).toBe(true);
+    const provisioned = await provisionProperty(env, {
+      orgId,
+      propertyId,
+      name: 'Purge Form C Property',
+      jurisdiction: null,
+      timeZone: 'UTC',
+      currency: 'USD',
+      actorUserId: actor,
+    });
+    expect(provisioned.ok).toBe(true);
+
+    const org = orgStub(orgId);
+    await org.ensureMetaOrgId(orgId);
+    const fields = {
+      surname: 'Mokoena',
+      gender: 'F' as const,
+      dateOfBirth: '1990-04-01',
+      nationality: 'ZA',
+      passportNumber: 'ZZ9988776',
+    };
+    for (const id of ['fcb_res_fco', 'fca_res_fco']) {
+      expect(
+        await org.putFormCPerson({
+          id,
+          propertyId,
+          reservationId: 'res_fco',
+          guestRef: id.startsWith('fcb') ? 'guest_fco' : null,
+          fields,
+          updatedBy: actor,
+        }),
+      ).toEqual({ ok: true });
+    }
+    expect(await org.countFormCPersons()).toBe(2);
+    await org.resetLaneGuardForTest({ quietMs: 60_000 });
+    const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
+    await propStub.resetLaneGuardForTest({ quietMs: 60_000 });
+    expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
+
+    const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
+    await runPurgeWorkflow({
+      kind: 'org',
+      workflowId,
+      orgId,
+      operatorUserId: actor,
+      started: 0,
+      nowMs: 2_000,
+    });
+
+    const row = await env.PLATFORM_DB.prepare(
+      `SELECT outcome, stores_json FROM purge_certificate WHERE workflow_id = ? LIMIT 1`,
+    )
+      .bind(workflowId)
+      .first<{ outcome: string; stores_json: string }>();
+    expect(row?.outcome).toBe('certified');
+    const stores = JSON.parse(row!.stores_json) as PurgeStoreRecord[];
+    expect(stores.find((s) => s.store === 'org_do_form_c')).toEqual({
+      store: 'org_do_form_c',
+      status: 'reached',
+      deleted: 2,
+    });
+    expect(stores.every((s) => s.status !== 'pending')).toBe(true);
+    // The VERIFY step already proved the org DO holds no rows after the purge.
   });
 
   it('org purge prefix-deletes archived event-log segments', async () => {

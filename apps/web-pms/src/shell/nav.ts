@@ -21,6 +21,8 @@ export type NavEntry = {
   /** Shown only when the org's plan grants this feature (the Copilot entry, R4.16). */
   entitlement?: FeatureKey;
   tone?: 'primary' | 'quiet';
+  /** Shown only when the property's tax location is India (the Form C register, R6.2). */
+  indiaOnly?: boolean;
 };
 
 /** Core SPA contribution — module UI registry concatenates alongside this. */
@@ -47,6 +49,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     permission: 'maintenance:read',
   },
   { id: 'guests', label: 'Guests', path: '/guests', order: 60, permission: 'guests:read' },
+  { id: 'form-c', label: 'Form C', path: '/form-c', order: 62, permission: 'guests:read', indiaOnly: true },
   { id: 'rates', label: 'Rates', path: '/rates', order: 70, permission: 'rates:write' },
   { id: 'folios', label: 'Folios', path: '/folios', order: 72, permission: 'folio:read' },
   { id: 'reports', label: 'Reports', path: '/reports', order: 85, anyPermission: REPORT_PERMISSIONS },

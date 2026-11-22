@@ -41,6 +41,7 @@ import { useFormat } from '../shell/PropertyFormat.js';
 import { useUnsavedChanges } from './use-unsaved-changes.js';
 import { EventDeliverySection } from './EventDeliverySection.js';
 import { GuestNameLink } from './guest-row.js';
+import { FormCOverdueAlert } from './form-c.js';
 
 const REPLAY_COMMAND_IDS = [
   'reservations.check_in',
@@ -318,6 +319,7 @@ export function ExceptionsScreen() {
   return (
     <div className="ui-page-stack exceptions-screen">
       <PageHeader title="Exceptions" subtitle={subtitle} />
+      <FormCOverdueAlert />
       {unsavedGuard}
       <div className="ui-page-stack" data-testid="exceptions-workbench">
       <Card>

@@ -98,6 +98,7 @@ function clearChecks() {
     'open_folio_unsettled',
     'open_folio_past_close_by',
     'open_folio_zero_balance',
+    'form_c_overdue',
   ].map((checkId) => ({ checkId, severity: 'warn' as const, count: 0 }));
 }
 

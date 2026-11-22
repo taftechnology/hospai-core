@@ -20,6 +20,7 @@ import {
   CheckIcon,
   CopilotIcon,
   CreditCardIcon,
+  IdCardIcon,
   DashboardIcon,
   NightAuditIcon,
   PlusIcon,
@@ -38,6 +39,7 @@ import type { NavEntry } from './nav.js';
 import { PropertyFormatProvider } from './PropertyFormat.js';
 import { useThemeChoice } from './theme.js';
 import { useEntitlementFeatures } from './use-entitlements.js';
+import { useFormCApplicable } from '../screens/form-c.js';
 import { QueuedCommandsPanel } from './QueuedCommandsPanel.js';
 import { FrontOfficeLive } from './FrontOfficeLive.js';
 import { consumePermissionDenyFlash } from './PermissionDenyFlash.js';
@@ -56,6 +58,7 @@ const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   housekeeping: BedIcon,
   maintenance: WrenchIcon,
   guests: UserIcon,
+  'form-c': IdCardIcon,
   rates: CreditCardIcon,
   folios: ReceiptIcon,
   'city-ledger': BookIcon,
@@ -167,6 +170,7 @@ export function AppShell() {
   });
 
   const entitlementFeatures = useEntitlementFeatures(meQuery.isSuccess);
+  const formCApplicable = useFormCApplicable();
 
   const shell = meShellStateFromQuery({
     status: meQuery.status,
@@ -198,7 +202,9 @@ export function AppShell() {
   }
 
   const authority: Authority = shell.authority;
-  const navEntries = filterNavEntries(ALL_NAV, authority, entitlementFeatures);
+  const navEntries = filterNavEntries(ALL_NAV, authority, entitlementFeatures).filter(
+    (e) => !e.indiaOnly || formCApplicable,
+  );
   const primaryNav = navEntries.filter((e) => e.tone !== 'quiet');
   const quietNav = navEntries.filter((e) => e.tone === 'quiet');
 

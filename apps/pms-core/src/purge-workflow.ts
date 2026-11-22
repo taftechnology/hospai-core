@@ -65,6 +65,7 @@ async function runOrgPlan(
   stores: PurgeStoreRecord[],
 ): Promise<void> {
   let invoiceBuyerSnapshots = 0;
+  let formCPersons = 0;
   await step.do('retention-gate', async () => {
     const row = await getOrgRetentionRow(env, params.orgId);
     if (!row) throw new HaltError('org_not_found');
@@ -156,6 +157,11 @@ async function runOrgPlan(
     invoiceBuyerSnapshots = await org.countInvoiceBuyerSnapshots();
   });
 
+  await step.do('count-form-c-persons', async () => {
+    const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
+    formCPersons = await org.countFormCPersons();
+  });
+
   await step.do('purge-org-do', async () => {
     const org = resolveOrgStub(env.ORG_DO, { orgId: params.orgId }) as DurableObjectStub<OrgDO>;
     const orgResult = await org.purgeStorageForTenant();
@@ -179,6 +185,11 @@ async function runOrgPlan(
       ...(invoiceBuyerSnapshots === 0
         ? { reason: 'none' as const }
         : { deleted: invoiceBuyerSnapshots }),
+    });
+    replaceStore(stores, {
+      store: 'org_do_form_c',
+      status: formCPersons === 0 ? 'skipped' : 'reached',
+      ...(formCPersons === 0 ? { reason: 'none' as const } : { deleted: formCPersons }),
     });
   });
 
@@ -428,6 +439,16 @@ async function runGuestPlan(
       store: 'org_do_tax_invoice_buyer',
       status: 'retained',
       reason: 'tax_invoice_retention',
+      count: counted,
+    });
+  });
+
+  await step.do('retain-form-c', async () => {
+    const counted = await org().countFormCPersonsForGuest(params.guestRef);
+    replaceStore(stores, {
+      store: 'org_do_form_c',
+      status: 'retained',
+      reason: 'immigration_record_retention',
       count: counted,
     });
   });

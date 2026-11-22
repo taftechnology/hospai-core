@@ -194,6 +194,8 @@ function actionFor(
     case 'open_folio_past_close_by':
     case 'open_folio_zero_balance':
       return { to: '/folios#open-folios', label: 'Open folios' };
+    case 'form_c_overdue':
+      return { to: '/form-c?filter=overdue', label: 'Form C register' };
     default:
       return null;
   }

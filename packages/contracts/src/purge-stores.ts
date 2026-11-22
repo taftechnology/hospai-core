@@ -7,6 +7,7 @@ export const PURGE_STORE_NAMES = [
   'property_do',
   'org_do',
   'org_do_tax_invoice_buyer',
+  'org_do_form_c',
   'r2',
   'r2_guest_documents',
   'iceberg',

@@ -145,6 +145,19 @@ export function UserIcon({ size = 14 }: IconProps) {
   );
 }
 
+/** Identity card — Form C register. */
+export function IdCardIcon({ size = 14 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="2" y="5" width="20" height="14" rx="2" ry="2" />
+      <circle cx="8" cy="11" r="2" />
+      <path d="M5 16c.6-1.4 1.8-2 3-2s2.4.6 3 2" />
+      <line x1="14" y1="10" x2="19" y2="10" />
+      <line x1="14" y1="14" x2="18" y2="14" />
+    </svg>
+  );
+}
+
 export function CreditCardIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

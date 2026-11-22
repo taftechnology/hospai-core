@@ -91,7 +91,9 @@ describe('fiscal year and month starts', () => {
 
 describe('manager report route and query', () => {
   it('is the last audited route before the copilot, with the night-audit permission', () => {
-    const last = V1_HTTP_ROUTE_AUDIT.at(-2);
+    const idx = V1_HTTP_ROUTE_AUDIT.findIndex((r) => r.id === 'get_manager_report');
+    expect(V1_HTTP_ROUTE_AUDIT[idx + 1]?.id).toBe('post_copilot_message');
+    const last = V1_HTTP_ROUTE_AUDIT[idx];
     expect(last).toMatchObject({ id: 'get_manager_report', permission: 'night_audit:run', degradedRead: 'FAIL_CLOSED' });
   });
 

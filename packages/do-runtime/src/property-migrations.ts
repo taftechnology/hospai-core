@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 56. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 57. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -2204,6 +2204,36 @@ export const MANAGER_REPORT_V56_STATEMENTS: string[] = [
 
 export const MANAGER_REPORT_V56_SQL = MANAGER_REPORT_V56_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * v57 — Form C tracker (R6.2). One non-PII row per foreign national on a stay;
+ * the person's details live encrypted in OrgDO. `reservation.checked_in_at` is the
+ * instant the stay was checked in (the 24-hour Form C clock starts there).
+ */
+export const FORM_C_V57_STATEMENTS: string[] = [
+  `ALTER TABLE reservation ADD COLUMN checked_in_at INTEGER`,
+  `CREATE TABLE form_c_record (
+  id TEXT PRIMARY KEY,
+  reservation_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('BOOKED_GUEST','ADDITIONAL')),
+  status TEXT NOT NULL CHECK (status IN ('TO_FILE','FILED','REMOVED')),
+  details_saved INTEGER NOT NULL DEFAULT 0,
+  deadline_at INTEGER NOT NULL,
+  filed_reference TEXT,
+  filed_at INTEGER,
+  filed_by TEXT,
+  removed_reason TEXT,
+  removed_at INTEGER,
+  removed_by TEXT,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL
+)`,
+  `CREATE INDEX form_c_record_by_reservation ON form_c_record (reservation_id)`,
+  `CREATE INDEX form_c_record_by_status ON form_c_record (status, deadline_at)`,
+  `CREATE UNIQUE INDEX form_c_one_booked_guest ON form_c_record (reservation_id) WHERE kind = 'BOOKED_GUEST' AND status <> 'REMOVED'`,
+];
+
+export const FORM_C_V57_SQL = FORM_C_V57_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -2484,5 +2514,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 56,
     name: 'manager_report',
     statements: MANAGER_REPORT_V56_STATEMENTS,
+  },
+  {
+    version: 57,
+    name: 'form_c',
+    statements: FORM_C_V57_STATEMENTS,
   },
 ] as const;

@@ -1332,7 +1332,8 @@ details.side-panel summary {
 .reg-card,
 .print-doc,
 .proforma-doc,
-.draft-bill-doc {
+.draft-bill-doc,
+.form-c-card {
   display: grid;
   gap: var(--space-4);
 }
@@ -1351,7 +1352,8 @@ details.side-panel summary {
 
 .reg-card__head,
 .proforma-doc__head,
-.draft-bill-doc__head {
+.draft-bill-doc__head,
+.form-c-card__head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1362,7 +1364,9 @@ details.side-panel summary {
 
 .reg-card__property,
 .proforma-doc__property,
-.draft-bill-doc__property {
+.draft-bill-doc__property,
+.form-c-card__property,
+.form-c-card__title {
   margin: 0;
   font-weight: 600;
 }
@@ -1478,6 +1482,8 @@ details.side-panel summary {
   .print-doc *,
   .reg-card,
   .reg-card *,
+  .form-c-card,
+  .form-c-card *,
   .report-card,
   .report-card * {
     visibility: visible;
@@ -1485,6 +1491,7 @@ details.side-panel summary {
 
   .print-doc,
   .reg-card,
+  .form-c-card,
   .report-card {
     position: absolute;
     inset: 0;

@@ -12,6 +12,7 @@ export const NIGHT_AUDIT_CHECK_IDS = [
   'open_folio_unsettled',
   'open_folio_past_close_by',
   'open_folio_zero_balance',
+  'form_c_overdue',
 ] as const;
 export type NightAuditCheckId = (typeof NIGHT_AUDIT_CHECK_IDS)[number];
 
@@ -37,6 +38,7 @@ export const NightAuditChecksSchema = z
     open_folio_unsettled: nightAuditCheckSeveritySchema.optional(),
     open_folio_past_close_by: nightAuditCheckSeveritySchema.optional(),
     open_folio_zero_balance: nightAuditCheckSeveritySchema.optional(),
+    form_c_overdue: nightAuditCheckSeveritySchema.optional(),
   })
   .strict();
 export type NightAuditChecks = z.infer<typeof NightAuditChecksSchema>;
@@ -52,6 +54,7 @@ export const NIGHT_AUDIT_CHECKS_DEFAULT: { [K in NightAuditCheckId]: 'warn' } = 
   open_folio_unsettled: 'warn',
   open_folio_past_close_by: 'warn',
   open_folio_zero_balance: 'warn',
+  form_c_overdue: 'warn',
 };
 
 /** Preview row from `evaluateNightAuditChecksSync` / `readNightAuditStatus`. */
@@ -96,6 +99,7 @@ export const NIGHT_AUDIT_CHECK_LABELS: Record<NightAuditCheckId | NightAuditFixe
   open_folio_unsettled: 'Open folios with a balance',
   open_folio_past_close_by: 'Open folios past close-by',
   open_folio_zero_balance: 'Open folios at zero balance',
+  form_c_overdue: 'Form C records past their 24-hour deadline',
 };
 
 /** Operator wording for the night-audit steps. */

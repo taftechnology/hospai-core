@@ -62,6 +62,9 @@ const RosterScreen = lazy(() =>
 const ExceptionsScreen = lazy(() =>
   import('./screens/ExceptionsScreen.js').then((m) => ({ default: m.ExceptionsScreen })),
 );
+const FormCScreen = lazy(() =>
+  import('./screens/FormCScreen.js').then((m) => ({ default: m.FormCScreen })),
+);
 const NightAuditScreen = lazy(() =>
   import('./screens/NightAuditScreen.js').then((m) => ({ default: m.NightAuditScreen })),
 );
@@ -113,6 +116,14 @@ export const router = createBrowserRouter(
             />
             <Route path="guests" element={<GuestsDirectoryScreen />} />
             <Route path="guests/:guestRef" element={<GuestProfileScreen />} />
+            {/* R6.2: the Form C register; the nav entry shows for India properties only. */}
+            <Route path="form-c" element={<PermissionRoute permission="guests:read" />}>
+              <Route index element={
+                <Suspense fallback={<Skeleton />}>
+                  <FormCScreen />
+                </Suspense>
+              } />
+            </Route>
             <Route path="check-in/:reservationId" element={<CheckInScreen />} />
             <Route path="folio/:reservationId" element={<FolioScreen />} />
             <Route path="folios" element={<PermissionRoute permission="folio:read" />}>

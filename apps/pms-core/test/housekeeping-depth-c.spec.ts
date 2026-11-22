@@ -915,7 +915,7 @@ describe('housekeeping depth C: linen, minibar, amenities [R4.11]', () => {
     expect((await write(h, 'POST', '/amenities', { name: 'X', unit: 'u', standardQuantity: 1 })).status).toBe(503);
     await setKillSwitch(env, 'pms.core', false);
 
-    expect(V1_HTTP_ROUTE_AUDIT.slice(-17, -7).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
+    expect(V1_HTTP_ROUTE_AUDIT.slice(-23, -13).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
       ['post_linen_movement', 'housekeeping:write'],
       ['post_minibar_pickup', 'housekeeping:write'],
       ['post_amenity', 'settings:configure'],

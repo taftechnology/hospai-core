@@ -114,6 +114,9 @@ export const AUDIT_WRITER_COMMAND_IDS: ReadonlySet<string> = new Set([
   'maintenance.create_task_type',
   'maintenance.update_task_type',
   'copilot.record_read',
+  'form_c.save_person',
+  'form_c.mark_filed',
+  'form_c.remove_person',
 ]);
 
 /** Entitled commands that deliberately do not write PropertyDO audit_log. */

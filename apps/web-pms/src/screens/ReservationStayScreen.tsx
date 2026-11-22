@@ -37,6 +37,7 @@ import { reservationStatusLabel } from '../status/reservation-status-label.js';
 import { FrontOfficeEditor } from './front-office-editor.js';
 import { GuestNameLink } from './guest-row.js';
 import { AdvancePayments } from './AdvancePayments.js';
+import { FormCPanel } from './form-c.js';
 import {
   cancelChargeSentence,
   cancelCheckInOpId,
@@ -444,6 +445,7 @@ export function ReservationStayScreen() {
         money={money}
         preferences={preferences}
       />
+      <FormCPanel reservationId={reservationId} guestRef={res.guestRef} stayStatus={res.status} />
       <Card>
         <CardHeader>
           <CardTitle>Nightly rates</CardTitle>

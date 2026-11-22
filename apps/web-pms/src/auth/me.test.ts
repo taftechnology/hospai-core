@@ -59,6 +59,7 @@ describe('me authority helpers', () => {
           e.id !== 'rates' &&
           e.id !== 'settings' &&
           e.id !== 'guests' &&
+          e.id !== 'form-c' &&
           e.id !== 'housekeeping' &&
           e.id !== 'maintenance',
       ),

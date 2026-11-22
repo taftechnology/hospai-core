@@ -261,9 +261,9 @@ describe('copilot pins and permission', () => {
     expect(V1_HTTP_ROUTE_AUDIT.some((r) => 'commandId' in r && r.commandId === 'copilot.record_read')).toBe(false);
   });
 
-  it('declares the route once, last, with the permission and entitlement', () => {
+  it('declares the route once, ahead of the Form C routes, with the permission and entitlement', () => {
     expect(V1_HTTP_ROUTE_AUDIT.filter((r) => r.id === 'post_copilot_message')).toHaveLength(1);
-    expect(V1_HTTP_ROUTE_AUDIT.at(-1)).toEqual({
+    expect(V1_HTTP_ROUTE_AUDIT.find((r) => r.id === 'post_copilot_message')).toEqual({
       id: 'post_copilot_message',
       scope: 'property',
       permission: 'copilot:use',

@@ -1698,6 +1698,42 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     notes:
       'R4.16: internal only, no HTTP route. post_copilot_message calls it once per answer whose tools returned guest references. The audit row holds the actor, the tool ids and the count of distinct guest references: no names, no question text, no answer text. The route mints one idempotency key per answer (no client key). FAIL_CLOSED: an answer is not returned when its read cannot be recorded.',
   },
+  {
+    id: 'form_c.save_person',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'guests:write',
+    notes:
+      'R6.2 Form C tracker. Creates a tracker row or replaces the details of a TO_FILE row. The details are sealed in OrgDO under the legal-retention key before the PropertyDO transaction. India properties only (form_c_not_applicable elsewhere). Kill-switch via pms.core entitlement; never queued offline. JSON idempotencyKey. No events: nothing about Form C goes on the bus.',
+  },
+  {
+    id: 'form_c.mark_filed',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'guests:write',
+    notes:
+      'R6.2 Form C tracker. Records the portal reference on a TO_FILE row whose details are saved. Kill-switch via pms.core entitlement; never queued offline. JSON idempotencyKey.',
+  },
+  {
+    id: 'form_c.remove_person',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    entitlement: 'pms.core',
+    permission: 'guests:write',
+    notes:
+      'R6.2 Form C tracker. Removes a TO_FILE row with a reason, then clears the OrgDO details. A failed clear is logged and swept by the org purge. Kill-switch via pms.core entitlement; never queued offline. JSON idempotencyKey.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

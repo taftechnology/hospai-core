@@ -219,17 +219,17 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R4.16 (Copilot, read-only and permission-aware, 2026-11-21; R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
+After roadmap R6.2 (Form C tracker, 2026-11-22; R4.16 Copilot, R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
-| `COMMAND_CATALOG` length | **148** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **251** routes, last id **`post_copilot_message`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
-| `AUDIT_WRITER_COMMAND_IDS` | **114** | `packages/contracts/src/register.test.ts` |
-| `PROPERTY_SCHEMA_HEAD` | **56** | `packages/do-runtime` migrate tests |
-| `ORG_SCHEMA_HEAD` | **13** | `packages/do-runtime` migrate tests |
+| `COMMAND_CATALOG` length | **151** | `packages/contracts/src/register.test.ts` |
+| `V1_HTTP_ROUTE_AUDIT` | **257** routes, last id **`post_form_c_remove`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `AUDIT_WRITER_COMMAND_IDS` | **117** | `packages/contracts/src/register.test.ts` |
+| `PROPERTY_SCHEMA_HEAD` | **57** | `packages/do-runtime` migrate tests |
+| `ORG_SCHEMA_HEAD` | **14** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
-| `NIGHT_AUDIT_CHECK_IDS` | length **10**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, and **`arrival_deposit_missing`** | `packages/contracts/src/register.test.ts` |
+| `NIGHT_AUDIT_CHECK_IDS` | length **11**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, **`arrival_deposit_missing`**, and **`form_c_overdue`** | `packages/contracts/src/register.test.ts` |
 
 Part B also registered **+2** `PRESENTATION` keys (`pms.documents.registration_card`, `pms.documents.proforma`) — asserted in `register.test.ts` only (no numeric CONFIG_REGISTER pin).
 

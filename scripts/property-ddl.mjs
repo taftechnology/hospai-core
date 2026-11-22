@@ -101,6 +101,7 @@ if (process.argv.includes('--self-test')) {
   let HOUSEKEEPING_DEPTH_B_V54_SQL;
   let HOUSEKEEPING_DEPTH_C_V55_SQL;
   let MANAGER_REPORT_V56_SQL;
+  let FORM_C_V57_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -114,6 +115,7 @@ if (process.argv.includes('--self-test')) {
   let ORG_ROSTER_OPS_V11_SQL;
   let ORG_GUEST_DOCUMENTS_V12_SQL;
   let ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL;
+  let ORG_FORM_C_V14_SQL;
   let PLATFORM_REGISTRY_SQL;
   let PLATFORM_ENTITLEMENT_SQL;
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -177,6 +179,7 @@ if (process.argv.includes('--self-test')) {
       HOUSEKEEPING_DEPTH_B_V54_SQL,
       HOUSEKEEPING_DEPTH_C_V55_SQL,
       MANAGER_REPORT_V56_SQL,
+      FORM_C_V57_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -190,6 +193,7 @@ if (process.argv.includes('--self-test')) {
       ORG_ROSTER_OPS_V11_SQL,
       ORG_GUEST_DOCUMENTS_V12_SQL,
       ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL,
+      ORG_FORM_C_V14_SQL,
       PLATFORM_REGISTRY_SQL,
       PLATFORM_ENTITLEMENT_SQL,
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -726,6 +730,15 @@ const doPropertyTargets = [
 `,
     sql: MANAGER_REPORT_V56_SQL,
   },
+  {
+    path: join(root, 'migrations/do-property/0057_form_c.sql'),
+    header: `-- PropertyDO Form C tracker (R6.2) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: FORM_C_V57_SQL,
+  },
 ];
 
 const targets = [
@@ -846,6 +859,15 @@ const targets = [
 
 `,
     sql: ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0014_form_c.sql'),
+    header: `-- OrgDO Form C persons (R6.2) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_FORM_C_V14_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

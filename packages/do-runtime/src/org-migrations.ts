@@ -353,6 +353,37 @@ export const ORG_INVOICE_BUYER_SNAPSHOT_V13_STATEMENTS = [
 export const ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL =
   ORG_INVOICE_BUYER_SNAPSHOT_V13_STATEMENTS.join(';\n\n') + ';\n';
 
+/** v14 — Form C person details (R6.2) under the org legal-retention key, plus the audited-read log. */
+export const ORG_FORM_C_V14_STATEMENTS = [
+  `CREATE TABLE form_c_person (
+  id TEXT PRIMARY KEY,
+  property_id TEXT NOT NULL,
+  reservation_id TEXT NOT NULL,
+  guest_ref TEXT,
+  cipher BLOB NOT NULL,
+  iv BLOB NOT NULL,
+  key_version INTEGER NOT NULL,
+  fields_sha256 TEXT NOT NULL,
+  summary_cipher BLOB NOT NULL,
+  summary_iv BLOB NOT NULL,
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT NOT NULL,
+  removed_at INTEGER
+)`,
+  `CREATE INDEX form_c_person_by_property ON form_c_person (property_id, reservation_id)`,
+  `CREATE INDEX form_c_person_by_guest ON form_c_person (guest_ref)`,
+  `CREATE TABLE form_c_access (
+  id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL,
+  property_id TEXT NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  at INTEGER NOT NULL
+)`,
+  `CREATE INDEX form_c_access_by_record ON form_c_access (record_id, at)`,
+] as const;
+
+export const ORG_FORM_C_V14_SQL = ORG_FORM_C_V14_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -418,5 +449,10 @@ export const ORG_MIGRATIONS = [
     version: 13,
     name: '0013_invoice_buyer_snapshot',
     statements: ORG_INVOICE_BUYER_SNAPSHOT_V13_STATEMENTS,
+  },
+  {
+    version: 14,
+    name: '0014_form_c',
+    statements: ORG_FORM_C_V14_STATEMENTS,
   },
 ] as const;

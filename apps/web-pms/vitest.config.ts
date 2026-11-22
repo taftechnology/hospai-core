@@ -10,6 +10,9 @@ export default defineConfig({
       VITE_PROPERTY_ID: 'prop_demo',
     },
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // jsdom screen tests under v8 coverage on the 2-core CI runner run past
+    // the 5s default (a different test each run); one budget, not per-test.
+    testTimeout: 15_000,
     environmentMatchGlobs: [
       ['src/**/*.boot.test.tsx', 'jsdom'],
       ['src/auth/**/*.test.tsx', 'jsdom'],

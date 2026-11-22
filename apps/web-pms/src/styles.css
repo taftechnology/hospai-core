@@ -208,10 +208,12 @@ a {
   font-size: var(--text-sm);
 }
 
+/* When the bar is short of room, search gives way first (down to 8rem), then the
+   property name truncates. The shift controls and the business-date chip never shrink. */
 .top-bar__search {
-  flex: 0 1 20rem;
+  flex: 0 100 20rem;
   max-inline-size: 20rem;
-  min-inline-size: 0;
+  min-inline-size: 8rem;
 }
 
 .top-bar__spacer {
@@ -230,6 +232,7 @@ a {
 }
 
 [data-testid="property-name"] {
+  flex: 0 1 auto;
   font-weight: 600;
   min-inline-size: 0;
   overflow: hidden;
@@ -254,9 +257,11 @@ a {
   .top-bar__search {
     flex: 1 1 8rem;
     max-inline-size: 12rem;
+    min-inline-size: 0;
   }
 
-  .shift-strip {
+  .shift-strip,
+  .shift-strip.shift-strip--form {
     flex: 1 1 100%;
     order: 3;
     flex-wrap: wrap;
@@ -353,6 +358,23 @@ a {
 .shift-strip__close:hover {
   background: color-mix(in srgb, var(--selected) 55%, transparent);
   color: var(--ink);
+}
+
+/* The opening-float form cannot shrink; without this it spills over the property name. */
+.shift-strip--form {
+  flex: 0 0 auto;
+}
+
+/* On narrow desktops the "Open shift" button says it; keep the label for screen readers. */
+@media (max-width: 80rem) {
+  .shift-strip--form .shift-strip__label {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .shift-open-form {

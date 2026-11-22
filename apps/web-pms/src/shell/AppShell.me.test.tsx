@@ -220,6 +220,8 @@ describe('AppShell /me states', () => {
     expect(screen.queryByText(/Simulation Active/i)).toBeNull();
     expect(screen.queryByText(/Whistle/i)).toBeNull();
     expect(screen.getByTestId('property-name').textContent).toBe('Demo');
+    // The name truncates on narrow desktops; the full name stays on hover.
+    expect(screen.getByTestId('property-name').getAttribute('title')).toBe('Demo');
     const chip = screen.getByTestId('business-date-chip');
     expect(chip.textContent).toMatch(/Business date/);
     expect(propertyLocalToday('UTC')).not.toBe('2026-03-05');

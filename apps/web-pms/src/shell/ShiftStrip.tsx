@@ -143,8 +143,8 @@ export function ShiftStrip({ authority }: { authority: Authority }) {
 
   if (!body || body.shift == null) {
     return (
-      <div className="shift-strip">
-        <span>No open shift</span>
+      <div className={showOpen ? 'shift-strip shift-strip--form' : 'shift-strip'}>
+        <span className="shift-strip__label">No open shift</span>
         {showOpen ? (
           <form
             className="shift-open-form"

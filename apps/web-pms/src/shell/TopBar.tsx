@@ -26,7 +26,11 @@ export function TopBar({ authority }: { authority: Authority }) {
       <div className="top-bar__search">{canSearch ? <GlobalSearch /> : null}</div>
       <ShiftStrip authority={authority} />
       <div className="top-bar__spacer" />
-      {propertyName ? <span data-testid="property-name">{propertyName}</span> : null}
+      {propertyName ? (
+        <span data-testid="property-name" title={propertyName}>
+          {propertyName}
+        </span>
+      ) : null}
       {businessDate ? (
         <span className="chip" data-testid="business-date-chip">
           <CalendarIcon size={12} /> Business date: {date(businessDate)}

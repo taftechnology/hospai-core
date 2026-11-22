@@ -257,9 +257,13 @@ describe('ShiftStrip', () => {
     await waitFor(() => expect(screen.getByText(/No open shift/i)).toBeTruthy());
     expect(screen.queryByRole('button', { name: /open shift/i })).toBeNull();
     expect(openShift).not.toHaveBeenCalled();
+    // Without the form the strip may shrink; the label is the only content.
+    expect(screen.getByText(/No open shift/i).closest('.shift-strip--form')).toBeNull();
     cleanup();
     renderStrip({ kind: 'unknown' });
     await waitFor(() => expect(screen.getByRole('button', { name: /open shift/i })).toBeTruthy());
+    // The opening-float form must not shrink into the property name (top-bar overlap at 1024px).
+    expect(screen.getByText(/No open shift/i).closest('.shift-strip--form')).toBeTruthy();
   });
 
   it('hides Open when live me lacks folio:post', async () => {

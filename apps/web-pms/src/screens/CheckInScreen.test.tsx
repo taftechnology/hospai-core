@@ -395,8 +395,8 @@ describe('CheckInScreen', () => {
     expect(card.textContent).toMatch(/King Room/);
     expect(card.textContent).not.toMatch(/rt_/);
     expect(card.textContent).toMatch(/Ada Lovelace/);
-    expect(card.textContent).toMatch(/11\/08\/2026/);
-    expect(card.textContent).toMatch(/12\/08\/2026/);
+    expect(card.textContent).toMatch(/11 Aug 2026/);
+    expect(card.textContent).toMatch(/12 Aug 2026/);
     expect(card.textContent).toMatch(/2 adults · 1 child/);
     expect(card.textContent).toMatch(/Nights1/);
     expect(card.textContent).toMatch(/Best Available Rate/);

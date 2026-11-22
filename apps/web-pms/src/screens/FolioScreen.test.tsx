@@ -2286,8 +2286,8 @@ describe('FolioScreen wiring', () => {
     expect(card.textContent).toMatch(/res_1/);
     expect(card.textContent).toMatch(/Ada Lovelace/);
     expect(screen.getByTestId('guest-profile-link').getAttribute('href')).toBe('/guests/g1');
-    expect(card.textContent).toMatch(/08\/08\/2026/);
-    expect(card.textContent).toMatch(/10\/08\/2026/);
+    expect(card.textContent).toMatch(/8 Aug 2026/);
+    expect(card.textContent).toMatch(/10 Aug 2026/);
     expect(card.textContent).toMatch(/2 adults · 1 child/);
     // R2.4: the folio card names the room type and rate plan (it used to print "unavailable").
     await waitFor(() => expect(card.textContent).toMatch(/King Room/));
@@ -2634,8 +2634,8 @@ describe('FolioScreen wiring', () => {
       expect(screen.getByTestId('guest-profile-link').textContent).toMatch(/Ada Lovelace/);
       expect(document.body.textContent).toMatch(/Room 101/);
     });
-    expect(document.body.textContent).toMatch(/08\/08\/2026/);
-    expect(document.body.textContent).toMatch(/10\/08\/2026/);
+    expect(document.body.textContent).toMatch(/8 Aug 2026/);
+    expect(document.body.textContent).toMatch(/10 Aug 2026/);
     expect(document.body.textContent).toMatch(/Room 101/);
     expect(document.body.textContent).not.toMatch(/rm_101/);
     expect(screen.getByTestId('folio-balance')).toBeTruthy();
@@ -2741,8 +2741,8 @@ describe('FolioScreen wiring', () => {
     expect(screen.getByTestId('folio-message').textContent).not.toMatch(/COMPANY/);
     expect(screen.getByTestId('folio-message').textContent).toMatch(/Open company folio failed/i);
 
-    expect(advanced().textContent).toMatch(/Folio charge · 14\/08\/2026/);
-    expect(advanced().textContent).toMatch(/Folio charge · 13\/08\/2026/);
+    expect(advanced().textContent).toMatch(/Folio charge · 14 Aug 2026/);
+    expect(advanced().textContent).toMatch(/Folio charge · 13 Aug 2026/);
     expect(advanced().textContent).not.toMatch(/res_other/);
     expect(advanced().textContent).not.toMatch(/untagged/);
   });

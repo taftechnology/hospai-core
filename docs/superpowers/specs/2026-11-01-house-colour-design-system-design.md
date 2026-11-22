@@ -50,7 +50,7 @@ Six steps. Each is built, reviewed and verified before the next starts, and each
 | Step | What | What changes on screen |
 |---|---|---|
 | 1 | Tokens, fonts, metrics, colour gate | Every screen takes the new look |
-| 2 | Money and date formatter | ₹ and DD/MM/YYYY everywhere |
+| 2 | Money and date formatter | ₹ and DD/MM/YYYY everywhere *(Amended 2026-11-22: text dates use `D Mon YYYY`, e.g. `1 Nov 2026`, so they cannot be misread beside a native date box, whose display still follows the browser locale.)* |
 | 3 | `Dialog`, `Tabs`, `EmptyState` kinds, `Skeleton`, `FieldGroup`, class cleanup, unsaved-changes guard | One way to do each thing; edits can't vanish silently |
 | 4 | `TopBar`, `Band`, `GlobalSearch`, server search | Top bar is one line; search finds guests and rooms |
 | 5 | Room Plan | Bars by state, half-day geometry, 12 rooms on the small screen |
@@ -98,7 +98,7 @@ The artifact's calculation passes all 104 pairs, lowest 5.90 light and 5.97 dark
 | Function | Output | Example |
 |---|---|---|
 | `formatMoney(minor, fmt, currency?)` | Sign, grouped, two decimals | `₹1,24,500.00`, `−₹5,000.00` |
-| `formatDate(iso, fmt)` | DD/MM/YYYY, built from parts | `01/11/2026` |
+| `formatDate(iso, fmt)` | DD/MM/YYYY, built from parts *(Amended 2026-11-22: `D Mon YYYY`, built from the string with a fixed English month list; text dates cannot be misread beside a native date box.)* | `1 Nov 2026` |
 | `formatDateHeading(iso, fmt)` | Weekday, day, month, year | `Sun 1 Nov 2026` |
 | `formatTapeDay(iso, fmt, withMonth)` | Weekday and day, plus month at 7 days | `Sun 1 Nov` |
 | `formatDateRange(from, to, fmt)` | Two dates and an en dash | `31/10/2026 – 03/11/2026` |
@@ -118,7 +118,7 @@ The artifact's calculation passes all 104 pairs, lowest 5.90 light and 5.97 dark
 - Every local date formatter goes, across the 14 files that call `Intl.DateTimeFormat` or `toLocale*`. `property-local-today.ts` stays, because it computes a date rather than displaying one.
 - The default float of 100.00 goes: the opening float starts empty and is required. `ShiftStrip`'s auto-open goes with it, because it had only that default to send. Once the field was empty, it fired as soon as the clerk typed a valid first digit, opening a ₹1 shift on the way to ₹100. This amends the [folio first-paint](2026-08-13-folio-first-paint-design.md) decision: the clerk now opens the shift.
 
-**Known limit.** `<input type="date">` displays in the browser's own locale, and no CSS or attribute changes that. An Indian Chrome shows dd/mm/yyyy, but a browser set to US English shows mm/dd/yyyy. A custom date field would fix it and no slice asks for one, so it stays native. Add browser language to the walkthrough list.
+**Known limit.** `<input type="date">` displays in the browser's own locale, and no CSS or attribute changes that. An Indian Chrome shows dd/mm/yyyy, but a browser set to US English shows mm/dd/yyyy. A custom date field would fix it and no slice asks for one, so it stays native. Add browser language to the walkthrough list. *(Amended 2026-11-22: text dates now use `D Mon YYYY`, so they cannot be misread beside a native date box, whose display still follows the browser locale.)*
 
 **Hand-off to R1.11.** `pms.ui.date_format` defaults to `MM/DD/YYYY`, and neither the SPA nor pms-core reads it. It is hidden in Settings today, so nothing here breaks. If R1.11 surfaces it, it must feed this formatter and its default must change. Formats are not configurable until then.
 
@@ -245,7 +245,7 @@ Results are capped at 10 rows, and each row adds `roomCode: string | null`. The 
 
 **Keyboard.** The tape is a `role="grid"` with a roving tab stop, so Tab moves past it in one press rather than through up to 280 cells. Arrow keys move between cells, Enter opens the bar's popover or the cell's booking link, Escape closes.
 
-**Blank cells** keep the R1.3 link to `/book` for that night and room type. Booking has no room field, so the link can't pick the room, and its accessible name changes from "Book room 204" to say what it does: "Book Deluxe on 01/11/2026".
+**Blank cells** keep the R1.3 link to `/book` for that night and room type. Booking has no room field, so the link can't pick the room, and its accessible name changes from "Book room 204" to say what it does: "Book Deluxe on 1 Nov 2026".
 
 **Available tab** shares the header and control row. Its table and `RoomStatus` are unchanged apart from tokens and formats.
 
@@ -335,7 +335,7 @@ Desktop only by decision, so the phone-width check in the global browser rule do
 - `formatDateTime` and `formatInstantDate` join the table, for timestamps and created-at dates.
 - `minorToMajorInput` prefills editable amounts as plain digits, which `parseMajorToMinor` can read back.
 - Invoice lines, tax and totals printed raw minor units, so an invoice read `Charges 10000`. They now print money.
-- `no_availability` shows its date as DD/MM/YYYY.
+- `no_availability` shows its date as `D Mon YYYY`.
 - `pnpm demo:seed --currency INR --time-zone Asia/Kolkata` provisions the demo hotel in rupees. Rates in the seed follow the ledger currency.
 
 **Step 3.** As §5, plus:

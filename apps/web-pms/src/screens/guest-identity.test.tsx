@@ -230,7 +230,7 @@ describe('guest identity panels', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'View' }));
     const image = await screen.findByRole('img', { name: 'Identity document' });
     expect(image.getAttribute('src')).toBe('blob:scan');
-    expect(screen.getByText('15/01/2030')).toBeTruthy();
+    expect(screen.getByText('15 Jan 2030')).toBeTruthy();
     fireEvent.keyDown(screen.getByTestId('view-id-document'), { key: 'Escape' });
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:scan'));
     expect(screen.queryByTestId('view-id-document')).toBeNull();
@@ -430,6 +430,6 @@ describe('identity summaries', () => {
     const block = await screen.findByTestId('selected-guest-document');
     expect(block.textContent).toContain('Identity on file');
     expect(block.textContent).toContain(maskedDocumentNumber({ number: 'AB123456' }));
-    expect(block.textContent).toContain('expires 15/01/2030');
+    expect(block.textContent).toContain('expires 15 Jan 2030');
   });
 });

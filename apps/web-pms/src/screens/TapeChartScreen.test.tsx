@@ -391,12 +391,12 @@ describe('TapeChartScreen', () => {
     vi.spyOn(propertyLocalTodayModule, 'propertyLocalToday').mockReturnValue('2026-08-14');
     renderTape({ pathname: '/board', search: '?from=2026-08-13&to=2026-08-19' });
     await screen.findByText('101');
-    const cell = await screen.findByRole('gridcell', { name: /Book .+ on 15\/08\/2026/ });
+    const cell = await screen.findByRole('gridcell', { name: /Book .+ on 15 Aug 2026/ });
     expect(cell.getAttribute('href')).toBe(
       '/book?arrival=2026-08-15&departure=2026-08-16&roomTypeId=rt_king&roomId=rm_101',
     );
-    expect(screen.getByRole('gridcell', { name: /Book .+ on 14\/08\/2026/ })).toBeTruthy();
-    expect(screen.queryByRole('gridcell', { name: /Book .+ on 13\/08\/2026/ })).toBeNull();
+    expect(screen.getByRole('gridcell', { name: /Book .+ on 14 Aug 2026/ })).toBeTruthy();
+    expect(screen.queryByRole('gridcell', { name: /Book .+ on 13 Aug 2026/ })).toBeNull();
   });
 
   it('available view empty copy', async () => {

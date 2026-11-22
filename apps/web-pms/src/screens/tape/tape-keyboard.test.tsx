@@ -113,10 +113,10 @@ describe('tape keyboard grid', () => {
     });
     renderTape();
     await screen.findByRole('grid', { name: 'Room plan' });
-    const first = await screen.findByRole('gridcell', { name: /Book .+ on 14\/08\/2026/ });
+    const first = await screen.findByRole('gridcell', { name: /Book .+ on 14 Aug 2026/ });
     fireEvent.focus(first);
     fireEvent.keyDown(first, { key: 'ArrowRight', bubbles: true });
-    const next = await screen.findByRole('gridcell', { name: /Book .+ on 15\/08\/2026/ });
+    const next = await screen.findByRole('gridcell', { name: /Book .+ on 15 Aug 2026/ });
     await waitFor(() => {
       expect(document.activeElement).toBe(next);
       expect(next.tabIndex).toBe(0);

@@ -89,11 +89,23 @@ export function formatMoney(minor: number, fmt: PropertyFormat, currency?: strin
   }
 }
 
-/** `YYYY-MM-DD` → `DD/MM/YYYY`, from the string. Anything else passes through. */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+function dayMonthYear(day: number, month: number, year: string): string {
+  return `${day} ${MONTHS[month - 1] ?? ''} ${year}`;
+}
+
+/**
+ * `YYYY-MM-DD` → `D Mon YYYY` (`2026-10-02` → `2 Oct 2026`), built from the string with a fixed
+ * English month list. A month name cannot be misread as month-first or day-first, unlike the
+ * native date box whose display follows the browser locale. Anything else passes through.
+ */
 export function formatDate(iso: string, _fmt: PropertyFormat): string {
   const match = ISO_DATE.exec(iso);
   if (!match) return iso;
-  return `${match[3]}/${match[2]}/${match[1]}`;
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return iso;
+  return dayMonthYear(Number(match[3]), month, match[1]!);
 }
 
 export function formatDateHeading(iso: string, fmt: PropertyFormat): string {
@@ -143,7 +155,7 @@ export function formatInstantDate(ms: number, fmt: PropertyFormat): string {
     month: '2-digit',
     year: 'numeric',
   }).formatToParts(ms);
-  return `${part(parts, 'day')}/${part(parts, 'month')}/${part(parts, 'year')}`;
+  return dayMonthYear(Number(part(parts, 'day')), Number(part(parts, 'month')), part(parts, 'year'));
 }
 
 export function formatDateTime(ms: number, fmt: PropertyFormat): string {

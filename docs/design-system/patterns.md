@@ -11,7 +11,7 @@ One formatter module, driven by the property's currency and locale. Remove the r
 | Money | Currency sign, grouped by locale, two decimals | ₹1,24,500.00 |
 | Negative money | Minus sign before the currency | −₹5,000.00 |
 | Report totals | Compact only where space demands it | ₹12.45L, ₹1.2Cr |
-| Date in a table or form | DD/MM/YYYY, set explicitly | 01/11/2026 |
+| Date in a table or form | `D Mon YYYY`, month name, set explicitly | 1 Nov 2026 |
 | Date in a heading | Weekday, day, month, year | Sun 1 Nov 2026 |
 | Tape column | Weekday and day, plus month at 7 days | Sun 1 Nov |
 | Date range | Two dates and an en dash | 31/10/2026 – 03/11/2026 |

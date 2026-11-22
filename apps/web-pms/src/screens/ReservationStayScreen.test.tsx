@@ -361,7 +361,7 @@ describe('ReservationStayScreen', () => {
 
     fireEvent.change(screen.getByTestId('change-departure'), { target: { value: '2026-11-16' } });
     expect(screen.getByTestId('change-stay-preview').textContent).toBe(
-      'Adds 2 nights · departs 16/11/2026',
+      'Adds 2 nights · departs 16 Nov 2026',
     );
 
     fireEvent.change(screen.getByTestId('change-room-type'), { target: { value: 'rt2' } });
@@ -381,7 +381,7 @@ describe('ReservationStayScreen', () => {
     fireEvent.change(screen.getByTestId('change-rate-plan'), { target: { value: 'RACK' } });
     fireEvent.change(screen.getByTestId('change-reason'), { target: { value: 'Upgrade' } });
     expect(screen.getByTestId('change-stay-preview').textContent).toBe(
-      'Adds 2 nights · departs 16/11/2026 · Moves to Twin 202 from tonight · Rate plan Rack applies from tonight',
+      'Adds 2 nights · departs 16 Nov 2026 · Moves to Twin 202 from tonight · Rate plan Rack applies from tonight',
     );
 
     fireEvent.click(screen.getByTestId('change-stay-save'));

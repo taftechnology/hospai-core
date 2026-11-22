@@ -16,7 +16,7 @@ describe('StaleWatermark', () => {
     const el = screen.getByTestId('stale-watermark');
     expect(el.getAttribute('role')).toBe('status');
     expect(el.getAttribute('aria-live')).toBe('polite');
-    expect(el.textContent).toBe('Live updates paused — showing data from 13/08/2026, 3:04 pm.');
+    expect(el.textContent).toBe('Live updates paused — showing data from 13 Aug 2026, 3:04 pm.');
   });
 
   it('stale=false renders nothing', () => {

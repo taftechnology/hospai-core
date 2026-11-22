@@ -1,4 +1,4 @@
-import { formatMoney, propertyFormat } from '@hospai/client-core';
+import { FALLBACK_FORMAT, formatDate, formatMoney, propertyFormat } from '@hospai/client-core';
 import { describe, expect, it } from 'vitest';
 import {
   cancelChargeSentence,
@@ -69,10 +69,7 @@ describe('stay operation ids', () => {
 });
 
 describe('in-house change preview', () => {
-  const fmtDate = (iso: string) => {
-    const [y, m, d] = iso.split('-');
-    return `${d}/${m}/${y}`;
-  };
+  const fmtDate = (iso: string) => formatDate(iso, FALLBACK_FORMAT);
 
   it('names added nights, type move with room, and rate plan', () => {
     const line = inHouseChangePreview(
@@ -100,7 +97,7 @@ describe('in-house change preview', () => {
       },
     );
     expect(line).toBe(
-      'Adds 2 nights · departs 26/11/2026 · Moves to Suite 304 from tonight · Rate plan Rack applies from tonight',
+      'Adds 2 nights · departs 26 Nov 2026 · Moves to Suite 304 from tonight · Rate plan Rack applies from tonight',
     );
   });
 
@@ -139,7 +136,7 @@ describe('cancellation copy', () => {
     noShowMinor: 450000,
     currency: 'INR',
   };
-  const dateTime = () => '14/11/2026, 12:00 pm';
+  const dateTime = () => '14 Nov 2026, 12:00 pm';
 
   it('names the free window while it is still open', () => {
     const line = cancellationPolicySentence(
@@ -148,7 +145,7 @@ describe('cancellation copy', () => {
       dateTime,
       policy.freeUntil - 1,
     );
-    expect(line).toBe('Free cancellation until 14/11/2026, 12:00 pm. After that: first night.');
+    expect(line).toBe('Free cancellation until 14 Nov 2026, 12:00 pm. After that: first night.');
   });
 
   it('states the charge once the free window has passed', () => {

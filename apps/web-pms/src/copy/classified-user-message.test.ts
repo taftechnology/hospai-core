@@ -84,7 +84,7 @@ describe('domain code messages', () => {
       /That invoice number is not valid for this series/,
     ],
     ['not_modifiable', {}, /cannot be changed in its current status/],
-    ['no_availability', { date: '2026-08-11' }, /No availability on 11\/08\/2026/],
+    ['no_availability', { date: '2026-08-11' }, /No availability on 11 Aug 2026/],
     ['no_availability', {}, /No availability — pick another room type or date/],
     ['duplicate_upi_reference', {}, /already recorded on another payment/],
     ['invalid_upi_reference', {}, /6 to 35 letters or digits/],

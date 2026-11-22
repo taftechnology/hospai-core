@@ -9,7 +9,7 @@ describe('queuedCommandLine', () => {
       issuedAt: '2026-08-14T15:30:00.000Z',
       businessDate: '2026-08-14',
     });
-    expect(line).toBe('Folio charge · 14/08/2026');
+    expect(line).toBe('Folio charge · 14 Aug 2026');
     expect(line).not.toMatch(/post_folio_charge/i);
     expect(line).not.toMatch(/idempotency/i);
     expect(line).not.toMatch(/idem_/i);
@@ -21,7 +21,7 @@ describe('queuedCommandLine', () => {
       idempotencyKey: 'k1',
       issuedAt: '2026-08-13T22:00:00.000Z',
     });
-    expect(line).toBe('Check-in · 13/08/2026');
+    expect(line).toBe('Check-in · 13 Aug 2026');
   });
 
   it('distinct commandIds on the same date produce different labels', () => {
@@ -38,8 +38,8 @@ describe('queuedCommandLine', () => {
       issuedAt: `${date}T12:00:00Z`,
       businessDate: date,
     });
-    expect(checkIn).toBe('Check-in · 14/08/2026');
-    expect(charge).toBe('Folio charge · 14/08/2026');
+    expect(checkIn).toBe('Check-in · 14 Aug 2026');
+    expect(charge).toBe('Folio charge · 14 Aug 2026');
     expect(checkIn).not.toBe(charge);
   });
 
@@ -51,7 +51,7 @@ describe('queuedCommandLine', () => {
       businessDate: '2026-08-14',
       reservationId: 'res_abc12def',
     });
-    expect(line).toBe('Check-in · 14/08/2026 · #abc12def');
+    expect(line).toBe('Check-in · 14 Aug 2026 · #abc12def');
     expect(line).not.toMatch(/res_abc12def/);
   });
 });

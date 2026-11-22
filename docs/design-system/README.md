@@ -20,7 +20,7 @@ Write like a good front office manager: plain, short and specific.
 - **Never show a wire word or code.** Map `COMPANY OPEN`, `checked_in` and ISO dates to words. Errors come from `classifiedUserMessage`, never from a stringified body.
 - **No emoji** in the product.
 - **I and you:** the system says "you" to staff and doesn't say "I". The copilot is the exception and answers plainly.
-- **Numbers and dates**: see Patterns. Always `₹1,24,500.00` and `01/11/2026` or `Sun 1 Nov 2026`.
+- **Numbers and dates**: see Patterns. Always `₹1,24,500.00` and `1 Nov 2026` or `Sun 1 Nov 2026`.
 
 ## Visual foundations
 

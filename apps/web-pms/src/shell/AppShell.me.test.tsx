@@ -183,7 +183,7 @@ describe('AppShell /me states', () => {
     const chip = screen.getByTestId('business-date-chip');
     expect(chip.textContent).toMatch(/Business date/);
     expect(propertyLocalToday('UTC')).not.toBe('2026-03-05');
-    expect(chip.textContent).toContain('05/03/2026');
+    expect(chip.textContent).toContain('5 Mar 2026');
   });
 
   it('the chip shows nothing while the business date is unknown, never the local date', async () => {

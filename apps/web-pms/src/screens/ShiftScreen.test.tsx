@@ -124,7 +124,7 @@ describe('ShiftScreen', () => {
       expect(screen.getByText(label)).toBeTruthy();
     }
     expect(screen.getByTestId('receipt-unattributed-alert').textContent).toBe(
-      "2 cash payments on 09/08/2026 were taken with no shift open. They are not in any drawer's expected cash.",
+      "2 cash payments on 9 Aug 2026 were taken with no shift open. They are not in any drawer's expected cash.",
     );
     const back = screen.getByRole('link', { name: 'Back to board' });
     expect(back.className).toContain('ui-link-btn');
@@ -149,7 +149,7 @@ describe('ShiftScreen', () => {
     expect(screen.getByTestId('receipt-variance').textContent).toBe('over ₹5.00');
     expect(screen.getByTestId('receipt-expected').textContent).toBe('₹120.00');
     expect(screen.getByTestId('receipt-unattributed-alert').textContent).toBe(
-      "1 cash payment on 09/08/2026 was taken with no shift open. It is not in any drawer's expected cash.",
+      "1 cash payment on 9 Aug 2026 was taken with no shift open. It is not in any drawer's expected cash.",
     );
   });
 
@@ -248,7 +248,7 @@ describe('ShiftScreen', () => {
     renderAt('/shift');
     await waitFor(() => expect(screen.getByLabelText(/closing count/i)).toBeTruthy());
     expect(document.body.textContent).not.toMatch(/shift_close_1/);
-    expect(screen.getByText(/09\/08\/2026/)).toBeTruthy();
+    expect(screen.getByText(/9 Aug 2026/)).toBeTruthy();
     expect(screen.getByText(/₹100\.00/)).toBeTruthy();
 
     getShiftById.mockResolvedValue({
@@ -268,7 +268,7 @@ describe('ShiftScreen', () => {
     await waitFor(() => expect(screen.getByTestId('shift-receipt')).toBeTruthy());
     expect(document.body.textContent).not.toMatch(/shift_fc/);
     // Exact match: the business-date stat, not the no-shift alert sentence that also names it.
-    expect(screen.getByText('09/08/2026')).toBeTruthy();
+    expect(screen.getByText('9 Aug 2026')).toBeTruthy();
   });
 
   it('close shift error uses classifiedUserMessage without class token', async () => {

@@ -122,6 +122,20 @@ describe('CopilotScreen (R4.16)', () => {
     ]);
   });
 
+  it('renders bold and bullets in an assistant answer but keeps a user turn literal', async () => {
+    postCopilotMessage.mockResolvedValue({ ...answerBody, answer: '**Dirty:**\n- a\n- b' });
+    renderScreen();
+    fireEvent.change(screen.getByTestId('copilot-input'), { target: { value: 'Show **x** please' } });
+    fireEvent.click(screen.getByTestId('copilot-ask'));
+    const reply = await screen.findByTestId('copilot-turn-assistant');
+    expect(within(reply).getByText('Dirty:').tagName).toBe('STRONG');
+    expect(Array.from(reply.querySelectorAll('.copilot-answer li')).map((li) => li.textContent)).toEqual(['a', 'b']);
+    expect(reply.textContent).not.toContain('**');
+    const user = screen.getByTestId('copilot-turn-user');
+    expect(user.textContent).toContain('Show **x** please');
+    expect(user.querySelector('strong')).toBeNull();
+  });
+
   it('keeps the conversation in memory only: gone on remount, nothing written to browser storage', async () => {
     const setLocal = vi.spyOn(Storage.prototype, 'setItem');
     const first = renderScreen();

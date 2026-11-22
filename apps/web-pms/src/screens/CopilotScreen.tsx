@@ -26,6 +26,7 @@ import { api, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { useEntitlementFeatures } from '../shell/use-entitlements.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
+import { CopilotAnswer } from './copilot-answer.js';
 
 /** What the home offers before the first question. Each one is sent as typed. */
 export const COPILOT_SUGGESTED_QUESTIONS = [
@@ -213,7 +214,13 @@ export function CopilotScreen() {
                     data-testid={`copilot-turn-${e.turn.role}`}
                   >
                     <span className="copilot-turn__who">{e.turn.role === 'user' ? 'You' : 'Copilot'}</span>
-                    <span className="copilot-turn__text">{e.turn.content}</span>
+                    {e.turn.role === 'assistant' ? (
+                      <div className="copilot-turn__text copilot-turn__text--answer">
+                        <CopilotAnswer text={e.turn.content} />
+                      </div>
+                    ) : (
+                      <span className="copilot-turn__text">{e.turn.content}</span>
+                    )}
                     {e.sources.length > 0 ? (
                       <div className="copilot-links" data-testid="copilot-sources">
                         <SectionLabel>Sources</SectionLabel>

@@ -63,10 +63,19 @@ describe('dates', () => {
   const iso = '2026-11-01';
 
   it('formats a calendar date from the string', () => {
-    expect(formatDate(iso, INR)).toBe('01/11/2026');
-    expect(formatDate(iso, NONE)).toBe('01/11/2026');
+    expect(formatDate(iso, INR)).toBe('1 Nov 2026');
+    expect(formatDate(iso, NONE)).toBe('1 Nov 2026');
     expect(formatDate('not-a-date', INR)).toBe('not-a-date');
     expect(formatDate('2026-11-01T00:00:00Z', INR)).toBe('2026-11-01T00:00:00Z');
+  });
+
+  it('writes a month name and drops the leading zero of the day', () => {
+    expect(formatDate('2026-10-02', INR)).toBe('2 Oct 2026');
+    expect(formatDate('2026-08-09', INR)).toBe('9 Aug 2026');
+    expect(formatDate('2026-09-15', INR)).toBe('15 Sep 2026');
+    expect(formatDate('2026-12-31', INR)).toBe('31 Dec 2026');
+    expect(formatDate('2026-13-01', INR)).toBe('2026-13-01');
+    expect(formatDate('02/10/2026', INR)).toBe('02/10/2026');
   });
 
   it('formats headings and tape days in UTC so the zone cannot shift the day', () => {
@@ -79,7 +88,7 @@ describe('dates', () => {
   });
 
   it('joins a stay with an en dash', () => {
-    expect(formatDateRange('2026-10-31', '2026-11-03', INR)).toBe('31/10/2026 \u2013 03/11/2026');
+    expect(formatDateRange('2026-10-31', '2026-11-03', INR)).toBe('31 Oct 2026 \u2013 3 Nov 2026');
   });
 });
 
@@ -90,12 +99,12 @@ describe('instants', () => {
   const ms = Date.parse('2026-11-01T20:00:00.000Z');
 
   it('formats the same instant on either side of a date boundary', () => {
-    expect(formatInstantDate(ms, kolkata)).toBe('02/11/2026');
-    expect(formatInstantDate(ms, losAngeles)).toBe('01/11/2026');
+    expect(formatInstantDate(ms, kolkata)).toBe('2 Nov 2026');
+    expect(formatInstantDate(ms, losAngeles)).toBe('1 Nov 2026');
     expect(formatTime(ms, kolkata)).toBe('1:30 am');
     expect(formatTime(ms, losAngeles)).toBe('12:00 pm');
-    expect(formatDateTime(ms, kolkata)).toBe('02/11/2026, 1:30 am');
-    expect(formatDateTime(ms, losAngeles)).toBe('01/11/2026, 12:00 pm');
+    expect(formatDateTime(ms, kolkata)).toBe('2 Nov 2026, 1:30 am');
+    expect(formatDateTime(ms, losAngeles)).toBe('1 Nov 2026, 12:00 pm');
     expect(formatTime(ms, kolkata)).not.toMatch(/\u202F|\u00A0/);
   });
 

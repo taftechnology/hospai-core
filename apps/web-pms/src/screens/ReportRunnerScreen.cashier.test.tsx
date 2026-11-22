@@ -209,7 +209,7 @@ describe('ReportRunnerScreen: Part B cashier and financial', () => {
     const stay = within(card).getByTestId('report-stay');
     await waitFor(() => expect(stay).toHaveTextContent('Asha Rao · Booking CCCC3333'));
     expect(stay).toHaveTextContent('Room 101 · King');
-    expect(stay).toHaveTextContent('20/11/2026 to 22/11/2026');
+    expect(stay).toHaveTextContent('20 Nov 2026 to 22 Nov 2026');
     expect(stay).toHaveTextContent('In house');
     expect(within(card).queryByTestId('report-params')).toBeNull();
     const subtotal = within(card).getByText('Window total').closest('tr')!;
@@ -251,7 +251,7 @@ describe('ReportRunnerScreen: Part B cashier and financial', () => {
     expect(rows.some((r) => r.textContent?.includes('Ann Cashier'))).toBe(true);
     expect(screen.getByText('Staff member')).toBeInTheDocument();
     expect(screen.queryByText('user_gone')).toBeNull();
-    expect(rows[1]!.textContent).toContain('20/11/2026, 9:05 am');
+    expect(rows[1]!.textContent).toContain('20 Nov 2026, 9:05 am');
     expect(rows[1]!.textContent).toContain('−₹1,000.00');
     await waitFor(() => expect(screen.getAllByText('Asha Rao').length).toBe(2));
 

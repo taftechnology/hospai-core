@@ -180,7 +180,7 @@ describe('ReportRunnerScreen: Part C night audit and housekeeping', () => {
     const row = within(card).getAllByRole('row')[1]!;
     const cells = within(row).getAllByRole('cell').map((c) => c.textContent);
     expect(cells).toEqual(['0', '0', '—', '₹0.00', '—', '—', '2', '1', '3']);
-    expect(within(card).getByTestId('report-params')).toHaveTextContent('19/11/2026');
+    expect(within(card).getByTestId('report-params')).toHaveTextContent('19 Nov 2026');
     fireEvent.click(screen.getByTestId('report-csv'));
     const lines = (downloadTextFile.mock.calls[0]![1] as string).split('\r\n');
     expect(lines[1]).toBe('0,0,,0.00,,,2,1,3,INR');
@@ -195,7 +195,7 @@ describe('ReportRunnerScreen: Part C night audit and housekeeping', () => {
     run();
     const empty = await screen.findByTestId('report-no-audit');
     expect(empty).toHaveTextContent('No completed night audit');
-    expect(empty).toHaveTextContent('18/11/2026 has not been completed');
+    expect(empty).toHaveTextContent('18 Nov 2026 has not been completed');
     expect(screen.queryByTestId('report-empty')).toBeNull();
     expect((screen.getByTestId('report-print') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('report-csv') as HTMLButtonElement).disabled).toBe(true);

@@ -125,7 +125,7 @@ describe('ManagerReportScreen', () => {
     renderScreen();
     const note = await screen.findByTestId('manager-not-recorded');
     expect(within(note).getByTestId('manager-not-recorded-mtd')).toHaveTextContent('Month to date');
-    expect(within(note).getByTestId('manager-not-recorded-ytd')).toHaveTextContent('05/11/2026, 04/11/2026');
+    expect(within(note).getByTestId('manager-not-recorded-ytd')).toHaveTextContent('5 Nov 2026, 4 Nov 2026');
     expect(screen.queryByTestId('manager-not-recorded-day')).toBeNull();
   });
 

@@ -1653,7 +1653,7 @@ describe('BookingScreen', () => {
     expect(block.textContent).toContain('Identity on file');
     expect(block.textContent).toContain('Passport');
     expect(block.textContent).toContain(maskedDocumentNumber({ number: 'AB123456' }));
-    expect(block.textContent).toContain('expires 15/01/2030');
+    expect(block.textContent).toContain('expires 15 Jan 2030');
   });
 
   it('R4.26: room picker lists only available-rooms for the chosen type and dates', async () => {

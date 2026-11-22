@@ -677,7 +677,7 @@ describe('NightAuditScreen', () => {
     });
     expect(await screen.findByTestId('night-audit-run-ended')).toHaveProperty(
       'textContent',
-      'Business date is now 02/03/2026.',
+      'Business date is now 2 Mar 2026.',
     );
     expect(screen.getByTestId('night-audit-run-ended').className).toContain('ui-alert--settled');
     for (const queryKey of [
@@ -825,7 +825,7 @@ describe('NightAuditScreen', () => {
       );
     });
     expect((await screen.findByTestId('night-audit-run-ended')).textContent).toBe(
-      'Business date is now 02/03/2026.',
+      'Business date is now 2 Mar 2026.',
     );
     expect(view.invalidateSpy).toHaveBeenCalledWith({ queryKey: ['board'] });
     expect(resolveRefetchInterval(view.client)).toBe(false);
@@ -938,15 +938,15 @@ describe('NightAuditScreen', () => {
     await showStage('Close-out');
     const table = await screen.findByTestId('night-audit-check-log');
     const text = table.textContent ?? '';
-    expect(text.indexOf('02/03/2026')).toBeGreaterThanOrEqual(0);
-    expect(text.indexOf('02/03/2026')).toBeLessThan(text.indexOf('01/03/2026'));
+    expect(text.indexOf('2 Mar 2026')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('2 Mar 2026')).toBeLessThan(text.indexOf('1 Mar 2026'));
     expect(text).toMatch(/Arrivals not checked in: 2 Fail/);
     expect(screen.getAllByText('All clear').length).toBe(2);
     const rows = within(table).getAllByRole('row');
-    expect(rows.some((row) => row.textContent?.includes('02/03/2026') && row.textContent?.includes('1'))).toBe(
+    expect(rows.some((row) => row.textContent?.includes('2 Mar 2026') && row.textContent?.includes('1'))).toBe(
       true,
     );
-    expect(rows.some((row) => row.textContent?.includes('02/03/2026') && row.textContent?.includes('2'))).toBe(
+    expect(rows.some((row) => row.textContent?.includes('2 Mar 2026') && row.textContent?.includes('2'))).toBe(
       true,
     );
   });

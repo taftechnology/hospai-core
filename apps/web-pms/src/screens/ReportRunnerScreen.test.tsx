@@ -202,7 +202,7 @@ describe('ReportRunnerScreen', () => {
     expect(within(totals).getByText(/1,500\.00/)).toBeInTheDocument();
     // The card names the hotel, the parameters and the generation time.
     expect(screen.getByTestId('report-property')).toHaveTextContent('Lakeview Residency');
-    expect(screen.getByTestId('report-params')).toHaveTextContent('20/11/2026');
+    expect(screen.getByTestId('report-params')).toHaveTextContent('20 Nov 2026');
     expect(screen.getByTestId('report-generated')).toHaveTextContent(/Generated .*2 rows/);
   });
 

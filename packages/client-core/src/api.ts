@@ -45,6 +45,7 @@ import type {
   ReportDefinition,
   ReportParams,
   ManagerReportResponse,
+  AccountingJournalResponse,
   CopilotMessageResponse,
   CopilotTurn,
   ReportResponse,
@@ -2404,6 +2405,21 @@ export function createClient(opts: {
       const q = date ? `?${new URLSearchParams({ date }).toString()}` : '';
       const { body } = await getJson(`/v1/properties/${enc(propertyId)}/reports/manager${q}`);
       return body as ManagerReportResponse;
+    },
+    /**
+     * The accounting journal (R4.12): the stored night-audit snapshots of `from`..`to`, at most 31 days.
+     * With no bounds the server answers for the last closed business date.
+     */
+    async getAccountingJournal(
+      propertyId: string,
+      range?: { from?: string; to?: string },
+    ): Promise<AccountingJournalResponse> {
+      const qs = new URLSearchParams();
+      if (range?.from) qs.set('from', range.from);
+      if (range?.to) qs.set('to', range.to);
+      const q = qs.toString();
+      const { body } = await getJson(`/v1/properties/${enc(propertyId)}/accounting/journal${q ? `?${q}` : ''}`);
+      return body as AccountingJournalResponse;
     },
     /**
      * One copilot question (R4.16). The conversation is whatever the caller passes: this client keeps

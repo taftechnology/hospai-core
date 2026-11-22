@@ -50,4 +50,5 @@ export * from './room-board.js';
 export * from './reports.js';
 export * from './report-stats.js';
 export * from './manager-report.js';
+export * from './accounting-journal.js';
 export * from './copilot.js';

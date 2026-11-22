@@ -1,4 +1,4 @@
-/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 57. */
+/** Historical Phase 0 freeze-gate statements; PROPERTY_SCHEMA_HEAD = 58. */
 
 export const TYPE_WIDE_RATE_PLAN = '*';
 
@@ -2234,6 +2234,31 @@ export const FORM_C_V57_STATEMENTS: string[] = [
 
 export const FORM_C_V57_SQL = FORM_C_V57_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * v58 — Accounting export, Part A (R4.12). One journal snapshot per closed business date, written by
+ * the SNAPSHOT_REPORTS step in the same transaction as `night_audit_day_stats`. Net per HospAI
+ * account key, integer minor units in ledger currency, no guest PII.
+ */
+export const ACCOUNTING_JOURNAL_V58_STATEMENTS: string[] = [
+  `CREATE TABLE night_audit_journal_line (
+  business_date TEXT NOT NULL,
+  account_key   TEXT NOT NULL,
+  debit_minor   INTEGER NOT NULL CHECK (debit_minor >= 0),
+  credit_minor  INTEGER NOT NULL CHECK (credit_minor >= 0),
+  CHECK (debit_minor = 0 OR credit_minor = 0),
+  PRIMARY KEY (business_date, account_key)
+)`,
+  `CREATE TABLE night_audit_journal_day (
+  business_date         TEXT PRIMARY KEY,
+  currency              TEXT NOT NULL,
+  advance_closing_minor INTEGER NOT NULL,
+  balanced              INTEGER NOT NULL CHECK (balanced IN (0, 1)),
+  recorded_at           INTEGER NOT NULL
+)`,
+];
+
+export const ACCOUNTING_JOURNAL_V58_SQL = ACCOUNTING_JOURNAL_V58_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PROPERTY_MIGRATIONS = [
   {
     version: 1,
@@ -2519,5 +2544,10 @@ export const PROPERTY_MIGRATIONS = [
     version: 57,
     name: 'form_c',
     statements: FORM_C_V57_STATEMENTS,
+  },
+  {
+    version: 58,
+    name: 'accounting_journal',
+    statements: ACCOUNTING_JOURNAL_V58_STATEMENTS,
   },
 ] as const;

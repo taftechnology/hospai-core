@@ -576,7 +576,7 @@ describe('housekeeping tasks [R4.30]', () => {
 
   it('12. the routes are in the audit with the right permissions', () => {
     // R4.11 Part A appends ten more routes after these six, Part B ten after those, Part C ten after those, then the R4.31 dashboard route.
-    const ids = V1_HTTP_ROUTE_AUDIT.slice(-49, -43).map((r) => [r.id, 'permission' in r ? r.permission : null]);
+    const ids = V1_HTTP_ROUTE_AUDIT.slice(-50, -44).map((r) => [r.id, 'permission' in r ? r.permission : null]);
     expect(ids).toEqual([
       ['post_housekeeping_tasks', 'housekeeping:write'],
       ['patch_housekeeping_task', 'housekeeping:write'],

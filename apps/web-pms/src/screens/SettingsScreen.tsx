@@ -37,6 +37,7 @@ import { ProductsSettings } from './settings-products.js';
 import { PackagesSettings } from './settings-packages.js';
 import { DocumentsSettings } from './settings-documents.js';
 import { MaintenanceSettings } from './settings-maintenance.js';
+import { AccountingSettings } from './settings-accounting.js';
 import { ManagerReportSettings } from './settings-manager-report.js';
 import { NightAuditChecksSettings } from './settings-night-audit-checks.js';
 import { SourcesSettings } from './settings-sources.js';
@@ -471,7 +472,8 @@ export function SettingsScreen({
     | 'logs'
     | 'guests'
     | 'accommodations'
-    | 'reports';
+    | 'reports'
+    | 'accounting';
 }) {
   const propertyId = tenant.propertyId;
   const queryClient = useQueryClient();
@@ -652,6 +654,7 @@ export function SettingsScreen({
         ) : null}
         <Link className="ui-tab" to="/settings/documents" aria-current={activeTab === 'documents' ? 'page' : undefined}>Documents</Link>
         <Link className="ui-tab" to="/settings/reports" aria-current={activeTab === 'reports' ? 'page' : undefined}>Reports</Link>
+        <Link className="ui-tab" to="/settings/accounting" aria-current={activeTab === 'accounting' ? 'page' : undefined}>Accounting</Link>
         <Link className="ui-tab" to="/settings/maintenance" aria-current={activeTab === 'maintenance' ? 'page' : undefined}>Maintenance</Link>
         <Link className="ui-tab" to="/settings/sources" aria-current={activeTab === 'sources' ? 'page' : undefined}>Sources & segments</Link>
         <Link className="ui-tab" to="/settings/tax" aria-current={activeTab === 'tax' ? 'page' : undefined}>Tax</Link>
@@ -1140,6 +1143,21 @@ export function SettingsScreen({
           <Skeleton label="Loading settings" lines={3} />
         ) : (
           <ManagerReportSettings
+            keys={keys}
+            reason={reason}
+            propertyId={propertyId}
+            onSaved={onSaved}
+            reasonControl={
+              <SettingsSystemReasonField reason={reason} onReasonChange={setReason} />
+            }
+          />
+        )
+      ) : null}
+      {activeTab === 'accounting' ? (
+        configQ.isPending ? (
+          <Skeleton label="Loading settings" lines={3} />
+        ) : (
+          <AccountingSettings
             keys={keys}
             reason={reason}
             propertyId={propertyId}

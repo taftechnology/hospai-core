@@ -86,7 +86,7 @@ const WINDOW_RANK: Record<string, number> = { GUEST: 0, COMPANY: 1, MASTER: 2 };
 // The folio ledger, loaded once per run
 // ---------------------------------------------------------------------------------------------
 
-type Line = {
+export type Line = {
   seq: number;
   id: string;
   windowId: string;
@@ -107,14 +107,18 @@ type Line = {
   tax: boolean;
 };
 
-type Ledger = {
+export type Ledger = {
   lines: Line[];
   byId: Map<string, Line>;
 };
 
 const REVERSAL_SOURCES = new Set(['SPLIT_REVERSAL', 'TRANSFER_REVERSAL']);
 
-function loadLedger(deps: CashierReportDeps): Ledger {
+/** What the ledger load needs from the caller: the report deps, or the night audit's own reads. */
+export type LedgerDeps = Pick<CashierReportDeps, 'sql' | 'dateOfInstant'>;
+
+/** Every folio line, each with its report date and tax flag: the one ledger every report and the journal read. */
+export function loadLedger(deps: LedgerDeps): Ledger {
   const raw = deps.sql
     .exec(
       `SELECT fl.rowid AS seq, fl.folio_line_id, fl.folio_window_id, fw.kind AS window_kind,
@@ -211,7 +215,7 @@ export function movementColumn(l: {
 // Lookups
 // ---------------------------------------------------------------------------------------------
 
-type PaymentInfo = {
+export type PaymentInfo = {
   paymentId: string;
   reservationId: string;
   amountMinor: number;
@@ -221,7 +225,7 @@ type PaymentInfo = {
   externalReference: string | null;
 };
 
-function loadPayments(deps: CashierReportDeps): Map<string, PaymentInfo> {
+export function loadPayments(deps: Pick<CashierReportDeps, 'sql'>): Map<string, PaymentInfo> {
   const rows = deps.sql
     .exec(
       `SELECT payment_id, reservation_id, amount_minor, currency, tender_type, shift_id, external_reference

@@ -219,19 +219,19 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R6.2 (Form C tracker, 2026-11-22; R4.16 Copilot, R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
+After roadmap R4.12 Part A (accounting journal, 2026-11-22; R6.2 Form C, R4.16 Copilot, R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **151** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **257** routes, last id **`post_form_c_remove`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `V1_HTTP_ROUTE_AUDIT` | **258** routes, last id **`get_accounting_journal`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `AUDIT_WRITER_COMMAND_IDS` | **117** | `packages/contracts/src/register.test.ts` |
-| `PROPERTY_SCHEMA_HEAD` | **57** | `packages/do-runtime` migrate tests |
+| `PROPERTY_SCHEMA_HEAD` | **58** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **14** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length **11**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, **`arrival_deposit_missing`**, and **`form_c_overdue`** | `packages/contracts/src/register.test.ts` |
 
-Part B also registered **+2** `PRESENTATION` keys (`pms.documents.registration_card`, `pms.documents.proforma`) — asserted in `register.test.ts` only (no numeric CONFIG_REGISTER pin).
+Part B also registered **+2** `PRESENTATION` keys (`pms.documents.registration_card`, `pms.documents.proforma`) — asserted in `register.test.ts` only (no numeric CONFIG_REGISTER pin). R4.12 Part A added one `DOMAIN` key, `accounting.ledger_map`, and the permission `accounting:export` (owner, admin; asserted in `register.test.ts` and `accounting-journal.test.ts`). `COMMAND_CATALOG` and `AUDIT_WRITER_COMMAND_IDS` did not change: the mapping saves through the existing `config.put_domain` path.
 
 There are **17** `check:*` scripts in CI (not 16). Local pms-core shards **include** ledger property specs; CI isolates those files in `test-pms-core-ledger-prop`. Do not fold them back into the noisy shards.
 

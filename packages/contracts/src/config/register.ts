@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { HSN_SAC_PATTERN, TAX_GROUP_KEY_PATTERN } from '../gst-buyer.js';
 import {
+  ACCOUNTING_LEDGER_MAP_DEFAULT,
+  ACCOUNTING_LEDGER_MAP_KEY,
+  AccountingLedgerMapSchema,
+} from '../accounting-journal.js';
+import {
   DEFAULT_GUEST_SETTINGS,
   GUEST_SETTINGS_KEY,
   GuestSettingsSchema,
@@ -175,6 +180,17 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     class: 'DOMAIN',
     schema: ManagerReportConfigSchema,
     default: MANAGER_REPORT_CONFIG_DEFAULT,
+    permission: 'settings:configure',
+    consumersExempt: true,
+  }),
+  // R4.12 Part A: account key -> the hotel's ledger name. DOMAIN so it lives in the PropertyDO (read when the
+  // journal is exported, never from KV) and is saved through the domain-config path with a reason.
+  entry({
+    key: ACCOUNTING_LEDGER_MAP_KEY,
+    prototypeKey: null,
+    class: 'DOMAIN',
+    schema: AccountingLedgerMapSchema,
+    default: ACCOUNTING_LEDGER_MAP_DEFAULT,
     permission: 'settings:configure',
     consumersExempt: true,
   }),

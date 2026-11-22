@@ -114,3 +114,18 @@ describe('postCopilotMessage', () => {
     ]);
   });
 });
+
+describe('getAccountingJournal', () => {
+  it('asks the accounting route, with the bounds only when they are given', async () => {
+    const seen: string[] = [];
+    const client = testClient(seen);
+    await client.getAccountingJournal('p 1');
+    await client.getAccountingJournal('p 1', { from: '2026-11-01', to: '2026-11-07' });
+    await client.getAccountingJournal('p 1', { from: '2026-11-01' });
+    expect(seen).toEqual([
+      '/v1/properties/p%201/accounting/journal',
+      '/v1/properties/p%201/accounting/journal?from=2026-11-01&to=2026-11-07',
+      '/v1/properties/p%201/accounting/journal?from=2026-11-01',
+    ]);
+  });
+});

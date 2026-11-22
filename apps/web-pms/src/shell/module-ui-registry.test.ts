@@ -20,6 +20,7 @@ describe('module UI nav merge', () => {
       'folios',
       'night-audit',
       'reports',
+      'accounting',
       'settings',
       'inventory',
       'staff',
@@ -40,6 +41,13 @@ describe('module UI nav merge', () => {
       path: '/copilot',
       permission: 'copilot:use',
       entitlement: 'ai_ops.enabled',
+    });
+    // R4.12: Accounting is gated by its permission and by the plan, and sits under Reports.
+    expect(ALL_NAV.find((e) => e.id === 'accounting')).toMatchObject({
+      label: 'Accounting',
+      path: '/accounting',
+      permission: 'accounting:export',
+      entitlement: 'accounting_export.enabled',
     });
     expect(ALL_NAV.find((e) => e.id === 'folios')?.label).toBe('Folios');
     expect(ALL_NAV.find((e) => e.id === 'folios')?.permission).toBe('folio:read');

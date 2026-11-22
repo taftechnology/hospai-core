@@ -65,6 +65,9 @@ const ExceptionsScreen = lazy(() =>
 const FormCScreen = lazy(() =>
   import('./screens/FormCScreen.js').then((m) => ({ default: m.FormCScreen })),
 );
+const AccountingScreen = lazy(() =>
+  import('./screens/AccountingScreen.js').then((m) => ({ default: m.AccountingScreen })),
+);
 const NightAuditScreen = lazy(() =>
   import('./screens/NightAuditScreen.js').then((m) => ({ default: m.NightAuditScreen })),
 );
@@ -92,6 +95,14 @@ export const router = createBrowserRouter(
             </Route>
             <Route path="reports/:reportId" element={<ReportRunnerGate />}>
               <Route index element={<ReportRunnerScreen />} />
+            </Route>
+            {/* R4.12: the daily journal for the accountant; the nav entry also needs the plan's accounting export. */}
+            <Route path="accounting" element={<PermissionRoute permission="accounting:export" />}>
+              <Route index element={
+                <Suspense fallback={<Skeleton />}>
+                  <AccountingScreen />
+                </Suspense>
+              } />
             </Route>
             <Route path="board" element={<TapeChartScreen />} />
             <Route path="rooms/live" element={<PermissionRoute permission="reservations:read" />}>
@@ -227,6 +238,11 @@ export const router = createBrowserRouter(
               <Route path="reports" element={
                 <Suspense fallback={<Skeleton />}>
                   <SettingsScreen tab="reports" />
+                </Suspense>
+              } />
+              <Route path="accounting" element={
+                <Suspense fallback={<Skeleton />}>
+                  <SettingsScreen tab="accounting" />
                 </Suspense>
               } />
               <Route path="maintenance" element={

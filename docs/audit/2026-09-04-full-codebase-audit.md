@@ -699,6 +699,18 @@ Cross-checked against: Sept 3 N1–N14, Sept 4 verification canvas (X1–X4 + co
 
 ---
 
+## Open findings after the brief (2026-11-22)
+
+Found while building R4.12 Part A (accounting journal). Not fixed there; each needs its own change and a characterization test. They are not new verticals.
+
+| Finding | Where | Effect |
+|---|---|---|
+| **Trial balance counts a COMPANY receivable twice.** Closing a COMPANY window (or checking out) posts a `city_ledger_entry` charge and no folio line, so the window keeps its balance. | `buildTrialBalance` in `apps/pms-core/src/cashier-report.ts`: the Guest ledger section sums every window including COMPANY, and the City ledger section adds the same receivable. | The two sections together overstate receivables by every open company balance. A settlement reduces only the city ledger section, so the guest ledger side never clears. The journal reports it once. |
+| **Revenue snapshot and Manager Report tax read as 0 when tax lines have no `business_date`.** Tax child lines are stored with a null `business_date`; the R2 `revenue` snapshot sums `source = 'TAX'` rows by `business_date = ?`. | `snapshotReportsAsync` in `apps/pms-core/src/property-do.ts`, feeding `night_audit_day_stats.tax_minor`. | With tax rules on, `taxTotal` and the Manager Report `Tax` row are 0 although the tax report shows the tax. The cashier reports and the journal date tax lines through their parent line and are right. |
+| **Day statistics put refunds in "other".** A refund line carries no `payment_id`, so the tender join finds nothing. | `tenderRows` in `snapshotReportsAsync`; `paymentsByTender` in `apps/pms-core/src/manager-report.ts`. | Card and UPI payments on the Manager Report are gross of refunds; the refund shows under other. The journal attributes a refund to the tender of the payment it returns (through `split_of`). |
+
+---
+
 ## Document control
 
 - **Audience:** implementing agent (and reviewer). Product owner reads the global sequence and locked calls.

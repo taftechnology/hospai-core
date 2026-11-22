@@ -297,6 +297,9 @@ import {
   MINIBAR_CONFIG_KEY,
   MinibarConfigSchema,
   readManagerReportConfig,
+  ACCOUNTING_LEDGER_MAP_KEY,
+  readAccountingLedgerMap,
+  type AccountingJournalResponse,
   type ManagerReportResponse,
   type MinibarConfig,
   type MinibarSetupView,
@@ -556,6 +559,14 @@ import {
   type RevenueSnapshot,
 } from './audit-report.js';
 import { readCashierReport, type CashierReportResult } from './cashier-report.js';
+import {
+  advanceWindowIds,
+  buildJournalSnapshot,
+  insertJournalSnapshot,
+  previousAdvanceClosingMinor,
+  readAccountingJournal,
+  type JournalSnapshot,
+} from './accounting-journal.js';
 import {
   buildDayStats,
   buildManagerReport,
@@ -1974,6 +1985,8 @@ const PROPERTY_PURGE_INVENTORY_TABLES = [
   'invoice',
   'night_audit_check_result',
   'night_audit_day_stats',
+  'night_audit_journal_day',
+  'night_audit_journal_line',
   'night_audit_report',
   'night_audit_run',
   'outbox',
@@ -2056,6 +2069,8 @@ function countPropertyInventoryRows(sql: SqlStorageLike): number {
       (SELECT COUNT(*) FROM invoice) +
       (SELECT COUNT(*) FROM night_audit_check_result) +
       (SELECT COUNT(*) FROM night_audit_day_stats) +
+      (SELECT COUNT(*) FROM night_audit_journal_day) +
+      (SELECT COUNT(*) FROM night_audit_journal_line) +
       (SELECT COUNT(*) FROM night_audit_report) +
       (SELECT COUNT(*) FROM night_audit_run) +
       (SELECT COUNT(*) FROM outbox) +
@@ -2142,6 +2157,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   private auditAppendFaultForTest = false;
   private reportsR2UnboundForTest = false;
   private snapshotFailureAfterPutForTest: string | null = null;
+  private journalFailureForTest: string | null = null;
   private reportPutCountForTest = 0;
   /**
    * Keyed by businessDate. A Workflow retry and an operator retry of SNAPSHOT can
@@ -2154,6 +2170,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /** Day statistics (R4.32) computed by SNAPSHOT_REPORTS, inserted in the step's own transaction. */
   private pendingDayStats = new Map<string, DayStats>();
+
+  /** The accounting journal (R4.12) computed by SNAPSHOT_REPORTS, inserted beside the day statistics. */
+  private pendingJournal = new Map<string, JournalSnapshot>();
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -4130,6 +4149,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         } else if (step === 'SNAPSHOT_REPORTS') {
           this.indexReportPutsSync(businessDate);
           this.indexDayStatsSync(businessDate);
+          this.indexJournalSync(businessDate);
           this.postPendingCityLedgerChargesForBusinessDateSync(businessDate);
         } else if (step === 'ARCHIVE') {
           this.indexManifestSync(businessDate);
@@ -5284,8 +5304,51 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         }),
       ),
     });
+    this.prepareJournal(businessDate);
     if (this.snapshotFailureAfterPutForTest) {
       throw new Error(this.snapshotFailureAfterPutForTest);
+    }
+  }
+
+  /**
+   * R4.12: the day's accounting journal, from the same folio ledger the cashier reports read. A
+   * failure leaves the date "not recorded" in the export; it never halts the audit or the day stats.
+   */
+  private prepareJournal(businessDate: string): void {
+    this.pendingJournal.delete(businessDate);
+    try {
+      if (this.journalFailureForTest) throw new Error(this.journalFailureForTest);
+      const currency = this.readStoredLedgerCurrencySync();
+      if (!currency) return;
+      let advanceClosing = 0;
+      for (const windowId of advanceWindowIds(this.ctx.storage.sql)) {
+        const balance = this.windowBalanceMinorSync(windowId);
+        if (balance < 0) advanceClosing += -balance;
+      }
+      this.pendingJournal.set(
+        businessDate,
+        buildJournalSnapshot({
+          sql: this.ctx.storage.sql,
+          businessDate,
+          currency,
+          dateOfInstant: (ms) => this.closedAtBusinessDateSync(ms),
+          advanceClosingMinor: advanceClosing,
+          previousAdvanceClosingMinor: previousAdvanceClosingMinor(this.ctx.storage.sql, businessDate),
+        }),
+      );
+    } catch (e) {
+      console.warn('[accounting-journal] journal skipped', businessDate, e instanceof Error ? e.message : e);
+    }
+  }
+
+  private indexJournalSync(businessDate: string): void {
+    const snapshot = this.pendingJournal.get(businessDate);
+    this.pendingJournal.delete(businessDate);
+    if (!snapshot) return;
+    try {
+      insertJournalSnapshot(this.ctx.storage.sql, snapshot, Date.now());
+    } catch (e) {
+      console.warn('[accounting-journal] journal not stored', businessDate, e instanceof Error ? e.message : e);
     }
   }
 
@@ -5756,6 +5819,11 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       JSON.stringify(value),
       Date.now(),
     );
+  }
+
+  async setJournalFailureForTest(message: string | null): Promise<void> {
+    this.assertUnsafeLocal('setJournalFailureForTest');
+    this.journalFailureForTest = message;
   }
 
   async setSnapshotFailureAfterPutForTest(message: string | null): Promise<void> {
@@ -15788,6 +15856,29 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (!currency) return { ok: false, error: CURRENCY_UNSET };
     const config = readManagerReportConfig(this.readConfigValueSync('pms.reports.manager_report'));
     return buildManagerReport({ sql: this.ctx.storage.sql, businessDate, currency, config }, params.date);
+  }
+
+  /**
+   * Accounting journal export (R4.12): the stored rows of `from`..`to`, nothing recomputed. With no
+   * bounds it is the last closed date (the day before the open business date).
+   */
+  async readAccountingJournalView(params: {
+    from?: string;
+    to?: string;
+  }): Promise<
+    AccountingJournalResponse | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof CURRENCY_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const currency = this.readStoredLedgerCurrencySync();
+    if (!currency) return { ok: false, error: CURRENCY_UNSET };
+    const lastClosed = new Date(`${businessDate}T00:00:00Z`);
+    lastClosed.setUTCDate(lastClosed.getUTCDate() - 1);
+    const from = params.from ?? lastClosed.toISOString().slice(0, 10);
+    const to = params.to ?? from;
+    const map = readAccountingLedgerMap(this.readConfigValueSync(ACCOUNTING_LEDGER_MAP_KEY));
+    return readAccountingJournal({ sql: this.ctx.storage.sql, currency, from, to, map });
   }
 
   /** Net GUEST payments on one window, floored at 0 (see `netAdvancePaidMinor`). */

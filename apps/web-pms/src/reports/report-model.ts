@@ -151,7 +151,7 @@ export function csvField(value: string): string {
 }
 
 /** Text that a spreadsheet would run as a formula gets a leading apostrophe. */
-function guardFormula(value: string): string {
+export function guardFormula(value: string): string {
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 

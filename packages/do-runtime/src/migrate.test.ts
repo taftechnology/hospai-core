@@ -320,17 +320,17 @@ class MemorySql implements SqlStorageLike {
 }
 
 describe('migrateSql', () => {
-  it('applies property migrations through version 57', () => {
+  it('applies property migrations through version 58', () => {
     const sql = new MemorySql();
     const v1 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v1).toBe(57);
+    expect(v1).toBe(58);
     const v2 = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(v2).toBe(57);
-    expect(sql.schemaVersion).toHaveLength(57);
+    expect(v2).toBe(58);
+    expect(sql.schemaVersion).toHaveLength(58);
     expect(sql.schemaVersion.map((r) => r.version)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-      49, 50, 51, 52, 53, 54, 55, 56, 57,
+      49, 50, 51, 52, 53, 54, 55, 56, 57, 58,
     ]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(14);
   });
@@ -939,7 +939,7 @@ describe('housekeeping depth C v55', () => {
        VALUES ('m1', 'i1', 'receive', 7, 7, 'first', 'usr_a', '2026-11-20', 2)`,
     );
     const head = migrateSql(sql, [...PROPERTY_MIGRATIONS]);
-    expect(head).toBe(57);
+    expect(head).toBe(58);
     const items = sql.exec(`SELECT item_id, name, category, on_hand, archived_at FROM housekeeping_inventory_item ORDER BY item_id`).toArray();
     expect(items).toEqual([
       { item_id: 'i1', name: 'Bath towel', category: 'towels', on_hand: 7, archived_at: null },
@@ -995,7 +995,7 @@ describe('manager report v56', () => {
         return { toArray: () => rows };
       },
     };
-    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(57);
+    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(58);
     const insert = `INSERT INTO night_audit_day_stats (business_date, currency, physical, blocked, sold, no_show_nights, arrivals, departures, no_shows, cancellations, in_house_adults, in_house_children, room_revenue_minor, fnb_revenue_minor, other_revenue_minor, tax_minor, pay_card_minor, pay_cash_minor, pay_upi_minor, pay_other_minor, recorded_at) VALUES (?, 'USD', 5, 0, 1, 0, 0, 0, 0, 0, 1, 0, 10000, 0, 0, 0, 0, 0, 0, 0, 1)`;
     sql.exec(insert, '2026-11-20');
     expect(() => sql.exec(insert, '2026-11-20')).toThrow();
@@ -1022,7 +1022,7 @@ describe('form c v57 and org v14', () => {
         return { toArray: () => rows };
       },
     };
-    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(57);
+    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(58);
     const ins = `INSERT INTO form_c_record (id, reservation_id, kind, status, deadline_at, created_at, created_by) VALUES (?, 'r1', ?, ?, 1, 1, 'u')`;
     sql.exec(ins, 'a', 'BOOKED_GUEST', 'TO_FILE');
     expect(() => sql.exec(ins, 'b', 'BOOKED_GUEST', 'TO_FILE')).toThrow();
@@ -1045,9 +1045,40 @@ describe('form c v57 and org v14', () => {
   });
 });
 
+describe('accounting journal v58', () => {
+  it('adds two PII-free tables: net rows per account key and one day row', async () => {
+    const v58 = PROPERTY_MIGRATIONS.find((m) => m.version === 58);
+    expect(v58?.name).toBe('accounting_journal');
+    const ddl = (v58?.statements ?? []).join('\n');
+    expect(ddl).toContain('CREATE TABLE night_audit_journal_line (');
+    expect(ddl).toContain('CREATE TABLE night_audit_journal_day (');
+    expect(ddl).not.toMatch(/guest_name|display_name|\bemail\b|\bphone\b|guest_ref/i);
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    const sql: SqlStorageLike = {
+      exec(query: string, ...bindings: unknown[]) {
+        const rows = db.prepare(query).all(...(bindings as never[]));
+        return { toArray: () => rows };
+      },
+    };
+    expect(migrateSql(sql, [...PROPERTY_MIGRATIONS])).toBe(58);
+    const line = `INSERT INTO night_audit_journal_line (business_date, account_key, debit_minor, credit_minor) VALUES (?, ?, ?, ?)`;
+    sql.exec(line, '2026-11-22', 'GUEST_LEDGER', 100, 0);
+    expect(() => sql.exec(line, '2026-11-22', 'GUEST_LEDGER', 100, 0)).toThrow();
+    expect(() => sql.exec(line, '2026-11-22', 'TAX:CGST', 5, 5)).toThrow();
+    expect(() => sql.exec(line, '2026-11-22', 'TAX:SGST', -5, 0)).toThrow();
+    sql.exec(line, '2026-11-23', 'GUEST_LEDGER', 0, 40);
+    const day = `INSERT INTO night_audit_journal_day (business_date, currency, advance_closing_minor, balanced, recorded_at) VALUES (?, 'USD', 0, ?, 1)`;
+    sql.exec(day, '2026-11-22', 1);
+    expect(() => sql.exec(day, '2026-11-22', 1)).toThrow();
+    expect(() => sql.exec(day, '2026-11-23', 2)).toThrow();
+    db.close();
+  });
+});
+
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
-    expect(PROPERTY_SCHEMA_HEAD).toBe(57);
+    expect(PROPERTY_SCHEMA_HEAD).toBe(58);
     expect(ORG_SCHEMA_HEAD).toBe(14);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });

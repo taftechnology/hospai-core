@@ -102,6 +102,7 @@ if (process.argv.includes('--self-test')) {
   let HOUSEKEEPING_DEPTH_C_V55_SQL;
   let MANAGER_REPORT_V56_SQL;
   let FORM_C_V57_SQL;
+  let ACCOUNTING_JOURNAL_V58_SQL;
   let ORG_SPINE_SQL;
   let ORG_GUEST_PII_SQL;
   let ORG_ALARM_SCHEDULE_SQL;
@@ -180,6 +181,7 @@ if (process.argv.includes('--self-test')) {
       HOUSEKEEPING_DEPTH_C_V55_SQL,
       MANAGER_REPORT_V56_SQL,
       FORM_C_V57_SQL,
+      ACCOUNTING_JOURNAL_V58_SQL,
       ORG_SPINE_SQL,
       ORG_GUEST_PII_SQL,
       ORG_ALARM_SCHEDULE_SQL,
@@ -738,6 +740,15 @@ const doPropertyTargets = [
 
 `,
     sql: FORM_C_V57_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-property/0058_accounting_journal.sql'),
+    header: `-- PropertyDO accounting journal snapshots (R4.12 Part A) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/property-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ACCOUNTING_JOURNAL_V58_SQL,
   },
 ];
 

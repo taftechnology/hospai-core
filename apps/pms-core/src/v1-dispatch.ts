@@ -226,6 +226,7 @@ import {
   HK_TASK_SEARCH_MAX,
   HK_DASHBOARD_ROOM_SEARCH_LEN_MAX,
   parseManagerReportDate,
+  parseAccountingJournalQuery,
   parseReportParams,
   reportDefinition,
   HK_REQUEST_SEARCH_MAX,
@@ -9945,6 +9946,42 @@ async function handleGetManagerReport(ctx: V1DispatchContext): Promise<Response>
 }
 
 /**
+ * Accounting journal export (R4.12 Part A). Permission `accounting:export` and entitlement
+ * `accounting_export.enabled` are the route's, checked by `dispatchV1`. A read of the stored
+ * night-audit snapshots: one PropertyDO, never a live read across properties, and not a mutation, so
+ * the kill-switch needs nothing of its own. A date with no stored journal is a 200 that says so.
+ */
+async function handleGetAccountingJournal(ctx: V1DispatchContext): Promise<Response> {
+  const propertyId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.propertyId = propertyId;
+
+  const parsed = parseAccountingJournalQuery((n) => ctx.url.searchParams.get(n));
+  if (!parsed.ok) {
+    if (parsed.kind === 'limit_exceeded') {
+      return json({ ok: false, error: LIMIT_EXCEEDED, limit: parsed.limit, max: parsed.max }, 422);
+    }
+    return json({ error: 'invalid_query', detail: parsed.detail }, 400);
+  }
+
+  const resolvedCtx = await resolvePropertyContext(ctx, propertyId, ctx.tenantProperty);
+  if (resolvedCtx instanceof Response) return resolvedCtx;
+
+  try {
+    const result = await resolvedCtx.resolved.stub.readAccountingJournalView({
+      ...(parsed.from === undefined ? {} : { from: parsed.from }),
+      ...(parsed.to === undefined ? {} : { to: parsed.to }),
+    });
+    if (!result.ok) {
+      return json(result, commandErrorHttpStatus(result.error));
+    }
+    return json(result, 200);
+  } catch (e) {
+    if (isPropertyDoTransportFailure(e, ctx.env)) return degradedFailClosedReadResponse();
+    throw e;
+  }
+}
+
+/**
  * One read for the copilot, made as the asking user (R4.16). The tool is an existing GET route: this
  * builds an internal GET that carries the caller's own credentials and runs it through `dispatchV1`,
  * the same function that served the user's request. That re-authenticates the actor and applies the
@@ -14657,6 +14694,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     permission: 'guests:write',
     commandId: 'form_c.remove_person',
     handler: handlePostFormCRemove,
+  },
+  {
+    id: 'get_accounting_journal',
+    scope: 'property',
+    method: 'GET',
+    pattern: /^\/v1\/properties\/([^/]+)\/accounting\/journal$/,
+    permission: 'accounting:export',
+    entitlement: 'accounting_export.enabled',
+    handler: handleGetAccountingJournal,
   },
 ];
 

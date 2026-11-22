@@ -1627,6 +1627,13 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     permission: 'guests:write',
     commandId: 'form_c.remove_person',
   },
+  {
+    id: 'get_accounting_journal',
+    scope: 'property',
+    permission: 'accounting:export',
+    entitlement: 'accounting_export.enabled',
+    degradedRead: 'FAIL_CLOSED',
+  },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

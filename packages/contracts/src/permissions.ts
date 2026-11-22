@@ -67,6 +67,7 @@ export const PROPERTY_SCOPED_PERMISSIONS = [
   'night_audit:run',
   'config:write',
   'copilot:use',
+  'accounting:export',
 ] as const;
 
 export const PERMISSIONS = [
@@ -128,6 +129,7 @@ export const ROLE_GRANTS: Record<OrgRole, readonly Permission[]> = {
     'night_audit:run',
     'config:write',
     'copilot:use',
+    'accounting:export',
   ],
   staff: [
     'org:read',

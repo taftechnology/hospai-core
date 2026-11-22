@@ -55,6 +55,7 @@ describe('me authority helpers', () => {
           e.id !== 'night-audit' &&
           e.id !== 'exceptions' &&
           e.id !== 'copilot' &&
+          e.id !== 'accounting' &&
           e.id !== 'inventory' &&
           e.id !== 'rates' &&
           e.id !== 'settings' &&
@@ -160,6 +161,18 @@ describe('me authority helpers', () => {
     // Unknown authority stays fail-open, as before.
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'unknown' }, null)).toEqual(NAV_ENTRIES);
     expect(filterNavEntries(NAV_ENTRIES, { kind: 'pending' }, { 'ai_ops.enabled': true })).toEqual([]);
+  });
+
+  it('R4.12 filterNavEntries: Accounting needs accounting:export and the plan, and an unread plan is not a grant', () => {
+    const withExport: PropertyMe = { ...baseMe, permissions: ['reservations:read', 'accounting:export'] };
+    const without: PropertyMe = { ...baseMe, permissions: ['reservations:read', 'night_audit:run'] };
+    const ids = (me: PropertyMe, features: Parameters<typeof filterNavEntries>[2]) =>
+      filterNavEntries(NAV_ENTRIES, { kind: 'live', me }, features).map((e) => e.id);
+    expect(ids(withExport, { 'accounting_export.enabled': true })).toContain('accounting');
+    expect(ids(withExport, {})).not.toContain('accounting');
+    expect(ids(withExport, { 'accounting_export.enabled': false })).not.toContain('accounting');
+    expect(ids(withExport, null)).not.toContain('accounting');
+    expect(ids(without, { 'accounting_export.enabled': true })).not.toContain('accounting');
   });
 
   it('filterNavEntries: staff without maintenance:read hides Maintenance', () => {

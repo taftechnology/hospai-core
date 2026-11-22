@@ -1,6 +1,7 @@
 import { useAuth } from '@clerk/react';
 import { Button, Dialog } from '@hospai/ui-kit';
 import { spaAuthMode } from '../providers/spa-auth-mode.js';
+import { clearAllCopilotHistory } from '../screens/copilot-history.js';
 import { DEMO_UNLOCK_KEY } from '../screens/SignInScreen.js';
 
 function ConfirmLogoutDialog({
@@ -34,6 +35,7 @@ function ConfirmLogoutDialog({
 function ClerkLogoutModal({ onCancel }: { onCancel: () => void }) {
   const { signOut } = useAuth();
   const onConfirm = async () => {
+    clearAllCopilotHistory();
     await signOut();
     window.location.assign('/sign-in');
   };
@@ -42,6 +44,7 @@ function ClerkLogoutModal({ onCancel }: { onCancel: () => void }) {
 
 function LocalLogoutModal({ onCancel }: { onCancel: () => void }) {
   const onConfirm = () => {
+    clearAllCopilotHistory();
     sessionStorage.removeItem(DEMO_UNLOCK_KEY);
     window.location.assign('/sign-in?logged-out=1');
   };

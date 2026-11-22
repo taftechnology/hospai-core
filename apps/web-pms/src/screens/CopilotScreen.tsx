@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { ClassifiedError } from '@hospai/client-core';
 import {
@@ -16,6 +16,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Dialog,
   EmptyState,
   Field,
   Input,
@@ -24,9 +25,37 @@ import {
 } from '@hospai/ui-kit';
 import { api, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
+import { useFormat } from '../shell/PropertyFormat.js';
 import { useEntitlementFeatures } from '../shell/use-entitlements.js';
 import { usePropertySubtitle } from '../shell/use-property-subtitle.js';
 import { CopilotAnswer } from './copilot-answer.js';
+import {
+  clearConversations,
+  deleteConversation,
+  loadConversations,
+  removeOtherUsersHistory,
+  saveConversation,
+  type StoredConversation,
+} from './copilot-history.js';
+
+function newConversationId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+function titleOf(c: StoredConversation): string {
+  const first = c.turns.find((t) => t.role === 'user')?.content.trim() ?? '';
+  return first.length > 80 ? `${first.slice(0, 80)}…` : first;
+}
+
+function questionCount(c: StoredConversation): number {
+  return c.turns.filter((t) => t.role === 'user').length;
+}
+
+type Confirm = { kind: 'one'; id: string } | { kind: 'all' };
 
 /** What the home offers before the first question. Each one is sent as typed. */
 export const COPILOT_SUGGESTED_QUESTIONS = [
@@ -76,8 +105,9 @@ function failureOf(err: unknown): Failure {
 
 /**
  * `/copilot` (R4.16): a read-only assistant for this property. The conversation lives in this
- * component's state only: nothing is written to browser storage, and a reload clears it. Each
- * answer lists the screens it read as links; suggested next steps are buttons that navigate. The
+ * component's state; after each answer it is also saved in this browser only (localStorage, per
+ * staff member and property, 20 conversations for 30 days, removed at sign-out). The server stores
+ * nothing. Each answer lists the screens it read as links; suggested next steps are buttons that navigate. The
  * clerk clicks. Nothing is ever submitted for them.
  */
 export function CopilotScreen() {
@@ -87,7 +117,22 @@ export function CopilotScreen() {
   const features = useEntitlementFeatures();
   const planMissing = features !== null && features['ai_ops.enabled'] !== true;
 
+  const { instantDate } = useFormat();
+  const meQuery = useQuery({
+    queryKey: ['me', propertyId],
+    queryFn: () => api.getMe(propertyId),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const userId = meQuery.data?.userId ?? null;
+
   const nextId = useRef(1);
+  const startedAt = useRef(Date.now());
+  const lastSavedEntry = useRef(0);
+  const [conversationId, setConversationId] = useState(newConversationId);
+  const [saved, setSaved] = useState<StoredConversation[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState('');
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -111,6 +156,67 @@ export function CopilotScreen() {
     onError: (err) => setFailure(failureOf(err)),
   });
 
+  // Another person's chats never survive a different sign-in on this browser.
+  useEffect(() => {
+    if (userId === null) return;
+    removeOtherUsersHistory(userId);
+    setSaved(loadConversations(userId, propertyId));
+  }, [userId, propertyId]);
+
+  // Save once per completed answer (not on keystrokes, not when a saved chat is merely opened).
+  useEffect(() => {
+    const last = entries[entries.length - 1];
+    if (userId === null || last === undefined || last.turn.role !== 'assistant') return;
+    if (last.id === lastSavedEntry.current) return;
+    lastSavedEntry.current = last.id;
+    setSaved(
+      saveConversation(userId, propertyId, {
+        id: conversationId,
+        startedAt: startedAt.current,
+        updatedAt: Date.now(),
+        turns: entries.map((e) => ({
+          role: e.turn.role,
+          content: e.turn.content,
+          sources: e.sources,
+          suggestedActions: e.actions,
+        })),
+      }),
+    );
+  }, [entries, userId, propertyId, conversationId]);
+
+  const earlier = saved.filter((c) => c.id !== conversationId);
+
+  function openSaved(c: StoredConversation) {
+    if (pending) return;
+    ask.reset();
+    const restored = c.turns.map((t, i) => ({
+      id: i + 1,
+      turn: { role: t.role, content: t.content },
+      sources: t.sources,
+      actions: t.suggestedActions,
+    }));
+    nextId.current = restored.length + 1;
+    lastSavedEntry.current = restored.length;
+    startedAt.current = c.startedAt;
+    setConversationId(c.id);
+    setEntries(restored);
+    setDraft('');
+    setFailure(null);
+    setOverLimit(false);
+    setHistoryOpen(false);
+    setConfirm(null);
+  }
+
+  function confirmDelete() {
+    if (userId === null || confirm === null) return;
+    if (confirm.kind === 'one') setSaved(deleteConversation(userId, propertyId, confirm.id));
+    else {
+      clearConversations(userId, propertyId);
+      setSaved([]);
+    }
+    setConfirm(null);
+  }
+
   const question = draft.trim();
   const pending = ask.isPending;
   const canAsk = question !== '' && !pending;
@@ -133,6 +239,10 @@ export function CopilotScreen() {
   }
 
   function reset() {
+    setConversationId(newConversationId());
+    startedAt.current = Date.now();
+    lastSavedEntry.current = 0;
+    nextId.current = 1;
     setEntries([]);
     setDraft('');
     setFailure(null);
@@ -146,10 +256,23 @@ export function CopilotScreen() {
         title="Copilot"
         subtitle={subtitle}
         actions={
-          entries.length > 0 ? (
-            <Button onClick={reset} disabled={pending} data-testid="copilot-reset">
-              New conversation
-            </Button>
+          entries.length > 0 || earlier.length > 0 ? (
+            <>
+              {earlier.length > 0 ? (
+                <Button
+                  intent="ghost"
+                  onClick={() => setHistoryOpen(true)}
+                  data-testid="copilot-history-open"
+                >
+                  Earlier conversations
+                </Button>
+              ) : null}
+              {entries.length > 0 ? (
+                <Button onClick={reset} disabled={pending} data-testid="copilot-reset">
+                  New conversation
+                </Button>
+              ) : null}
+            </>
           ) : undefined
         }
       />
@@ -184,8 +307,8 @@ export function CopilotScreen() {
               <div className="copilot-home" data-testid="copilot-home">
                 <p className="muted">
                   Ask about arrivals, folios, housekeeping, reports or night audit. The copilot reads only what you are
-                  allowed to see, and it never changes anything. The conversation is not saved: it is gone when you leave
-                  this page.
+                  allowed to see, and it never changes anything. Conversations are saved in this browser only, for 30
+                  days, and are deleted when you sign out.
                 </p>
                 <SectionLabel>Suggested questions</SectionLabel>
                 <div className="copilot-suggestions" data-testid="copilot-suggestions">
@@ -294,6 +417,73 @@ export function CopilotScreen() {
           </CardContent>
         </Card>
       )}
+      <Dialog
+        open={historyOpen}
+        title={
+          confirm === null
+            ? 'Earlier conversations'
+            : confirm.kind === 'all'
+              ? 'Delete all saved conversations?'
+              : 'Delete this conversation?'
+        }
+        onClose={() => (confirm === null ? setHistoryOpen(false) : setConfirm(null))}
+        data-testid="copilot-history-dialog"
+        footer={
+          confirm === null ? (
+            <>
+              <Button
+                intent="destructive"
+                onClick={() => setConfirm({ kind: 'all' })}
+                disabled={saved.length === 0}
+                data-testid="copilot-history-delete-all"
+              >
+                Delete all
+              </Button>
+              <Button onClick={() => setHistoryOpen(false)}>Close</Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setConfirm(null)}>Cancel</Button>
+              <Button intent="destructive" onClick={confirmDelete} data-testid="copilot-history-confirm">
+                Delete
+              </Button>
+            </>
+          )
+        }
+      >
+        {confirm !== null ? (
+          <p className="muted">
+            {confirm.kind === 'all'
+              ? 'Every saved conversation in this browser will be deleted. This cannot be undone.'
+              : 'This saved conversation will be deleted from this browser. This cannot be undone.'}
+          </p>
+        ) : earlier.length === 0 ? (
+          <EmptyState title="No earlier conversations" description="Conversations are kept here for 30 days." />
+        ) : (
+          <ul className="copilot-history" data-testid="copilot-history-list">
+            {earlier.map((c) => (
+              <li key={c.id} className="copilot-history__row" data-testid="copilot-history-row">
+                <span className="copilot-history__title">{titleOf(c)}</span>
+                <span className="muted">
+                  {instantDate(c.updatedAt)} · {questionCount(c)} {questionCount(c) === 1 ? 'question' : 'questions'}
+                </span>
+                <span className="copilot-shortcuts">
+                  <Button onClick={() => openSaved(c)} disabled={pending} data-testid="copilot-history-open-one">
+                    Open
+                  </Button>
+                  <Button
+                    intent="destructive"
+                    onClick={() => setConfirm({ kind: 'one', id: c.id })}
+                    data-testid="copilot-history-delete"
+                  >
+                    Delete
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Dialog>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const postCopilotMessage = vi.fn();
 const getOrgEntitlements = vi.fn();
 const getProperty = vi.fn();
+const getMe = vi.fn();
 
 vi.mock('../client.js', () => ({
   tenant: { orgId: 'org_demo', propertyId: 'prop_demo' },
@@ -19,9 +20,11 @@ vi.mock('../client.js', () => ({
     postCopilotMessage: (...a: unknown[]) => postCopilotMessage(...a),
     getOrgEntitlements: (...a: unknown[]) => getOrgEntitlements(...a),
     getProperty: (...a: unknown[]) => getProperty(...a),
+    getMe: (...a: unknown[]) => getMe(...a),
   },
 }));
 
+import { copilotHistoryKey, type StoredConversation } from './copilot-history.js';
 import { entitlementsQueryKey } from '../shell/use-entitlements.js';
 import { COPILOT_SUGGESTED_QUESTIONS, CopilotScreen, copilotMutationKey } from './CopilotScreen.js';
 
@@ -41,6 +44,29 @@ const answerBody = {
 function Where() {
   const loc = useLocation();
   return <p data-testid="where">{loc.pathname}</p>;
+}
+
+const HISTORY_TIME = Date.now() - 2 * 24 * 60 * 60 * 1000;
+
+function savedChat(id: string, question: string): StoredConversation {
+  return {
+    id,
+    startedAt: HISTORY_TIME - 1000,
+    updatedAt: HISTORY_TIME,
+    turns: [
+      { role: 'user', content: question, sources: [], suggestedActions: [] },
+      {
+        role: 'assistant',
+        content: 'Three folios are open.',
+        sources: [{ label: 'Folios report', href: '/reports/open_folios' }],
+        suggestedActions: [{ label: 'Open folios', href: '/folios' }],
+      },
+    ],
+  };
+}
+
+function seedHistory(list: StoredConversation[]) {
+  window.localStorage.setItem(copilotHistoryKey('user_a', 'prop_demo'), JSON.stringify(list));
 }
 
 let client: QueryClient;
@@ -76,6 +102,8 @@ describe('CopilotScreen (R4.16)', () => {
       computedAt: '2026-11-21T00:00:00.000Z',
     });
     postCopilotMessage.mockResolvedValue(answerBody);
+    getMe.mockResolvedValue({ ok: true, orgId: 'org_demo', propertyId: 'prop_demo', userId: 'user_a', role: 'staff', permissions: [], orgPermissions: [] });
+    window.localStorage.clear();
   });
   afterEach(() => cleanup());
 
@@ -136,21 +164,138 @@ describe('CopilotScreen (R4.16)', () => {
     expect(user.querySelector('strong')).toBeNull();
   });
 
-  it('keeps the conversation in memory only: gone on remount, nothing written to browser storage', async () => {
+  it('writes nothing before an answer and exactly one per-user, per-property key after it', async () => {
     const setLocal = vi.spyOn(Storage.prototype, 'setItem');
+    renderScreen();
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+    expect(setLocal).not.toHaveBeenCalled();
+    await ask('Who arrives today?');
+    await screen.findByText('Two stays arrive today.');
+    await waitFor(() => expect(setLocal).toHaveBeenCalled());
+    expect(Object.keys({ ...window.localStorage })).toEqual([copilotHistoryKey('user_a', 'prop_demo')]);
+    expect(copilotHistoryKey('user_a', 'prop_demo')).toBe('hospai.copilot.history.v1.user_a.prop_demo');
+    expect(window.sessionStorage.length).toBe(0);
+    const stored = JSON.parse(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))!) as StoredConversation[];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.turns.map((t) => t.role)).toEqual(['user', 'assistant']);
+    expect(stored[0]!.turns[1]!.sources).toEqual(answerBody.sources);
+    expect(JSON.stringify(stored)).not.toContain('toolsUsed');
+    setLocal.mockRestore();
+  });
+
+  it('says conversations are saved in this browser only, for 30 days, and deleted at sign-out', () => {
+    renderScreen();
+    const home = screen.getByTestId('copilot-home');
+    expect(home).toHaveTextContent('saved in this browser only');
+    expect(home).toHaveTextContent('30 days');
+    expect(home).toHaveTextContent('deleted when you sign out');
+    expect(home.textContent).not.toMatch(/not saved/);
+  });
+
+  it('shows "Earlier conversations" only when another saved conversation exists', async () => {
+    renderScreen();
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+    expect(screen.queryByTestId('copilot-history-open')).toBeNull();
+    // The conversation on screen is not "earlier": still hidden after the first answer.
+    await ask('Who arrives today?');
+    await screen.findByText('Two stays arrive today.');
+    expect(screen.queryByTestId('copilot-history-open')).toBeNull();
+    fireEvent.click(screen.getByTestId('copilot-reset'));
+    expect(await screen.findByTestId('copilot-history-open')).toHaveTextContent('Earlier conversations');
+  });
+
+  it('opens a saved chat with its turns, sources and next steps, and lets the clerk keep asking', async () => {
+    seedHistory([savedChat('old1', 'Which folios are still open?')]);
+    renderScreen();
+    fireEvent.click(await screen.findByTestId('copilot-history-open'));
+    const row = within(screen.getByTestId('copilot-history-list')).getByTestId('copilot-history-row');
+    expect(row).toHaveTextContent('Which folios are still open?');
+    expect(row).toHaveTextContent('1 question');
+    expect(row).toHaveTextContent(/\d{1,2} \w{3} \d{4}/);
+    fireEvent.click(within(row).getByRole('button', { name: 'Open' }));
+    expect(screen.queryByTestId('copilot-history-dialog')).toBeNull();
+    expect(screen.getAllByTestId('copilot-turn-user')[0]).toHaveTextContent('Which folios are still open?');
+    expect(screen.getByText('Three folios are open.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('copilot-sources')).getByRole('link', { name: 'Folios report' })).toHaveAttribute('href', '/reports/open_folios');
+    expect(within(screen.getByTestId('copilot-actions')).getByRole('button', { name: 'Open folios' })).toBeInTheDocument();
+    // Opening alone does not re-save or reorder.
+    expect(JSON.parse(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))!)[0].updatedAt).toBe(HISTORY_TIME);
+
+    await ask('And departures?');
+    await waitFor(() => expect(postCopilotMessage).toHaveBeenCalledTimes(1));
+    expect(postCopilotMessage).toHaveBeenCalledWith('prop_demo', [
+      { role: 'user', content: 'Which folios are still open?' },
+      { role: 'assistant', content: 'Three folios are open.' },
+      { role: 'user', content: 'And departures?' },
+    ]);
+    await screen.findByText('Two stays arrive today.');
+    await waitFor(() => {
+      const list = JSON.parse(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))!) as StoredConversation[];
+      expect(list).toHaveLength(1);
+      expect(list[0]!.turns).toHaveLength(4);
+    });
+  });
+
+  it('deletes one saved conversation only after confirming', async () => {
+    seedHistory([savedChat('old1', 'First question'), savedChat('old2', 'Second question')]);
+    renderScreen();
+    fireEvent.click(await screen.findByTestId('copilot-history-open'));
+    const rows = screen.getAllByTestId('copilot-history-row');
+    const first = rows.find((r) => r.textContent?.includes('First question'))!;
+    fireEvent.click(within(first).getByRole('button', { name: 'Delete' }));
+    expect(screen.getByRole('heading', { name: 'Delete this conversation?' })).toBeInTheDocument();
+    expect(JSON.parse(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))!)).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getAllByTestId('copilot-history-row')).toHaveLength(2);
+    fireEvent.click(within(screen.getAllByTestId('copilot-history-row')[0]!).getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByTestId('copilot-history-confirm'));
+    expect(screen.getAllByTestId('copilot-history-row')).toHaveLength(1);
+    const left = JSON.parse(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))!) as StoredConversation[];
+    expect(left).toHaveLength(1);
+  });
+
+  it('deletes all saved conversations after confirming and shows the empty state', async () => {
+    seedHistory([savedChat('old1', 'First question'), savedChat('old2', 'Second question')]);
+    renderScreen();
+    fireEvent.click(await screen.findByTestId('copilot-history-open'));
+    fireEvent.click(screen.getByTestId('copilot-history-delete-all'));
+    expect(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))).not.toBeNull();
+    fireEvent.click(screen.getByTestId('copilot-history-confirm'));
+    expect(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))).toBeNull();
+    expect(screen.getByText('No earlier conversations')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByTestId('copilot-history-open')).toBeNull();
+  });
+
+  it('keeps the history on remount, and removes another user\'s history for this sign-in', async () => {
+    window.localStorage.setItem(copilotHistoryKey('user_b', 'prop_demo'), JSON.stringify([savedChat('theirs', 'Their question')]));
+    window.localStorage.setItem('hospai.theme', 'dark');
     const first = renderScreen();
     await ask('Who arrives today?');
     await screen.findByText('Two stays arrive today.');
-    expect(setLocal).not.toHaveBeenCalled();
-    expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
+    await waitFor(() => expect(window.localStorage.getItem(copilotHistoryKey('user_a', 'prop_demo'))).not.toBeNull());
+    expect(window.localStorage.getItem(copilotHistoryKey('user_b', 'prop_demo'))).toBeNull();
+    expect(window.localStorage.getItem('hospai.theme')).toBe('dark');
     first.unmount();
 
     renderScreen();
     expect(screen.getByTestId('copilot-home')).toBeInTheDocument();
-    expect(screen.queryByText('Two stays arrive today.')).toBeNull();
-    expect(setLocal).not.toHaveBeenCalled();
-    setLocal.mockRestore();
+    fireEvent.click(await screen.findByTestId('copilot-history-open'));
+    expect(screen.getByTestId('copilot-history-list')).toHaveTextContent('Who arrives today?');
+  });
+
+  it('works in memory when browser storage is blocked', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    renderScreen();
+    await ask('Who arrives today?');
+    expect(await screen.findByText('Two stays arrive today.')).toBeInTheDocument();
+    expect(screen.queryByTestId('copilot-history-open')).toBeNull();
+    vi.restoreAllMocks();
   });
 
   it('New conversation clears the thread', async () => {

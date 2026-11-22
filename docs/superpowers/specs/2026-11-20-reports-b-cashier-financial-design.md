@@ -54,3 +54,7 @@ web-pms: the catalogue group gated by permission, the reservation picker paramet
 - POS and distribution reports.
 - A GST return format (R5.5 and the advisor).
 - Excel and PDF files.
+
+## 5. Amendments
+
+- **2026-11-22: a COMPANY receivable is counted once.** Posting a receivable to the city ledger (window close, check-out, transfer into a COMPANY window) writes a `city_ledger_entry` and no folio line, so the window keeps its folio balance. The trial balance showed it in the Guest ledger section and again in the City ledger section. Now each Guest ledger row's **Transfers to city ledger** column holds the minus of that date's city-ledger receivables (charge and adjustment entries, dated by `business_date`; settlements stay on the city ledger side), and opening and closing carry the earlier ones. Guest closing + city closing is the real total owed: folio balances less settlements received. The **guest trial balance** subtracts each window's posted receivables (entries with that `folio_window_id`, `business_date` up to the report date), so a COMPANY window whose receivable sits on the city ledger no longer lists, and its total still equals the trial balance guest closing. Test 2's "closing equals the sum of window balances" now reads "less the receivables on the city ledger". The accounting journal ties to it directly. A city-ledger entry with no window (a desk test seed) lowers the trial balance but no window row. No folio lines were added and the way receivables post is unchanged.

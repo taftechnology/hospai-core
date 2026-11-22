@@ -187,6 +187,25 @@ export function loadLedger(deps: LedgerDeps): Ledger {
   return { lines, byId };
 }
 
+/**
+ * The tender of a PAYMENT line. A refund or chargeback line carries no payment id: its tender is the
+ * original capture line's, found through `splitOf` (at most three hops). Null when none resolves.
+ * The journal and the day statistics share this rule.
+ */
+export function tenderOfLine(
+  line: Pick<Line, 'paymentId' | 'splitOf'>,
+  byId: ReadonlyMap<string, Pick<Line, 'paymentId' | 'splitOf'>>,
+  payments: ReadonlyMap<string, { tender: string }>,
+): string | null {
+  let cur: Pick<Line, 'paymentId' | 'splitOf'> | undefined = line;
+  for (let hop = 0; cur !== undefined && hop < 3; hop++) {
+    const tender = cur.paymentId ? payments.get(cur.paymentId)?.tender : undefined;
+    if (tender) return tender;
+    cur = cur.splitOf ? byId.get(cur.splitOf) : undefined;
+  }
+  return null;
+}
+
 type Column = 'charges' | 'taxes' | 'payments' | 'adjustments' | 'transfers';
 const ADJUSTMENT_CODES = new Set(['DISCOUNT', 'FX_GAIN', 'FX_LOSS', 'CHARGEBACK_FEE']);
 
@@ -1077,10 +1096,33 @@ function buildTrialBalance(
       byDate.set(l.date, m);
     }
   }
+  // City ledger entries: a receivable (charge, adjustment) is posted for a COMPANY window with no
+  // folio line, so the window keeps its balance. It leaves the guest ledger here, as a transfer to
+  // the city ledger dated by the entry's business date, so the two sections never count it twice.
+  const entries = deps.sql
+    .exec(`SELECT kind, amount_minor, business_date FROM city_ledger_entry`)
+    .toArray() as Array<{ kind: string; amount_minor: number; business_date: string }>;
+  let arOpening = 0;
+  let receivablesBefore = 0;
+  const arByDate = new Map<string, { receivables: number; settlements: number }>();
+  for (const e of entries) {
+    const amount = Number(e.amount_minor);
+    const signed = e.kind === 'payment' ? -amount : amount;
+    if (e.business_date < p.from) {
+      arOpening += signed;
+      if (e.kind !== 'payment') receivablesBefore += amount;
+    } else if (e.business_date <= p.to) {
+      const cell = arByDate.get(e.business_date) ?? { receivables: 0, settlements: 0 };
+      if (e.kind === 'payment') cell.settlements += amount;
+      else cell.receivables += amount;
+      arByDate.set(e.business_date, cell);
+    }
+  }
   const rows: ReportRow[] = [];
-  let running = opening;
+  let running = opening - receivablesBefore;
   for (const d of dateRange(p.from, p.to)) {
     const m = byDate.get(d) ?? zero();
+    m.transfers -= arByDate.get(d)?.receivables ?? 0;
     const closing = running + m.charges + m.taxes + m.payments + m.adjustments + m.transfers;
     rows.push({
       section: 'Guest ledger',
@@ -1094,24 +1136,6 @@ function buildTrialBalance(
       closing,
     });
     running = closing;
-  }
-  // City ledger: receivables posted for company windows and settlements against them.
-  const entries = deps.sql
-    .exec(`SELECT kind, amount_minor, business_date FROM city_ledger_entry`)
-    .toArray() as Array<{ kind: string; amount_minor: number; business_date: string }>;
-  let arOpening = 0;
-  const arByDate = new Map<string, { receivables: number; settlements: number }>();
-  for (const e of entries) {
-    const amount = Number(e.amount_minor);
-    const signed = e.kind === 'payment' ? -amount : amount;
-    if (e.business_date < p.from) {
-      arOpening += signed;
-    } else if (e.business_date <= p.to) {
-      const cell = arByDate.get(e.business_date) ?? { receivables: 0, settlements: 0 };
-      if (e.kind === 'payment') cell.settlements += amount;
-      else cell.receivables += amount;
-      arByDate.set(e.business_date, cell);
-    }
   }
   let arRunning = arOpening;
   for (const d of dateRange(p.from, p.to)) {
@@ -1140,6 +1164,19 @@ function buildGuestTrialBalance(deps: CashierReportDeps, ledger: Ledger, date: s
     const cur = balances.get(l.windowId);
     if (cur) cur.balance += l.ledger;
     else balances.set(l.windowId, { balance: l.ledger, line: l });
+  }
+  // A receivable posted to the city ledger for a window has left the guest ledger (see the trial balance).
+  const entries = deps.sql
+    .exec(
+      `SELECT folio_window_id, SUM(amount_minor) AS total FROM city_ledger_entry
+        WHERE kind != 'payment' AND folio_window_id IS NOT NULL AND business_date <= ?
+        GROUP BY folio_window_id`,
+      date,
+    )
+    .toArray() as Array<{ folio_window_id: string; total: number }>;
+  for (const e of entries) {
+    const cur = balances.get(e.folio_window_id);
+    if (cur) cur.balance -= Number(e.total);
   }
   const open = [...balances.values()].filter((b) => b.balance !== 0);
   if (open.length === 0) return { rows: [], totals: { balance: 0 } };

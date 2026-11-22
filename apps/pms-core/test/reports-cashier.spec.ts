@@ -429,24 +429,27 @@ describe('R4.14 Part B: cashier and financial reports', () => {
     }
     // Today's movements, by column.
     const today = guestRows.find((r) => r.date === h.bd)!;
-    expect(today).toMatchObject({ opening: 0, charges: 12000, taxes: 1000 - 100, payments: -(5000 + 3000 + 2000 + 3000), adjustments: -1000, transfers: 0 });
+    expect(today).toMatchObject({ opening: 0, charges: 12000, taxes: 1000 - 100, payments: -(5000 + 3000 + 2000 + 3000), adjustments: -1000, transfers: -2000 });
+    // The 2000 receivable posted to the city ledger left the guest ledger (2026-11-22: it was counted twice).
     expect(guestRows.find((r) => r.date === from)).toMatchObject({ opening: 0, closing: 0 });
-    // The closing is the sum of all window balances.
+    // The closing is the sum of all window balances less the receivable the city ledger holds.
     const closing = guestRows.at(-1)!.closing;
-    expect(closing).toBe(await allWindowBalances(h));
+    expect(closing).toBe((await allWindowBalances(h)) - 2000);
     const folioA = await folioOf(h, h.A);
     const folioB = await folioOf(h, h.B);
     const folioC = await folioOf(h, h.C);
-    expect(closing).toBe(folioA.balanceMinor + folioB.balanceMinor + folioC.balanceMinor);
+    expect(closing).toBe(folioA.balanceMinor + folioB.balanceMinor + folioC.balanceMinor - 2000);
     // City ledger: the MISC charge moved to the company window is a 2000 receivable.
     expect(cityRows.find((r) => r.date === h.bd)).toMatchObject({ opening: 0, charges: 2000, payments: 0, closing: 2000 });
+    // Together the two sections are the real total: the window balances, counted once.
+    expect(Number(closing) + Number(cityRows.at(-1)!.closing)).toBe(await allWindowBalances(h));
     // Guest trial balance for the business date: the total is the trial balance closing.
     const gtb = await run(h, 'cashier_guest_trial_balance');
     expect(gtb.totals).toEqual({ balance: closing });
     expect(sum(gtb.rows, 'balance')).toBe(closing);
     expect(gtb.rows.every((r) => Number(r.balance) !== 0)).toBe(true);
-    const companyRow = gtb.rows.find((r) => String(r.window).startsWith('Company'));
-    expect(companyRow).toMatchObject({ window: 'Company · Report Co', balance: 2000, room: '101', status: 'checked_in' });
+    // The company window's 2000 now sits on the city ledger, so it is not a guest balance any more.
+    expect(gtb.rows.find((r) => String(r.window).startsWith('Company'))).toBeUndefined();
     const guestA = gtb.rows.find((r) => r.reservation === confirmation(h.A) && r.window === 'Guest');
     expect(guestA?.balance).toBe(folioA.windows.find((w) => w.kind === 'GUEST')!.balanceMinor);
     expect(gtb.rows.find((r) => r.reservation === confirmation(h.B))).toMatchObject({
@@ -491,7 +494,8 @@ describe('R4.14 Part B: cashier and financial reports', () => {
     const tb = await run(h, 'cashier_trial_balance', `from=${addCalendarDays(h.bd, -1)}&to=${h.bd}`);
     const guest = tb.rows.filter((r) => r.section === 'Guest ledger');
     const moved = ['charges', 'taxes', 'payments', 'adjustments', 'transfers'].reduce((n, k) => n + sum(guest, k), 0);
-    expect(moved).toBe(total);
+    // The transfers column carries the 2000 receivable that moved to the city ledger.
+    expect(moved).toBe(total - 2000);
   });
 
   it('3. tax report: the rows sum to the tax lines on the folio for the range', async () => {

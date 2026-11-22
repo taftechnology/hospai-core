@@ -14,7 +14,7 @@ import {
   type AccountingJournalResponse,
   type AccountingLedgerMap,
 } from '@hospai/contracts';
-import { loadLedger, loadPayments, movementColumn, type Ledger, type Line } from './cashier-report.js';
+import { loadLedger, loadPayments, movementColumn, tenderOfLine, type Ledger, type Line } from './cashier-report.js';
 
 /**
  * Accounting journal, Part A (R4.12). One snapshot per closed business date, built at night-audit
@@ -79,16 +79,7 @@ export function buildJournalSnapshot(input: JournalInput): JournalSnapshot {
   const signed = new Map<string, number>();
   const add = (key: string, amount: number) => signed.set(key, (signed.get(key) ?? 0) + amount);
 
-  // A refund or chargeback line carries no payment id: its tender is the original capture line's (`splitOf`).
-  const tenderOf = (line: Line): string => {
-    let cur: Line | undefined = line;
-    for (let hop = 0; cur !== undefined && hop < 3; hop++) {
-      const tender = cur.paymentId ? payments.get(cur.paymentId)?.tender : undefined;
-      if (tender) return tender;
-      cur = cur.splitOf ? ledger.byId.get(cur.splitOf) : undefined;
-    }
-    return 'OTHER';
-  };
+  const tenderOf = (line: Line): string => tenderOfLine(line, ledger.byId, payments) ?? 'OTHER';
 
   let guestLedger = 0;
   for (const l of ledger.lines) {

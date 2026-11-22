@@ -70,3 +70,7 @@ web-pms:
 - Multi-property roll-up.
 - Excel and PDF files.
 - Backfilling days closed before migration 56.
+
+## 5. Amendments
+
+- **2026-11-22: tax and refunds in the day statistics.** (1) Tax child lines are stored without a `business_date`, so the `revenue` snapshot's `taxTotal`, `night_audit_day_stats.tax_minor` and the Manager Report Tax row read 0 whenever tax rules were on. The snapshot step now places a tax child on its parent's date (the rule `loadLedger` gives every cashier report), so `taxTotal` equals the tax report total for the date; the same fix reaches the night-audit revenue report, which copies the snapshot. Days closed before this fix **keep their stored value**: stored history rows and R2 snapshots are not rewritten. (2) A refund or chargeback line carries no `payment_id`; the statistics now attribute it to the tender of the payment it returns (`tenderOfLine`, shared with the accounting journal), so Card and UPI are net of refunds and "other" holds only payments with no tender. Same rule for days closed from now on; earlier days keep what was stored.

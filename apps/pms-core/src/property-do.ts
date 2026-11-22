@@ -558,7 +558,13 @@ import {
   type OccupancySnapshot,
   type RevenueSnapshot,
 } from './audit-report.js';
-import { readCashierReport, type CashierReportResult } from './cashier-report.js';
+import {
+  loadLedger,
+  loadPayments,
+  readCashierReport,
+  tenderOfLine,
+  type CashierReportResult,
+} from './cashier-report.js';
 import {
   advanceWindowIds,
   buildJournalSnapshot,
@@ -5204,6 +5210,13 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     };
 
     const ledgerCurrency = this.readStoredLedgerCurrencySync();
+    // One ledger load shared by the revenue tax rows and the tender attribution. A tax
+    // child line is stored without a business date: it sits on its parent's date (the rule every
+    // cashier report uses), so the revenue figures take it from there.
+    const ledger = loadLedger({
+      sql: this.ctx.storage.sql,
+      dateOfInstant: (ms) => this.closedAtBusinessDateSync(ms),
+    });
     const revenueRows = this.ctx.storage.sql
       .exec(
         `SELECT charge_code, source, COALESCE(SUM(ledger_amount_minor), 0) AS total
@@ -5212,6 +5225,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         businessDate,
       )
       .toArray() as Array<{ charge_code: string; source: string | null; total: number }>;
+    for (const l of ledger.lines) {
+      if (l.taxOf == null || l.businessDate != null || l.date !== businessDate) continue;
+      const existing = revenueRows.find((r) => r.charge_code === l.code && r.source === l.source);
+      if (existing) existing.total = Number(existing.total) + l.ledger;
+      else revenueRows.push({ charge_code: l.code, source: l.source, total: l.ledger });
+    }
     const roomNet = revenueRows
       .filter(
         (r) =>
@@ -5249,18 +5268,27 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }>;
     const tenderRows = this.ctx.storage.sql
       .exec(
-        `SELECT f.txn_currency, f.source, f.amount_minor, f.ledger_amount_minor, p.tender_type
+        `SELECT f.folio_line_id, f.txn_currency, f.source, f.amount_minor, f.ledger_amount_minor, p.tender_type
          FROM folio_line f LEFT JOIN payment p ON p.payment_id = f.payment_id
          WHERE f.business_date = ? AND f.charge_code = 'PAYMENT'`,
         businessDate,
       )
       .toArray() as Array<{
+      folio_line_id: string;
       txn_currency: string;
       source: string | null;
       amount_minor: number;
       ledger_amount_minor: number;
       tender_type: string | null;
     }>;
+    // A refund or chargeback line carries no payment id: it belongs to the tender of the payment it
+    // returns (the journal's rule, shared through `tenderOfLine`).
+    const paymentInfo = loadPayments({ sql: this.ctx.storage.sql });
+    const tenderOfRow = (r: { folio_line_id: string; tender_type: string | null }): string | null => {
+      if (r.tender_type) return r.tender_type;
+      const line = ledger.byId.get(r.folio_line_id);
+      return line ? tenderOfLine(line, ledger.byId, paymentInfo) : null;
+    };
     const tenders = new Map<string, { currency: string; capturedMinor: number; refundedMinor: number }>();
     for (const row of tenderRows) {
       const currency = row.txn_currency;
@@ -5300,7 +5328,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           source: r.source,
           amountMinor: Number(r.amount_minor),
           ledgerAmountMinor: Number(r.ledger_amount_minor),
-          tenderType: r.tender_type,
+          tenderType: tenderOfRow(r),
         }),
       ),
     });

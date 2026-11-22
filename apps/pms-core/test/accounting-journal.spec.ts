@@ -12,6 +12,7 @@ import {
 import { resolveOrgStub } from '@hospai/tenant-router';
 import worker from '../src/index.js';
 import { buildJournalSnapshot, insertJournalSnapshot } from '../src/accounting-journal.js';
+import { reportObjectKey } from '../src/event-log.js';
 import type { OrgDO } from '../src/org-do.js';
 import type { PropertyDO } from '../src/property-do.js';
 import { NIGHT_AUDIT_STEPS } from '../src/property-do.js';
@@ -355,14 +356,15 @@ describe('R4.12 accounting journal, Part A', () => {
       expect(-sumNet(day, 'TAX:')).toBe(num(tax.totals?.tax));
       expect(-sumNet(day, 'TAX:')).toBeGreaterThan(0);
 
-      // Day statistics: payments by tender (a refund is "other" there, CARD here).
+      // Day statistics: payments by tender (a refund follows the tender it returns, as here).
       const stats = (await statsRow(m.stub, date))!;
       expect(sumNet(day, 'TENDER:')).toBe(
         num(stats.pay_card_minor) + num(stats.pay_cash_minor) + num(stats.pay_upi_minor) + num(stats.pay_other_minor),
       );
 
-      // Trial balance, guest ledger: every line of the day. The journal's guest ledger is that movement
-      // less the advance reclass and plus the receivables that moved on to the city ledger (§3.4).
+      // Trial balance, guest ledger: every line of the day, with the receivables that moved on to the
+      // city ledger already out of it (the "transfers to city ledger" column). It ties to the journal's
+      // guest ledger directly, less the advance reclass (the trial balance has no advance line).
       const guestRow = tb.rows.find((x) => x.section === 'Guest ledger' && x.date === date)!;
       const guestMovement =
         num(guestRow.charges) + num(guestRow.taxes) + num(guestRow.payments) + num(guestRow.adjustments) + num(guestRow.transfers);
@@ -370,7 +372,8 @@ describe('R4.12 accounting journal, Part A', () => {
       const receivables = num(cityRow.charges);
       const settlements = Math.abs(num(cityRow.payments));
       const advanceCredit = -net(day, 'ADVANCE_DEPOSITS');
-      expect(guestMovement).toBe(net(day, 'GUEST_LEDGER') - advanceCredit + receivables);
+      expect(guestMovement).toBe(net(day, 'GUEST_LEDGER') - advanceCredit);
+      expect(num(guestRow.transfers) === -receivables).toBe(true);
       // City ledger: receivables less settlements; settlements also debit the receipts account.
       expect(net(day, 'CITY_LEDGER')).toBe(receivables - settlements);
       expect(net(day, 'CITY_LEDGER_RECEIPTS')).toBe(settlements);
@@ -723,6 +726,101 @@ describe('R4.12 accounting journal, Part A', () => {
         );
       }),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * Three report defects found while building Part A, fixed 2026-11-22. They share the `main()` hotel:
+ * tax rules on, a refund on day 2, and a COMPANY window closed with a NON-ZERO receivable.
+ */
+describe('report defects fixed 2026-11-22', () => {
+  beforeEach(async () => {
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(env.PLATFORM_DB);
+  });
+
+  const num = (v: unknown) => Number(v ?? 0);
+
+  async function revenueSnapshot(m: Main, date: string) {
+    const obj = await env.EVENT_LOG_R2!.get(reportObjectKey(m.propertyId, date, 'revenue'));
+    expect(obj, `revenue snapshot ${date}`).not.toBeNull();
+    return JSON.parse(await obj!.text()) as {
+      taxTotal: number;
+      byChargeCodeAndSource: Array<{ chargeCode: string; source: string | null; ledgerAmountMinor: number }>;
+    };
+  }
+
+  it('D1. tax child lines sit on their parent date: day statistics, revenue snapshot and tax report agree', async () => {
+    const m = await main();
+    for (const [date, expected] of [
+      [m.d, 1200],
+      [m.d2, 2400],
+    ] as const) {
+      const tax = await report(m, 'cashier_tax_report', `from=${date}&to=${date}`);
+      expect(num(tax.totals?.tax)).toBe(expected);
+      const stats = (await statsRow(m.stub, date))!;
+      expect(num(stats.tax_minor)).toBe(expected);
+      const snap = await revenueSnapshot(m, date);
+      expect(snap.taxTotal).toBe(expected);
+      const cgst = snap.byChargeCodeAndSource.find((r) => r.chargeCode === 'CGST' && r.source === 'TAX');
+      expect(cgst?.ledgerAmountMinor).toBe(expected / 2);
+      // Tax stays out of the revenue categories.
+      expect(num(stats.room_revenue_minor) + num(stats.fnb_revenue_minor) + num(stats.other_revenue_minor)).toBe(
+        -sumNet((await journal(m, date)).days[0]!, 'REVENUE:'),
+      );
+    }
+  });
+
+  it('D2. the trial balance counts a COMPANY receivable once: guest ledger + city ledger = what is really owed', async () => {
+    const m = await main();
+    expect(m.companyBalanceAfterClose).toBe(2000);
+    const tb = await report(m, 'cashier_trial_balance', `from=${m.d}&to=${m.d2}`);
+    const guest = tb.rows.filter((r) => r.section === 'Guest ledger');
+    const city = tb.rows.filter((r) => r.section === 'City ledger');
+    // Independent total: every folio line, less the settlements already received from the company.
+    const folio = await runInDurableObject(m.stub, (_i, state) =>
+      num(
+        (
+          state.storage.sql
+            .exec(
+              `SELECT COALESCE(SUM(ledger_amount_minor), 0) AS n FROM folio_line
+                WHERE business_date IS NULL OR business_date <= ?`,
+              m.d2,
+            )
+            .toArray()[0] as { n: number }
+        ).n,
+      ),
+    );
+    const settlements = 1000;
+    expect(num(guest.at(-1)!.closing) + num(city.at(-1)!.closing)).toBe(folio - settlements);
+    // Day 1: the 2000 receivable left the guest ledger on the day the city ledger took it.
+    const day1 = guest[0]!;
+    expect(num(day1.transfers)).toBe(-2000);
+    expect(num(city[0]!.charges)).toBe(2000);
+    // Every row foots. (The journal tie-out per day is test 2; later tests add late lines to the folio.)
+    for (const row of guest) {
+      expect(num(row.opening) + num(row.charges) + num(row.taxes) + num(row.payments) + num(row.adjustments) + num(row.transfers)).toBe(num(row.closing));
+    }
+  });
+
+  it('D2. the guest trial balance leaves a window whose receivable moved to the city ledger, and still ties to the trial balance', async () => {
+    const m = await main();
+    const gtb = await report(m, 'cashier_guest_trial_balance', `date=${m.d}`);
+    expect(gtb.rows.some((r) => String(r.window).startsWith('Company'))).toBe(false);
+    const tb = await report(m, 'cashier_trial_balance', `from=${m.d}&to=${m.d}`);
+    const closing = tb.rows.find((r) => r.section === 'Guest ledger')!.closing;
+    expect(gtb.totals).toEqual({ balance: closing });
+    expect(gtb.rows.reduce((s, r) => s + num(r.balance), 0)).toBe(num(closing));
+  });
+
+  it('D3. a refund belongs to the tender of the payment it returns, in the day statistics', async () => {
+    const m = await main();
+    const day1 = (await statsRow(m.stub, m.d))!;
+    expect([num(day1.pay_card_minor), num(day1.pay_cash_minor), num(day1.pay_upi_minor), num(day1.pay_other_minor)]).toEqual([4000, 3000, 7000, 0]);
+    const day2 = (await statsRow(m.stub, m.d2))!;
+    expect([num(day2.pay_card_minor), num(day2.pay_other_minor)]).toEqual([-1000, 0]);
+    const j = (await journal(m, m.d2)).days[0]!;
+    expect(net(j, 'TENDER:CARD')).toBe(num(day2.pay_card_minor));
   });
 });
 

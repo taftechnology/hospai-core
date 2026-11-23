@@ -28,6 +28,7 @@ import {
   Tabs,
   Textarea,
 } from '@hospai/ui-kit';
+import { isValidNightAuditTime } from '@hospai/contracts';
 import { api, asClassified, tenant } from '../client.js';
 import { IANA_TIME_ZONES } from '../config/iana-time-zones.js';
 import { ConfirmDialog } from '../shell/ConfirmDialog.js';
@@ -125,6 +126,10 @@ function DomainText(props: {
   json?: boolean;
   readOnly?: boolean;
   inputType?: string;
+  /** Returns an inline message when `raw` must not be saved; the value is then never submitted. */
+  validate?: (raw: string) => string | null;
+  /** Native `max` for `type="time"` inputs. */
+  timeMax?: string;
 }) {
   const asString = props.json
     ? JSON.stringify(props.initial ?? (props.json ? [] : ''), null, 2)
@@ -144,6 +149,7 @@ function DomainText(props: {
   ) : inputType === 'time' ? (
     <Input
       type="time"
+      max={props.timeMax}
       value={raw}
       readOnly={props.readOnly}
       disabled={props.readOnly}
@@ -161,6 +167,7 @@ function DomainText(props: {
     />
   );
   const dirty = raw !== asString;
+  const invalidMessage = dirty && props.validate ? props.validate(raw) : null;
   const save = useMutation({
     mutationFn: () => {
       let value: unknown = raw;
@@ -179,15 +186,15 @@ function DomainText(props: {
     onError: () => setStatus('error'),
   });
   const [status, setStatus] = useAutoSave({
-    dirty: !props.readOnly && dirty,
+    dirty: !props.readOnly && dirty && invalidMessage === null,
     reason: props.reason,
     save: () => save.mutate(),
   });
   return (
     <div className="ui-stack">
-      <Field label={props.label} hint={props.hint} control={control} />
+      <Field label={props.label} hint={props.hint} error={invalidMessage ?? undefined} control={control} />
       {props.readOnly ? null : (
-        <AutoSaveStatusIndicator status={status} dirty={dirty} reason={props.reason} />
+        <AutoSaveStatusIndicator status={status} dirty={dirty && invalidMessage === null} reason={props.reason} />
       )}
     </div>
   );
@@ -761,6 +768,11 @@ export function SettingsScreen({
                   configKey="pms.night_audit.audit_time"
                   initial={lookup(keys, 'pms.night_audit.audit_time')}
                   inputType="time"
+                  timeMax="11:59"
+                  hint="Morning only (00:00 to 11:59). The audit closes the previous business day."
+                  validate={(raw) =>
+                    isValidNightAuditTime(raw) ? null : 'Choose a time between 00:00 and 11:59.'
+                  }
                   {...common}
                 />
                 <DomainBool

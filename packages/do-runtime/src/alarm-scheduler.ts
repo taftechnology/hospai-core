@@ -48,6 +48,22 @@ export class AlarmScheduler {
     }
   }
 
+  /**
+   * Never-dark guard, for DO wake (constructor). A storage alarm can be dropped after
+   * `alarm()` fails repeatedly (the platform retries, then gives up) while `alarm_schedule`
+   * still holds rows nobody will ever fire. If rows exist and no alarm is set, re-arm.
+   * Returns `true` when it armed. Does nothing when an alarm is already pending.
+   */
+  async ensureArmed(): Promise<boolean> {
+    const rows = this.sql
+      .exec(`SELECT MIN(next_run_at) AS next FROM alarm_schedule`)
+      .toArray() as Array<{ next: number | null }>;
+    if (rows[0]?.next == null) return false;
+    if ((await this.storage.getAlarm()) != null) return false;
+    await this.armFromTable();
+    return true;
+  }
+
   async run(handlers: Record<string, AlarmHandler>): Promise<void> {
     const now = Date.now();
     const due = this.sql

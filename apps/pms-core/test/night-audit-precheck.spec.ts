@@ -6,6 +6,7 @@ import { enqueueProvisionalCommand } from '../src/provisional-queue.js';
 import { provisionProperty, resolvePropertyFromRegistry } from '../src/provision.js';
 import { ensurePlatformSchema, seedSubscription } from '../src/registry.js';
 import { idemFor, provisionedPropertyStub, TEST_OWNER_ACTOR } from './fixtures.js';
+import { addCalendarDays } from './date-helpers';
 
 const EMPTY_CENSUS = { pendingOpenCount: 0 };
 
@@ -217,7 +218,9 @@ describe('night-audit PRE_CHECK + exception resolve', () => {
   it('tryRetryAuditStep re-runs FAILED PRE_CHECK with a fresh census', async () => {
     const name = `na-pc-retry-${crypto.randomUUID()}`;
     const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
-    const d = (await stub.readBusinessDate())!;
+    // Retry is only allowed for a business date that has ended.
+    const d = addCalendarDays((await stub.readBusinessDate())!, -1);
+    await stub.setBusinessDateForTest(d);
     const fail = await stub.runAuditStep(d, 'PRE_CHECK', { pendingOpenCount: 1 });
     expect(fail.status).toBe('FAILED');
 

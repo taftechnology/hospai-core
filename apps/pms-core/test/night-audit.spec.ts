@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { enumerateFromDate, HORIZON_DAYS } from '@hospai/pms-inventory';
-import { NIGHT_AUDIT_HALTED } from '@hospai/contracts';
+import { NIGHT_AUDIT_HALTED, NIGHT_AUDIT_NOT_DUE } from '@hospai/contracts';
 import { NIGHT_AUDIT_STEPS } from '../src/property-do';
 import type { PropertyDO } from '../src/property-do';
 import { NightAuditWorkflow } from '../src/night-audit-workflow';
@@ -237,7 +237,7 @@ describe('PropertyDO night audit', () => {
     expect(beyond).toBeNull();
   });
 
-  it('5. a further startNightAudit when already current does not advance business_date into the future', async () => {
+  it('5. startNightAudit when already current is refused as not due and runs nothing', async () => {
     const name = `na-current-${crypto.randomUUID()}`;
     const timeZone = 'Europe/Berlin';
     const { stub } = await provisionedPropertyStub(name, timeZone, 'EUR');
@@ -253,16 +253,25 @@ describe('PropertyDO night audit', () => {
 
     expect(added.ok).toBe(true);
 
-    const businessDateBefore = await stub.readBusinessDate();
-    // Already current (business_date === today) — running the full sequence must not advance.
-    const result = await stub.startNightAudit({ pendingOpenCount: 0 });
-    expect(result.ok).toBe(true);
-    const businessDateAfter = await stub.readBusinessDate();
-    expect(businessDateAfter).toBe(businessDateBefore);
+    const businessDateBefore = (await stub.readBusinessDate())!;
+    // Already current (business_date === today): the day has not ended, so no step runs.
+    expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toEqual({
+      ok: false,
+      error: NIGHT_AUDIT_NOT_DUE,
+    });
+    expect(await stub.readBusinessDate()).toBe(businessDateBefore);
+    for (const step of NIGHT_AUDIT_STEPS) {
+      expect(await stub.getNightAuditStepStatus(businessDateBefore, step)).toBeNull();
+    }
 
-    // Run it again for good measure — still no advance.
-    const result2 = await stub.startNightAudit({ pendingOpenCount: 0 });
-    expect(result2.ok).toBe(true);
+    // A direct ROLL_BUSINESS_DATE on a current date is still a no-op refusal (never advances
+    // into the future) - the DO-level guard behind the gate.
+    expect((await stub.runAuditStep(businessDateBefore, 'ROLL_BUSINESS_DATE')).status).toBe('COMPLETED');
+    expect(await stub.readBusinessDate()).toBe(businessDateBefore);
+    expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toEqual({
+      ok: false,
+      error: NIGHT_AUDIT_NOT_DUE,
+    });
     expect(await stub.readBusinessDate()).toBe(businessDateBefore);
   });
 

@@ -25,6 +25,7 @@ import {
   ManagerReportConfigSchema,
 } from '../manager-report.js';
 import { NIGHT_AUDIT_CHECKS_DEFAULT, NightAuditChecksSchema } from '../night-audit-checks.js';
+import { isValidNightAuditTime } from '../night-audit-time.js';
 import type { Permission } from '../permissions.js';
 
 /* eslint-disable no-redeclare -- zod schema const shares name with inferred type */
@@ -144,7 +145,7 @@ export const CONFIG_REGISTER: ConfigEntry[] = [
     key: 'pms.night_audit.audit_time',
     prototypeKey: 'pms_sys_audit_time',
     class: 'DOMAIN',
-    schema: str,
+    schema: z.string().refine(isValidNightAuditTime, 'audit time must be HH:MM, 00:00 to 11:59'),
     default: '02:00',
     consumers: night,
   }),

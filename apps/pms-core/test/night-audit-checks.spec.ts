@@ -728,7 +728,9 @@ describe('night audit checks', () => {
   it('7b. a fail then a pass keeps both attempts', async () => {
     const name = `na-checks-both-${crypto.randomUUID()}`;
     const { stub } = await provisionedPropertyStub(name, 'UTC', 'USD');
-    const d = await businessDateOf(stub);
+    // Retry is only allowed for a business date that has ended.
+    const d = addCalendarDays(await businessDateOf(stub), -1);
+    await stub.setBusinessDateForTest(d);
     expect(await putChecks(stub, { cashier_shift_open: 'fail' }, 'both-fail')).toMatchObject({ ok: true });
     const open = { shiftId: 'sh_both', openingFloat: 0 };
     expect(await stub.tryOpenShift(TEST_OWNER_ACTOR, open, await idemFor('open-both', open))).toMatchObject({

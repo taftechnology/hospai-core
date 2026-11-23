@@ -539,13 +539,18 @@ describe('rooms.set_ooo_range', () => {
     expect((await stub.listRooms()).rooms.find((r) => r.roomId === 'rm_1')?.status).toBe('dirty');
   });
 
-  it('21. already-current night audit does not rewrite in-horizon blocked', async () => {
+  it('21. already-current night audit (not due) does not rewrite in-horizon blocked', async () => {
     const { stub, open } = await setupOoo(`ooo-21-${crypto.randomUUID()}`);
     expect(
       await setOoo(stub, { roomId: 'rm_1', startDate: open, endDate: addCalendarDays(open, 2) }, 'ooo-21'),
     ).toMatchObject({ ok: true });
     const blocked = (await stub.readAvailabilityDay('rt_king', open))?.blocked;
-    expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toMatchObject({ ok: true });
+    // Not due (the day has not ended): the gate refuses; a direct roll is a no-op refusal.
+    expect(await stub.startNightAudit({ pendingOpenCount: 0 })).toMatchObject({
+      ok: false,
+      error: 'night_audit_not_due',
+    });
+    expect(await stub.runAuditStep(open, 'ROLL_BUSINESS_DATE')).toEqual({ status: 'COMPLETED' });
     expect(await stub.readBusinessDate()).toBe(open);
     expect((await stub.readAvailabilityDay('rt_king', open))?.blocked).toBe(blocked);
   });

@@ -372,7 +372,9 @@ describe('night-audit HTTP routes', () => {
   it('21b: resolve exception then retry PRE_CHECK; second resolve is alreadyResolved', async () => {
     const actor = 'user_na_21b';
     const { propertyId, stub } = await provisionHotel(actor);
-    const d = (await stub.readBusinessDate())!;
+    // Retry is only allowed for a business date that has ended.
+    const d = addDays((await stub.readBusinessDate())!, -1);
+    await stub.setBusinessDateForTest(d);
     await stub.recordProvisionalException(
       {
         idempotencyKey: `idem_${crypto.randomUUID()}`,
@@ -412,6 +414,21 @@ describe('night-audit HTTP routes', () => {
     const second = await postResolveException(propertyId, actor, exceptionId);
     expect(second.status).toBe(200);
     expect(await second.json()).toMatchObject({ ok: true, alreadyResolved: true });
+  });
+
+  it('21c: retry and resolve-halt for a business date that has not ended are 409 night_audit_not_due', async () => {
+    const actor = 'user_na_21c';
+    const { propertyId, stub } = await provisionHotel(actor);
+    const d = (await stub.readBusinessDate())!;
+    await stub.forceNightAuditHaltForTest(d);
+
+    const retry = await postNightAuditRetry(propertyId, actor, { businessDate: d, step: 'PRE_CHECK' });
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({ error: 'night_audit_not_due' });
+
+    const resolve = await postNightAuditResolveHalt(propertyId, actor, d);
+    expect(resolve.status).toBe(409);
+    expect(await resolve.json()).toMatchObject({ error: 'night_audit_not_due' });
   });
 
   it('22: staff without night_audit:run → 403; kill-switch → 503', async () => {

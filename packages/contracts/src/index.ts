@@ -1,5 +1,6 @@
 export * from './config/register.js';
 export * from './night-audit-checks.js';
+export * from './night-audit-time.js';
 export * from './form-c.js';
 export * from './commands/catalog.js';
 export * from './commands/audit-writers.js';

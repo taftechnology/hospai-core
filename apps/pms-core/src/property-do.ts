@@ -92,6 +92,8 @@ import {
   INVOICE_VOIDED,
   BUYER_GSTIN_REQUIRED,
   INVALID_GSTIN,
+  INVALID_AUDIT_TIME,
+  isValidNightAuditTime,
   BUYER_STATE_CODE_MISMATCH,
   INVALID_HSN_SAC,
   sellerGstinFromRegistrations,
@@ -542,7 +544,7 @@ import {
   ORG_DO_TRANSPORT_BLOCKED_MESSAGE,
 } from './org-do-transport.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
-import { logError } from '@hospai/observability';
+import { logError, logWarn } from '@hospai/observability';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 import {
   cityLedgerStatementObjectKey,
@@ -1964,14 +1966,29 @@ export function reconcileHorizon(
   return { insertedCount, fromDate, toDate };
 }
 
-/** Next occurrence at or after `instant` of `auditTime` ("HH:MM") in `timeZone`, as epoch ms. */
-function nextAuditRunAtMs(timeZone: string, auditTime: string, instant: Date): number {
+/**
+ * Next occurrence after `instant` of `auditTime` ("HH:MM") in `timeZone`, as epoch ms.
+ *
+ * When `businessDate` is given, the occurrence's local calendar date must also be
+ * strictly AFTER it: an audit closes a business day that has already ended, so it can
+ * never fire on the same calendar day it closes (2026-11-23 staging incident: a hotel
+ * provisioned at 00:33 was scheduled for 02:00 the same day). Wall-clock conversion goes
+ * through `zonedWallClockMs` (two-pass offset; DST gap -> next real instant).
+ */
+export function nextAuditRunAtMs(
+  timeZone: string,
+  auditTime: string,
+  instant: Date,
+  businessDate?: string | null,
+): number {
   const [hh, mm] = auditTime.split(':').map(Number);
   const today = enumerateHorizonDates(timeZone, instant, 1)[0]!;
-  const candidate = zonedWallClockMs(today, timeZone, hh!, mm!);
+  const dayAfterBusinessDate = businessDate ? enumerateFromDate(businessDate, 2)[1]! : null;
+  const firstDay = dayAfterBusinessDate && dayAfterBusinessDate > today ? dayAfterBusinessDate : today;
+  const candidate = zonedWallClockMs(firstDay, timeZone, hh!, mm!);
   if (candidate > instant.getTime()) return candidate;
-  const tomorrow = enumerateFromDate(today, 2)[1]!;
-  return zonedWallClockMs(tomorrow, timeZone, hh!, mm!);
+  const nextDay = enumerateFromDate(firstDay, 2)[1]!;
+  return zonedWallClockMs(nextDay, timeZone, hh!, mm!);
 }
 
 /** Fixed inventory for VERIFY — DO SQLite forbids dynamic table identifiers (SQLITE_AUTH). */
@@ -2224,6 +2241,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           assertJurisdictionMatch(actual, expected);
         }
       }
+      // Never-dark: a dropped storage alarm with schedule rows still present is re-armed on wake.
+      await this.scheduler.ensureArmed();
     });
   }
 
@@ -3042,7 +3061,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    */
   async ensureNightAuditSchedule(timeZone: string, instant: Date): Promise<void> {
     const auditTime = (await this.readConfig('pms.night_audit.audit_time')) as string;
-    const nextRunAt = nextAuditRunAtMs(timeZone, auditTime, instant);
+    const nextRunAt = nextAuditRunAtMs(timeZone, auditTime, instant, this.readBusinessDateSync());
     this.scheduler.upsertSchedule('night-audit', nextRunAt);
     await this.scheduler.armFromTable();
   }
@@ -3089,15 +3108,31 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * opportunistic reschedule from a config write must never throw on a half-provisioned
    * property; the explicit `rescheduleNightAudit()` entry point fails closed instead.
    */
-  private rescheduleNightAuditSync(): boolean {
+  private rescheduleNightAuditSync(closedBusinessDate?: string): boolean {
     const timeZone = this.readStoredTimeZoneSync();
     const businessDate = this.readBusinessDateSync();
     if (!timeZone || !businessDate) return false;
 
     const now = Date.now();
     const today = enumerateHorizonDates(timeZone, new Date(now), 1)[0]!;
+    // A run that closed `closedBusinessDate` but left the business date where it was made
+    // no progress. "Behind, so fire now" would then re-fire every ~2 s forever (the
+    // 2026-11-23 staging incident): fall back to the next normal occurrence instead.
+    const noProgress = closedBusinessDate !== undefined && closedBusinessDate === businessDate;
+    if (noProgress && businessDate < today) {
+      logWarn(
+        {
+          moduleId: 'pms.core',
+          propertyId: this.getPropertyIdSync() ?? undefined,
+          orgId: this.getOrgIdSync() ?? undefined,
+        },
+        { msg: 'night_audit.no_progress', business_date: businessDate },
+      );
+    }
     const nextRunAt =
-      businessDate < today ? now : nextAuditRunAtMs(timeZone, this.readAuditTimeSync(), new Date(now));
+      businessDate < today && !noProgress
+        ? now
+        : nextAuditRunAtMs(timeZone, this.readAuditTimeSync(), new Date(now), businessDate);
     this.scheduler.upsertSchedule('night-audit', nextRunAt);
     return true;
   }
@@ -3231,14 +3266,19 @@ export class PropertyDO extends DurableObject<PmsEnv> {
    * Recompute and arm the `night-audit` schedule: `next_run_at = now` if `business_date`
    * is still behind "today" in the property timezone (so the Workflow re-fires immediately
    * rather than waiting for the next calendar `audit_time`), else the next `audit_time`
-   * occurrence. Called by the Workflow after a successful run and by the config write hook
+   * occurrence. Called by the Workflow after a run and by the config write hook
    * when `consumers.reschedulesNightAudit`. Fails closed if timezone/business_date are unset.
+   *
+   * `closedBusinessDate` is the business date the finished run tried to close. If the
+   * business date is still that date, the run made no progress and the "now" catch-up is
+   * skipped (next normal occurrence, `night_audit.no_progress` warn) so it cannot spin.
+   * Occurrences are always on a calendar day after the business date.
    */
-  async rescheduleNightAudit(): Promise<void> {
+  async rescheduleNightAudit(closedBusinessDate?: string): Promise<void> {
     const timeZone = this.readStoredTimeZoneSync();
     if (!timeZone) throw new Error(TIMEZONE_UNSET);
     if (!this.readBusinessDateSync()) throw new Error(BUSINESS_DATE_UNSET);
-    this.rescheduleNightAuditSync();
+    this.rescheduleNightAuditSync(closedBusinessDate);
     await this.scheduler.armFromTable();
   }
 
@@ -3267,7 +3307,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         // *not* `now`.
         const timeZone = this.readStoredTimeZoneSync();
         if (timeZone) {
-          const nextRunAt = nextAuditRunAtMs(timeZone, this.readAuditTimeSync(), new Date());
+          const nextRunAt = nextAuditRunAtMs(
+            timeZone,
+            this.readAuditTimeSync(),
+            new Date(),
+            this.readBusinessDateSync(),
+          );
           this.scheduler.upsertSchedule('night-audit', nextRunAt);
         }
 
@@ -4066,6 +4111,23 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     return rows.length > 0;
   }
 
+  /**
+   * A night audit for `businessDate` may run only once that day has ended in the property
+   * timezone (`businessDate < today`, the same "today" `ROLL_BUSINESS_DATE` uses). False when
+   * the timezone is unset: fail closed.
+   */
+  async isNightAuditDue(businessDate: string): Promise<boolean> {
+    this.assertRpcAvailable();
+    return this.isNightAuditDueSync(businessDate);
+  }
+
+  private isNightAuditDueSync(businessDate: string): boolean {
+    const timeZone = this.readStoredTimeZoneSync();
+    if (!timeZone) return false;
+    const today = enumerateHorizonDates(timeZone, new Date(), 1)[0]!;
+    return businessDate < today;
+  }
+
   /** Test helper: read a `night_audit_run` row's status, or null if absent. */
   async getNightAuditStepStatus(businessDate: string, step: NightAuditStep): Promise<string | null> {
     const rows = this.ctx.storage.sql
@@ -4105,7 +4167,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       )
       .toArray() as Array<{ status: string }>;
     if (existing[0]?.status === 'COMPLETED') {
-      return { status: 'COMPLETED' };
+      // A COMPLETED roll only counts if the date really moved. A refused roll (run before
+      // the day ended) was recorded COMPLETED while `business_date` stayed put; once that
+      // day has ended, run the roll body again instead of short-circuiting, so a property
+      // stuck in that state repairs itself on its next run.
+      const rollStillOwed =
+        step === 'ROLL_BUSINESS_DATE' &&
+        this.readBusinessDateSync() === businessDate &&
+        this.isNightAuditDueSync(businessDate);
+      if (!rollStillOwed) return { status: 'COMPLETED' };
     }
 
     // Txn A — mark RUNNING and emit `night_audit.started` on the first step for this date.
@@ -6023,6 +6093,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }
     const businessDate = this.readBusinessDateSync();
     if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    if (!this.isNightAuditDueSync(businessDate)) return { ok: false, error: NIGHT_AUDIT_NOT_DUE };
 
     for (const step of NIGHT_AUDIT_STEPS) {
       const result = await this.runAuditStep(
@@ -6906,7 +6977,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     census: NightAuditCensus,
   ): Promise<
     | { ok: true; status: 'COMPLETED' | 'FAILED'; error?: string }
-    | { ok: false; error: typeof NIGHT_AUDIT_STEP_NOT_FAILED }
+    | { ok: false; error: typeof NIGHT_AUDIT_STEP_NOT_FAILED | typeof NIGHT_AUDIT_NOT_DUE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -6942,6 +7013,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .toArray() as Array<{ status: string }>;
     if (existing[0]?.status !== 'FAILED') {
       return { ok: false, error: NIGHT_AUDIT_STEP_NOT_FAILED };
+    }
+    if (!this.isNightAuditDueSync(input.businessDate)) {
+      return { ok: false, error: NIGHT_AUDIT_NOT_DUE };
     }
 
     const result = await this.runAuditStep(input.businessDate, input.step, census);
@@ -6994,6 +7068,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     census: NightAuditCensus,
   ): Promise<
     | { ok: true; status: 'COMPLETED' | 'FAILED'; error?: string; halted: boolean }
+    | { ok: false; error: typeof NIGHT_AUDIT_NOT_DUE }
     | { ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | { ok: false; error: typeof ORG_ID_UNSET }
@@ -7020,6 +7095,10 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     }>(idem, actor);
     if (prior === 'fingerprint_mismatch') return { ok: false, error: IDEM_KEY_REUSED };
     if (prior) return prior;
+
+    if (!this.isNightAuditDueSync(input.businessDate)) {
+      return { ok: false, error: NIGHT_AUDIT_NOT_DUE };
+    }
 
     const failedRows = this.ctx.storage.sql
       .exec(
@@ -7373,6 +7452,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     | { ok: false; error: typeof ORG_ID_UNSET }
     | { ok: false; error: `undeclared:${string}` }
     | { ok: false; error: typeof CONFIG_CLASS_NOT_DOMAIN; gotClass: string }
+    | { ok: false; error: typeof INVALID_AUDIT_TIME }
     | { ok: false; error: typeof FORBIDDEN | 'not_member' }
     | { ok: false; error: typeof ENTITLEMENT_REQUIRED | typeof ENTITLEMENT_UNAVAILABLE }
     | NonNullable<ReturnType<typeof mapPropertyCommandError>>
@@ -7399,6 +7479,9 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     if (key === 'pms.tax.registrations') {
       const gstinError = sellerRegistrationsGstinError(value);
       if (gstinError) return { ok: false, error: INVALID_GSTIN };
+    }
+    if (key === 'pms.night_audit.audit_time' && !isValidNightAuditTime(value)) {
+      return { ok: false, error: INVALID_AUDIT_TIME };
     }
     if (key === 'pms.tax.classification') {
       const classified = parseTaxClassification(value);

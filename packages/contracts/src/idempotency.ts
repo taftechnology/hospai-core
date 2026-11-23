@@ -54,6 +54,7 @@ export const NOTE_LIMIT = 'note_limit' as const;
 export const NIGHT_AUDIT_HALTED = 'night_audit_halted' as const;
 export const NIGHT_AUDIT_STEP_NOT_FAILED = 'night_audit_step_not_failed' as const;
 export const NIGHT_AUDIT_NOT_DUE = 'night_audit_not_due' as const;
+export const INVALID_AUDIT_TIME = 'invalid_audit_time' as const;
 export const NIGHT_AUDIT_WORKFLOW_EXISTS = 'night_audit_workflow_exists' as const;
 
 /** Reservations wire codes */

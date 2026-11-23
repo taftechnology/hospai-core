@@ -41,7 +41,7 @@ Prove the §8 alarm → Workflow → `runAuditStep` handoff and keep the availab
 4. **Timezone explicit for ledger; `audit_time` may use register default `02:00`.** Interpreted in the property timezone. Missing timezone → fail closed for roll/horizon.
 5. **`ROLL_BUSINESS_DATE` refuses unless `business_date < today`** in the property timezone. Prevents `startNightAudit` / a second Workflow from running the calendar into the future. Same comparison `rescheduleNightAudit` uses for “behind,” applied at the mutation point.
 6. **AlarmScheduler never goes dark.** Per-schedule try/catch; record failure; always compute and `setAlarm` the next earliest due schedule.
-7. **One business date advanced per successful run.** If still behind after roll, Workflow calls `rescheduleNightAudit()` so the DO re-arms **immediately** (not next calendar `audit_time`).
+7. **One business date advanced per successful run.** If still behind after roll, Workflow calls `rescheduleNightAudit()` so the DO re-arms **immediately** (not next calendar `audit_time`). **Exception (Amendment 2026-11-23):** only if that run advanced the business date; a run that left it unchanged re-arms at the next normal occurrence instead.
 8. **`HALTED` is derived**, not a separate flag: any `night_audit_run` row with `status = 'FAILED'` for any `business_date` ⇒ halted. Workflow must not start a new date’s run while halted. Clear-halt is a follow-on (delete/repair FAILED rows).
 9. **Workflow resolves PropertyDO only via Platform D1 + `resolvePropertyFromRegistry`.** Never `idFromName` / jurisdiction args (§4.5).
 10. **Active room types only** for horizon inserts. Archived types stay at `physical = 0` and must not regain stock.
@@ -167,3 +167,22 @@ If the process dies between (1) and (2), the table is correct and the next `alar
 ## Non-goals reminder
 
 This slice freezes the scheduling spine and horizon bookability, not a sellable night audit product.
+
+## Amendment 2026-11-23: not-due gate, no-progress guard, never-dark re-arm
+
+**Why.** Two staging hotels created at 00:33 UTC were scheduled for 02:00 the same day. The audit ran every step for a business date that had not ended; the roll refused (correctly) but was recorded `COMPLETED`. From the next day every step short-circuited on that `COMPLETED` row, the date never moved, and rule 7 ("behind, so re-arm now") fired a new Workflow every ~2 s until the account's Durable Object request cap ran out. Separately, five older hotels had a dropped storage alarm with overdue `alarm_schedule` rows that nothing re-armed.
+
+**A. Not-due gate.** A night audit for business date D runs no step until D has ended in the property timezone (`D < today`, the same "today" the roll uses). `PropertyDO.isNightAuditDue(D)` is the single check (false when the timezone is unset). `NightAuditWorkflow` calls it as its own `check-due` step right after `read-business-date`; when not due it re-arms (`rescheduleNightAudit()`) and exits with no `night_audit_run` rows. `startNightAudit` and `tryStartNightAudit` (HTTP `POST /night-audit/run`) refuse with `night_audit_not_due`. `tryRetryAuditStep` and `tryResolveHalt` refuse the same way for a date that has not ended. The three HTTP handlers answer `409 night_audit_not_due`.
+
+**B. A `COMPLETED` roll counts only if the date moved.** In `runAuditStep`, a `COMPLETED` `ROLL_BUSINESS_DATE` row short-circuits only if the business date is no longer D, or D has not ended. If it is still D and D has ended, the roll body runs again in the usual three-transaction pattern. This repairs hotels already stuck. A refusal on a date that has not ended stays a no-op, but the Workflow can no longer reach it.
+
+**C. Schedule never targets the closing day.** `nextAuditRunAtMs(timeZone, auditTime, instant, businessDate)` returns the first `audit_time` occurrence after `instant` whose local calendar date is after the business date (wall clock through `zonedWallClockMs`: two-pass offset, spring-forward gap to the next real instant, fall-back overlap to the first occurrence). Used by `ensureNightAuditSchedule`, `rescheduleNightAuditSync` and the `alarm()` bump. While behind "today" the catch-up "now" behaviour is unchanged.
+
+**D. No-progress spin guard.** `rescheduleNightAudit(closedBusinessDate?)`: if the business date still equals the date the run closed and that date is before today, the run made no progress. The schedule goes to the next normal occurrence (rule C), not "now", and the DO logs a `night_audit.no_progress` warn (property id, org id, business date only). A multi-day catch-up still advances one day per run and re-arms "now" while behind. The Workflow passes the date it closed.
+
+**E. Never-dark re-arm.** `AlarmScheduler.ensureArmed()` calls `armFromTable()` when `getAlarm()` is null and `alarm_schedule` has rows. `PropertyDO` and `OrgDO` call it at the end of their existing constructor `blockConcurrencyWhile`, so a dropped alarm is restored the next time the object wakes.
+
+**F. Audit time must be a morning time.** `pms.night_audit.audit_time` must be strict 24-hour `HH:MM`, 00:00 to 11:59 (`isValidNightAuditTime`). An audit time at or after noon would hit A on every night. `config.put_domain` rejects other values with `422 invalid_audit_time` before the transaction; the register schema enforces the same rule. The Settings time input has `max="11:59"`, shows an inline error and does not auto-save an invalid value.
+
+No new command, route, DOMAIN key or migration. Error code `invalid_audit_time` is new (contracts wire codes, `commandErrorHttpStatus` 422); pins in AGENTS.md are unchanged.
+

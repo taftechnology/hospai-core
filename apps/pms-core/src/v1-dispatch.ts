@@ -11421,7 +11421,7 @@ async function handlePostNightAuditRetry(ctx: V1DispatchContext): Promise<Respon
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
   if (!result.ok) {
-    if (result.error === 'night_audit_step_not_failed') {
+    if (result.error === 'night_audit_step_not_failed' || result.error === 'night_audit_not_due') {
       return json({ error: result.error }, 409);
     }
     return commandFailureResponse(result.error, 'night_audit:run');
@@ -11464,6 +11464,7 @@ async function handlePostNightAuditResolveHalt(ctx: V1DispatchContext): Promise<
   if (invoked.kind === 'response') return invoked.response;
   const result = invoked.result;
   if (!result.ok) {
+    if (result.error === 'night_audit_not_due') return json({ error: result.error }, 409);
     return commandFailureResponse(result.error, 'night_audit:run');
   }
   return json({ status: result.status, error: result.error, halted: result.halted }, 200);

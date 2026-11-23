@@ -181,6 +181,7 @@ describe('SettingsScreen', () => {
       ok: true,
       keys: [
         domain('pms.night_audit.auto_extend', true),
+        domain('pms.night_audit.audit_time', '02:00'),
         domain('pms.ops.auto_assign_rooms', true),
         domain('pms.money.currency_code', 'USD'),
         domain('pms.money.currencies_list', []),
@@ -413,6 +414,28 @@ describe('SettingsScreen', () => {
       key: 'pms.payments.auth_hold_hours',
       value: 48,
     });
+  });
+
+  it('audit time before noon saves; noon or later shows an inline error and is never submitted', async () => {
+    renderSettings('/settings/property');
+    const input = await screen.findByLabelText('Audit time');
+    expect(input.getAttribute('max')).toBe('11:59');
+    fireEvent.change(screen.getByPlaceholderText('Why this change…'), {
+      target: { value: 'ops:audit-time' },
+    });
+
+    fireEvent.change(input, { target: { value: '23:00' } });
+    await screen.findByText('Choose a time between 00:00 and 11:59.');
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(putDomainConfig).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '05:30' } });
+    await waitFor(() => expect(putDomainConfig).toHaveBeenCalled(), { timeout: 3000 });
+    expect(putDomainConfig.mock.calls[0]?.[1]).toMatchObject({
+      key: 'pms.night_audit.audit_time',
+      value: '05:30',
+    });
+    expect(screen.queryByText('Choose a time between 00:00 and 11:59.')).toBeNull();
   });
 
   it('T19: unread booking settings keys are not rendered', async () => {

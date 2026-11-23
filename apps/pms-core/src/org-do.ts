@@ -471,6 +471,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
       ctx.storage.sql.exec(
         `CREATE TABLE IF NOT EXISTS __meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
       );
+      // Never-dark: a dropped storage alarm with schedule rows still present is re-armed on wake.
+      await this.scheduler.ensureArmed();
     });
   }
 

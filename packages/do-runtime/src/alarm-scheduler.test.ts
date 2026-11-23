@@ -213,4 +213,40 @@ describe('AlarmScheduler', () => {
 
     expect(setAlarm).toHaveBeenCalledWith(now);
   });
+
+  it('ensureArmed re-arms when schedule rows exist but the storage alarm was dropped', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+
+    // ~51 days overdue, last_error NULL: the shape of a dropped alarm.
+    scheduler.upsertSchedule('night-audit', now - 51 * 86_400_000);
+    scheduler.upsertSchedule('outbox', now + 30_000);
+
+    expect(await scheduler.ensureArmed()).toBe(true);
+    expect(setAlarm).toHaveBeenCalledTimes(1);
+    expect(setAlarm).toHaveBeenCalledWith(now);
+  });
+
+  it('ensureArmed leaves an already-pending alarm alone', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => now + 5_000 });
+
+    scheduler.upsertSchedule('outbox', now + 30_000);
+
+    expect(await scheduler.ensureArmed()).toBe(false);
+    expect(setAlarm).not.toHaveBeenCalled();
+  });
+
+  it('ensureArmed does nothing when there are no schedule rows', async () => {
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => null });
+
+    expect(await scheduler.ensureArmed()).toBe(false);
+    expect(setAlarm).not.toHaveBeenCalled();
+  });
 });

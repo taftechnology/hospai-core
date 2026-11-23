@@ -59,6 +59,8 @@
 
 **Not ticked in that list:** booking engine / website bookings; embedded card payments / payment gateway; multi-property / group operations; guest mobile app.
 
+**Update 2026-11-22:** the client is one owner with about ten hotels, going live one at a time. Multi-property is still out of the first hotel's scope; running and adding the others is roadmap Track G.
+
 ## Open questions for the client
 
 **Also answered 2026-11-19:** data import from BluePMS (**R4.8**) is deferred to later, with the channel manager (R4.3) and POS connectors (R4.21).

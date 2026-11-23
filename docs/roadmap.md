@@ -14,7 +14,7 @@
 
 **HEAD this roadmap was written against:** `461d391`. Re-read catalog pins before each slice (`COMMAND_CATALOG` length, last `V1_HTTP_ROUTE_AUDIT` id, `PROPERTY_SCHEMA_HEAD`, `NIGHT_AUDIT_STEPS`).
 
-**Revision:** 2026-10-31 fork decisions — the user accepted the recommendations on [F1–F4](#fork-decisions) and the R4.22–R4.32 slices. R4.14 gains the three R1.10 reports; R6.2 becomes per foreign national. Prior: 2026-10-31 BluePMS inventory pass — the feature inventories on the module pages were read against all 58 ticks ([comparison](research/2026-10-31-bluepms-inventory-vs-slices.md)): 27 covered, 29 partly, 2 missing. Adds **R4.22–R4.32** to Track P, widens **R4.11**, **R4.13**, **R4.15**, **R4.16**, **R4.18**, **R4.20**, **R4.21**, **R5.5**, corrects **R1.19**, moves **R4.16** after the reports, adds four forks and a live walkthrough to the go-live checklist. Track and queue rules are unchanged. Prior: 2026-10-27 India pilot pass — the pilot client's returned BluePMS checklist ([research](research/2026-10-27-pilot-client-checklist.md)) becomes the scope of a new **Track P** ahead of the Canada launch. **R3.6** decides India first (Canada follows as **R4.19**). Moves **R4.5**, **R4.3**, **R4.12**, **R4.8** out of Track 4, **R4.13** and **R4.11** out of Track 5 and **R5.5** out of Track 6 into Track P; adds **R4.14** (named report set), **R4.15** (guest ID documents + consent), **R4.16** (read-only copilot), **R4.18** (India tenders fork), **R4.19** (Canada readiness), **R6.2** (Form C), **R4.21** (POS connector) with **R4.9** pulled forward from Track 5, and **R4.17** (built-in POS, parked in Track 6). 2026-10-28: **R4.3** becomes a connector to a third-party channel manager (§16.6 *Integrate*) — no channel manager of our own, no direct OTA integration. After the client confirmed every tick is a must-have: **R4.20** (day-wise rate override); guest preferences join R4.15, guest requests join R4.11. **R5.4** loses its POS-lite scope; **R4.11** no longer waits on R4.10. Prior: 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Sequencing pass: **R4.5** opens Track 4 (R4.3 depends on it); **R1.4** follows **R1.5** and **R1.6**; **R4.8** Stage B moved into **R5.7**; **R5.8** back in numeric order; **R3.6** and **R3.10** added to the Track 4 gate; **R1.5** tax group locked to a §7.9 product class; card-capture references point at **R4.7**. Stage resequencing: Track 4 is the **Canada launch** (R4.5, R4.7, R5.2, R4.2, R4.3, R4.12, R4.10, R4.8, R5.6), Track 5 **upscale properties and groups**, new Track 6 **India and later bets** with **R6.1** (WhatsApp); resolves the **R4.2** email fork and the **R5.7** sequencing flag. Moves `held` behaviour out of R5.5 into new **R5.13** after R5.7, since group central reservations need TTL holds before India. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
+**Revision:** 2026-11-22 group rollout — the pilot client is one owner with about ten hotels, going live one at a time. New **Track G** between Track P and Track 4: **R7.2** (alerts and log retention) before the first hotel; **R4.4** (moved from Track 5), **R7.1** (operations platform v1, [spec](superpowers/specs/2026-11-22-ops-platform-design.md)) and **R7.5** (copy setup between hotels) before hotel 2; **R7.4** (head-office view, split from R5.7) and **R7.3** (operations platform v2: support access and fleet health) before hotel 3. One org, one property per hotel; R4.8 placement is open. Prior: 2026-10-31 fork decisions — the user accepted the recommendations on [F1–F4](#fork-decisions) and the R4.22–R4.32 slices. R4.14 gains the three R1.10 reports; R6.2 becomes per foreign national. Prior: 2026-10-31 BluePMS inventory pass — the feature inventories on the module pages were read against all 58 ticks ([comparison](research/2026-10-31-bluepms-inventory-vs-slices.md)): 27 covered, 29 partly, 2 missing. Adds **R4.22–R4.32** to Track P, widens **R4.11**, **R4.13**, **R4.15**, **R4.16**, **R4.18**, **R4.20**, **R4.21**, **R5.5**, corrects **R1.19**, moves **R4.16** after the reports, adds four forks and a live walkthrough to the go-live checklist. Track and queue rules are unchanged. Prior: 2026-10-27 India pilot pass — the pilot client's returned BluePMS checklist ([research](research/2026-10-27-pilot-client-checklist.md)) becomes the scope of a new **Track P** ahead of the Canada launch. **R3.6** decides India first (Canada follows as **R4.19**). Moves **R4.5**, **R4.3**, **R4.12**, **R4.8** out of Track 4, **R4.13** and **R4.11** out of Track 5 and **R5.5** out of Track 6 into Track P; adds **R4.14** (named report set), **R4.15** (guest ID documents + consent), **R4.16** (read-only copilot), **R4.18** (India tenders fork), **R4.19** (Canada readiness), **R6.2** (Form C), **R4.21** (POS connector) with **R4.9** pulled forward from Track 5, and **R4.17** (built-in POS, parked in Track 6). 2026-10-28: **R4.3** becomes a connector to a third-party channel manager (§16.6 *Integrate*) — no channel manager of our own, no direct OTA integration. After the client confirmed every tick is a must-have: **R4.20** (day-wise rate override); guest preferences join R4.15, guest requests join R4.11. **R5.4** loses its POS-lite scope; **R4.11** no longer waits on R4.10. Prior: 2026-09-12 packaging + AI layer pass — adds **R3.10** (entitlement catalog per the revised `ARCHITECTURE.md` §6.7), **R4.6** / **R5.9** (in-product AI), **R5.11** (external MCP surface, `ARCHITECTURE.md` §10.2) and **R5.10** (public agentic distribution), and flags the **R5.7** sequencing question. The three agent surfaces are deliberately separate — see §10.2. Adds **R4.7** (live acquiring pulled forward from R5.4), **R4.8** (migration importers — previously absent), **R4.9** (on-property interface framework) and **R4.10** (mobile app for housekeeping and communication — decided; §9.1 added); records Canada / India / Australia in §7.9 and decides **R3.6**: Canada, starting with Ontario and British Columbia; flags the **R4.2** confirmation-email fork as blocking. Adds **§16.6** (production scope for the BluePMS parity hubs) with **R4.11** (housekeeping depth), **R4.12** (accounting export), **R4.13** (front office depth), **R5.12** (lean banquet) and a POS-lite scope on **R5.4**; the prototype-as-spec rule now covers only surfaces §16.5 / §16.6 place in scope. Sequencing pass: **R4.5** opens Track 4 (R4.3 depends on it); **R1.4** follows **R1.5** and **R1.6**; **R4.8** Stage B moved into **R5.7**; **R5.8** back in numeric order; **R3.6** and **R3.10** added to the Track 4 gate; **R1.5** tax group locked to a §7.9 product class; card-capture references point at **R4.7**. Stage resequencing: Track 4 is the **Canada launch** (R4.5, R4.7, R5.2, R4.2, R4.3, R4.12, R4.10, R4.8, R5.6), Track 5 **upscale properties and groups**, new Track 6 **India and later bets** with **R6.1** (WhatsApp); resolves the **R4.2** email fork and the **R5.7** sequencing flag. Moves `held` behaviour out of R5.5 into new **R5.13** after R5.7, since group central reservations need TTL holds before India. Prior: 2026-09-04 code + spec + architecture pass. Queue hygiene: R0.x id lists match the audit vertical membership (not a summary); **R1.13** is a tombstone, not a hole. Do not re-derive a surface that already has an accepted spec in `docs/superpowers/specs/`. Phase 1 must not contradict ARCHITECTURE.md §14–§16.6 or a named leftover in a shipped spec.
 
 ---
 
@@ -34,7 +34,8 @@
 **Do not** start Track 1 while **R0.1–R0.6** are open.
 **Do not** start Track 2 while **R0.11** is open (kit/chrome). Other Track 0 items may still be in flight.
 **Do not** start Track P (India pilot) while **Tracks 0–2** still have open Phase-1 boxes. **R3.1**, **R3.2**, **R3.3**, **R3.6** (tax model) and **R3.10** (entitlement catalog) must be done — Track P posts money, computes tax, builds packages on recurring charges and reads feature keys that do not exist without them. **ARI_KV already ships** — R4.3 and R4.2 consume it.
-**Do not** start Track 4 (Canada launch) while Track P has open boxes, Track 5 while Track 4 does, or Track 6 while Track 5 does. Slice IDs are stable labels, not positions — R4.x, R5.x and R6.x slices live wherever the stage that needs them is.
+**Track G** (India group rollout) may run while every open Track P box is waiting on an outside answer or deferred by the user; a Track P slice that unblocks goes first. One slice at a time.
+**Do not** start Track 4 (Canada launch) while Track P or Track G has open boxes, Track 5 while Track 4 does, or Track 6 while Track 5 does. Slice IDs are stable labels, not positions — R4.x, R5.x and R6.x slices live wherever the stage that needs them is.
 
 ### Slice template (when you write a spec/plan)
 
@@ -467,7 +468,7 @@ When Track 1 + Track 2 open boxes are gone, a GM can walk every **Phase 1** prot
 
 ## Track P — India pilot client (switching from BluePMS)
 
-The first paying operator: one Indian hotel replacing BluePMS. Its returned checklist ([`docs/research/2026-10-27-pilot-client-checklist.md`](research/2026-10-27-pilot-client-checklist.md)) is the scope — Front Office, Housekeeping, Point of Sale, Channel Distribution and AI Copilot in full, plus Guest 360, GST e-invoicing and a Tally / Zoho export. This track is what it needs to switch, and nothing it left blank. What each tick contains is in the [page inventories](research/2026-09-12-bluepms-modules.md#module-page-inventories-read-2026-10-31); the gap behind each one is in the [comparison](research/2026-10-31-bluepms-inventory-vs-slices.md).
+The first paying operator: one Indian hotel replacing BluePMS. It is the first of about ten hotels with one owner (2026-11-22); this track stays scoped to that first hotel, and running and adding the others is [Track G](#track-g--india-group-rollout-one-owner-ten-hotels). Its returned checklist ([`docs/research/2026-10-27-pilot-client-checklist.md`](research/2026-10-27-pilot-client-checklist.md)) is the scope — Front Office, Housekeeping, Point of Sale, Channel Distribution and AI Copilot in full, plus Guest 360, GST e-invoicing and a Tally / Zoho export. This track is what it needs to switch, and nothing it left blank. What each tick contains is in the [page inventories](research/2026-09-12-bluepms-modules.md#module-page-inventories-read-2026-10-31); the gap behind each one is in the [comparison](research/2026-10-31-bluepms-inventory-vs-slices.md).
 
 Start only when Tracks 0–2 Phase-1 boxes are `[x]`, and **R3.1**, **R3.2**, **R3.3**, **R3.6** (India tax model) and **R3.10** (entitlement catalog) are `[x]`. R3.4, R3.5 and R3.9 may remain. Each gated module follows `ARCHITECTURE.md` §14 Phase 2: core never imports add-ons, and **the first gated module to ship proves the mechanism** — if it needs a special case, fix the mechanism, not the module.
 
@@ -932,9 +933,149 @@ Track P being `[x]` means the software is ready. **The pilot is live** when the 
 - [ ] **Pilot tenant provisioned** — by ops on Growth with `pos.enabled` and `ai_ops.enabled` (Track P *Provisioning*); rooms, room types, rate plans, packages, charge codes, outlet mappings, staff users and roles configured; e-invoicing and POS credentials loaded as `SECRET`.
 - [ ] **Staging rehearsal** — the hotel's configuration plus a full BluePMS import on staging. Run a booking-to-checkout day per room type, an advance with its receipt, an in-house extension, a checkout on an open-folio hold with a later charge, a B2B checkout with IRN, a room-charged POS check, a Form C record, a channel booking and a night audit; the R4.8 import report has no unexplained rejections.
 - [ ] **Parallel run** — at least three consecutive nights with both systems live. Each night, compare the night audit (room revenue, tax by component, payments, in-house count) and the **Manager Report** with BluePMS. Any difference is explained and fixed before cut-over; the comparison is kept as the sign-off record.
+- [ ] **Operations runbooks** (added 2026-11-22, from the [platform operations research](research/reports/Hotel%20PMS%20platform%20operations.md) gaps 5, 6, 9, 11, 12):
+  - an incident and breach runbook (CERT-In 6 hours, notice to the hotel within hours);
+  - one restore drill from DO point-in-time recovery that refuses points before a purge;
+  - interim support access, where the hotel adds and removes a named HospAI member;
+  - the DPA, sub-processor list and security contact;
+  - 30 days of hypercare with a 24/7 P1 line.
 - [ ] **Hardware and printing** — registration card, invoice and receipt printers at each desk; print CSS checked on the hotel's own printers; the browser and devices the staff will use.
 - [ ] **Staff training** — front desk, housekeeping supervisor, night auditor, accounts (Tally / Zoho export) and managers (reports, copilot), each on their own role's navigation (R2.6).
 - [ ] **Cut-over** — a dated cut-over night: final delta import of bookings made since the rehearsal, BluePMS made read-only, the first night audit on HospAI with the team on call, and a named support contact for the first week.
+
+---
+
+## Track G — India group rollout (one owner, ten hotels)
+
+The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-11-22). They go live **one at a time**: the first hotel through Track P, and each further hotel only after the ones before it run well. This track is what it takes to run more than one hotel and to keep adding them. It adds no hotel features: Track P's scope is unchanged, and every hotel runs the same product. Evidence and gap numbers (in brackets) are from the [platform operations research](research/reports/Hotel%20PMS%20platform%20operations.md).
+
+**Tenancy (decided 2026-11-22):** one owner means **one org with one property per hotel**. No tier above the org; the research's portfolio level (gap 24) is not needed. Guest profiles are org-wide in OrgDO, so a guest of one hotel is known at all of them. The client confirms that is wanted (G-Q1). Each hotel keeps its own folios, night audit, invoice series and accounting export. Nothing posts or consolidates money across hotels (`ARCHITECTURE.md` §7.8).
+
+**Plan:** the first hotel stays on **Growth**, where `pms.properties.limit` is 1. On Growth, adding a second property fails with `limit_exceeded` (`apps/pms-core/src/provision.ts`). So before hotel 2 is provisioned, the org moves to **Group**: `pms.properties.limit` 10 and `pms.multi_property` (§6.7). The move goes through **R7.1**, not SQL.
+
+**Order and gate:**
+- The queue stays **serial**, in the order below.
+- Part A may start now. Every open Track P slice is waiting on an outside answer or is deferred by the user: R5.5, R6.2, R4.25, R4.12 Parts B–C, R4.3, R4.9, R4.21 and R4.8.
+- When a Track P slice unblocks, it goes ahead of the next Track G slice.
+- Part B must be done before hotel 2 is provisioned. Part C must be done before hotel 3, or sooner if the owner asks for a group view.
+- Track 4 starts after Track G.
+
+### Part A — before the first hotel goes live
+
+- [ ] **R7.2 Alerts, paging and log retention**
+  - **Why:** the [observability spec](superpowers/specs/2026-07-28-observability-design.md) shipped tenant-tagged logs in Phase 0, and left paging and SLOs to "Phase 1 ops". Workers Logs keep 7 days, and `apps/pms-core/wrangler.jsonc` has no `observability` block. CERT-In applies now: report incidents within 6 hours and keep 180 days of logs [gaps 3, 4].
+  - **Locked:** alert per property on the §13 signals, using the existing tag contract (`org_id`, `property_id`):
+    - night audit HALTED, or not run by its scheduled time;
+    - outbox backlog age;
+    - degraded commands;
+    - DLQ depth;
+    - 5xx rate.
+
+    Each alert names the hotel and reaches a named on-call person on a channel that rings a phone. Add the `observability` block, and Logpush to an R2 bucket kept for at least 180 days. Logs stay PII-free under the tag contract. Add an uptime check and a status page hosted **off Cloudflare**.
+  - **Open:** whether the 180 days must be stored in India (CERT-In) is a legal opinion. It does not block the slice; the bucket's location follows the answer. The spec picks the alert source (Analytics Engine counters or a scheduled health check). Any new vendor is named on the DPA sub-processor list.
+  - **Scope out:** dashboards (R7.3, R7.4) and published SLOs.
+  - **Tests:** a HALTED night audit on a staging property raises an alert that names that property; a pushed log line carries no guest name, phone or document number.
+
+### Part B — before hotel 2 is provisioned
+
+- [ ] **R4.4 Property switcher — hotel chosen at runtime** (moved from Track 5, 2026-11-22)
+  - **Why:** `apps/web-pms/src/config/tenant.ts` reads `VITE_ORG_ID` and `VITE_PROPERTY_ID` at build time, and about 190 references use `tenant.*`. A second hotel would need a second build [gap 13].
+  - **Locked:**
+    - Org and property come from the signed-in user at runtime. `VITE_*` remain only as the local demo default.
+    - A new **org route** lists the properties where this user has a `property_member` row, never every property in the org (AGENTS §1, property-scoped data). `/me` stays property-scoped.
+    - The header switcher appears when that list has more than one entry and the org has `pms.multi_property`.
+    - Switching drops property-keyed caches and reconnects `FrontOfficeLive`. The open shift, business date, permissions and nav all follow the selected hotel.
+    - Isolation stays structural: one PropertyDO per hotel, and no query across properties.
+    - A user in more than one org picks one org; there is no cross-org view.
+  - **Scope out:** group views (R7.4); org-wide CRM.
+  - **Tests:**
+    - In one org with properties A and B, a user who is a member of A only sees only A in the list and gets `not_found` on B's routes.
+    - Switching from A to B shows B's board with no A data.
+    - Cache assertions use the consumer keys, including `propertyId`.
+
+- [ ] **R7.1 Operations platform v1 — customers, hotels and plans** ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §1–§10; absorbs the read-only console that was R7.3, 2026-11-22)
+  - **Why:** "provisioned by ops" means a signed-in user calling `POST /v1/orgs`, plus hand-written SQL against Platform D1 for plan changes (`seedSubscription` and `trySetOrgStatus` in `apps/pms-core/src/registry.ts` are test helpers). Nine more hotels and a plan change by hand leave no record of who changed what, or why [gaps 7, 14, 15, 16].
+  - **Locked:**
+    - `apps/web-admin`: a separate Worker with static assets behind Cloudflare Access with a hardware key (§4.9 rule 6). The Worker verifies the Access JWT on every request and fails closed on empty config. Its only binding is a service binding to a new `OpsEntrypoint` in `pms-core`.
+    - Operators live in a Platform D1 `operator` table (`ops_admin`, `ops_viewer`). A new actor kind **`operator`** (not `staff`, which means hotel employees here). It never passes a tenant permission check.
+    - Ten `ops.*` commands: create org, add property, add the first owner, set plan, set add-on, suspend, reinstate, and three to manage operators. Each needs a `reason`, is idempotent per operator, and writes an append-only `operator_action` row in the same D1 batch. No SQL path.
+    - The hotel sees these changes on a new org route `get_org_operator_actions` (`org:read`), shown in `web-pms` as **HospAI account changes**.
+    - `ops.add_property` runs `provisionProperty` with the cross-tenant rules and the OrgEntitlementDO slot unchanged. The operator never becomes a tenant member.
+    - New org status **`suspended`**: reads work, mutations return `403 tenant_suspended`, org cancel still works, system work (night audit, outbox) continues.
+    - Kill-switch: `kill:ops.write` refuses every operator write; the tenant kill-switch is unchanged.
+    - Screens: a customer list from the registry with no DO calls, customer detail, hotel health for one PropertyDO at a time (counts and dates only), and the operator log.
+    - Pins: `COMMAND_CATALOG` 161, `V1_HTTP_ROUTE_AUDIT` 260 with last id `get_org_operator_actions`.
+  - **Scope out:** `entitlement_override` (plans and add-ons cover every concession needed); self-serve sign-up and billing (R5.6); any guest or folio read and the §4.9 support grants (R7.3); org cancel or purge from the console; sending email or invitations.
+  - **Tests:** the spec's §10. Among them:
+    - A second property on Growth is `limit_exceeded`, and succeeds after `ops.set_plan group`.
+    - A property id from another org returns 409 with no foreign row.
+    - A write without a reason is rejected.
+    - The change shows in that org's operator actions and never in another org's.
+    - A suspended org's check-in is refused while its reads work.
+    - A bad or missing Access JWT returns 401.
+
+- [ ] **R7.5 Copy setup from another hotel** ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §11)
+  - **Why:** hotels 2–10 have one owner and mostly one setup. Re-typing room types, rates, packages, charge codes and tax rules per hotel costs days and invites mistakes.
+  - **Locked:**
+    - One `BACKGROUND` command, `ops.copy_setup`, runs as a Workflow. Same org only. The target must be empty: no reservation ever, and no rows of the kinds copied. That makes it provisioning, not a support write.
+    - The copy replays the existing admin commands on the target with the operator actor, remapping ids, with a per-item idempotency key so a re-run completes without duplicates.
+    - Never copied: rooms, users, secrets, GSTIN and legal name, invoice and receipt series, e-invoicing and POS credentials. The console lists them as a hand checklist.
+  - **Tests:**
+    - A cross-org copy returns 409 with no foreign field.
+    - A target with a reservation is refused.
+    - A copy killed half-way and re-run leaves exactly one of each item.
+    - No secret or GSTIN reaches the target.
+
+**Data for hotel 2 — decision open:** the user deferred **R4.8** (BluePMS importer) for the pilot on 2026-11-19. If hotels 2–10 also run BluePMS (G-Q2), each switch means re-entering that hotel's data by hand. The recommendation is to build R4.8 Stage A before hotel 2. The deferral stands until the user decides.
+
+### Part C — head office (before hotel 3)
+
+- [ ] **R7.4 Head-office view — today across the hotels** (pulled out of R5.7, 2026-11-22)
+  - **Why:** the owner runs several hotels from one place. Every vendor sells a portfolio view, and no vendor documents a group night-audit board [gap 26].
+  - **Locked:**
+    - Each PropertyDO **pushes** a small daily summary to an org-level projection through an outbox consumer (R4.5 registry, idempotent per event): `BoardSummary` counts, room revenue for the business date, and night-audit status including HALTED.
+    - The view reads only the projection and never fans out to PropertyDOs (§7.6, §7.8).
+    - It is an **org route** with an org permission (`org:manage` or a new `*:org_read`), entitled by `pms.multi_property`.
+    - No guest PII.
+    - Money shows per hotel; a group total appears only when every hotel shares one currency.
+    - The rows are confirmed with the owner (G-Q3).
+  - **Scope out:**
+    - The rest of R5.7: the availability projection, central reservations and Stage B dedup.
+    - Trends (warehouse).
+    - Central rates.
+    - Staff shared across hotels, unless G-Q4 says so.
+  - **Tests:**
+    - Each hotel's row updates after its own night audit.
+    - A HALTED audit shows on the board.
+    - A user without the org permission is refused.
+    - Two properties in one org never mix rows.
+
+- [ ] **R7.3 Operations platform v2 — support access and fleet health** ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §12, direction only; write its own spec first)
+  - **Why:** support needs a recorded way into one hotel, and the customer list needs health columns without calling every DO [gap 14].
+  - **Locked:**
+    - §4.9 support grants as written: READ is self-serve for at most 60 minutes; WRITE needs a second operator's approval and lasts at most 15 minutes, through domain commands only. The tenant sees every grant, and the kill-switch voids them all.
+    - Fleet health columns come from the R7.4 projection and the R7.2 alert state. The view also shows the deployed version and DO schema version per property, and feeds the weekly access review.
+  - **Not weakened for a solo operator:** until HospAI has a second operator, support inside a hotel is the hotel adding a named HospAI member (go-live step).
+  - **Scope out:** billing (R5.6); break-glass SQL.
+
+### Adding a hotel — not coding slices
+
+Repeat for each hotel after the first, in waves of one:
+1. Provision through R7.1.
+2. Copy setup from an earlier hotel through R7.5, then configure rooms, users, roles and everything on the R7.5 hand checklist.
+3. Load data by import (R4.8) or by hand.
+4. Train staff.
+5. Run in parallel for at least one night, comparing the night audit with the outgoing system.
+6. Cut over, with hypercare from the named support contact.
+
+Do not add the next hotel while an earlier one has an unexplained night-audit difference.
+
+### Open questions for the owner
+
+- **G-Q1** Should guest profiles be shared across the hotels, as they are today? Is each hotel its own company? Each state has its own GSTIN either way, but this decides who the data fiduciary is in the DPA.
+- **G-Q2** Do hotels 2–10 also run BluePMS? This decides R4.8.
+- **G-Q3** What does the owner want to see across the hotels each morning? This decides the R7.4 rows.
+- **G-Q4** Do any staff work at more than one hotel? The R4.4 switcher already serves them; this decides whether R7.4 needs more.
 
 ---
 
@@ -1014,12 +1155,12 @@ Start only when Track 4 is `[x]`. Track P's module rules still apply.
   - **Locked:** event charges post through the existing folio and city-ledger contracts — **no separate event money path**.
   - **Scope out:** sales leads and follow-up traces (external CRM, §16.6); banquet staff payouts; event-specific reporting beyond revenue by space.
 
-- [ ] **R4.4 Multi-property switcher (ops, not projections)**
-  - Prototype header property dropdown. Until §7.6 projections: switch `propertyId` in the SPA from `/me` property list. Isolation is structural (one DO per property) — do not query across properties.
+- **R4.4 Multi-property switcher** — moved to [Track G](#track-g--india-group-rollout-one-owner-ten-hotels) Part B (2026-11-22).
 
 - [ ] **R5.7 Multi-property projections (§7.6)**
   - Distinct from the **R4.4** switcher. Projections are the read model for org-wide views. Do not scan every PropertyDO from the SPA.
-  - **Sequencing (resolved 2026-09-12):** Track 5 is the upscale-and-groups stage, so projections land with the segment that buys them, ahead of everything in Track 6. **R4.4**, earlier in this track, is the interim property switch.
+  - **Sequencing (resolved 2026-09-12):** Track 5 is the upscale-and-groups stage, so projections land with the segment that buys them, ahead of everything in Track 6. **R4.4** (now in Track G) is the interim property switch.
+  - **Split (2026-11-22):** the head-office daily view moved to **R7.4** in Track G for the India group. R5.7 keeps the availability projection, central reservations and Stage B, and reuses R7.4's projection rather than building a second one.
   - **Includes former R4.8 Stage B:** cross-property guest **deduplication** into OrgDO and a **parallel-run** mode that shadows the incumbent before cutover — the consolidation demo groups are sold on.
 
 - [ ] **R5.13 `held` behaviour — staff blocks and central-reservation holds**

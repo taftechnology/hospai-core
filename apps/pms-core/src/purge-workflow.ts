@@ -2,6 +2,7 @@
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { PROPERTY_GUEST_PII_COLUMNS } from '@hospai/contracts';
+import { logError } from '@hospai/observability';
 import {
   locationHintFromTimeZone,
   resolveOrgEntitlementStub,
@@ -537,6 +538,17 @@ export class PurgeWorkflow extends WorkflowEntrypoint<PmsEnv, PurgeWorkflowParam
         haltReason: reason,
         started: params.started,
       });
+      // Ops signal (R7.2): workflow id, kind and a reason code only. Unexpected errors log a fixed
+      // code, never their message, so no subject data reaches the logs.
+      logError(
+        { moduleId: 'pms.core', orgId: params.orgId },
+        {
+          msg: 'purge.verify_failed',
+          workflow_id: workflowId,
+          kind: params.kind,
+          halt_reason: e instanceof HaltError ? e.reason : 'unexpected_error',
+        },
+      );
       // Certificate is already in D1 (attempt counter reads certificates, not instance state).
       // Rethrow so the Workflow instance is marked failed — operators must not see a green
       // run for a residue HALT (operational silent success).

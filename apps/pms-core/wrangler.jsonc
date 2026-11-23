@@ -140,6 +140,15 @@
       "account_id": "9c3a73acfa30fd1c244bf519f7c7bce9",
       "name": "hospai-pms-core-staging",
       "main": "src/index.ts",
+      // R7.2: health sweep cron, Workers Logs without per-invocation records (they carry the full
+      // request URL, and reservation search puts the guest name in `?q=`), Workers Issues, Logpush.
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "invocation_logs": false, "head_sampling_rate": 1 },
+        "issues": { "enabled": true }
+      },
+      "logpush": true,
       "compatibility_date": "2025-07-01",
       "compatibility_flags": ["nodejs_compat"],
       "durable_objects": {
@@ -209,6 +218,14 @@
           {
             "binding": "EVENT_RETRY_QUEUE",
             "queue": "hospai-event-retries-staging"
+          },
+          {
+            "binding": "EVENTS_DLQ_QUEUE",
+            "queue": "hospai-events-dlq-staging"
+          },
+          {
+            "binding": "PENDING_COMMANDS_DLQ_QUEUE",
+            "queue": "hospai-pending-commands-dlq-staging"
           }
         ],
         "consumers": [
@@ -283,6 +300,15 @@
       "account_id": "9c3a73acfa30fd1c244bf519f7c7bce9",
       "name": "hospai-pms-core",
       "main": "src/index.ts",
+      // R7.2: health sweep cron, Workers Logs without per-invocation records (they carry the full
+      // request URL, and reservation search puts the guest name in `?q=`), Workers Issues, Logpush.
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "observability": {
+        "enabled": true,
+        "logs": { "enabled": true, "invocation_logs": false, "head_sampling_rate": 1 },
+        "issues": { "enabled": true }
+      },
+      "logpush": true,
       "compatibility_date": "2025-07-01",
       "compatibility_flags": ["nodejs_compat"],
       "durable_objects": {
@@ -352,6 +378,14 @@
           {
             "binding": "EVENT_RETRY_QUEUE",
             "queue": "hospai-event-retries"
+          },
+          {
+            "binding": "EVENTS_DLQ_QUEUE",
+            "queue": "hospai-events-dlq"
+          },
+          {
+            "binding": "PENDING_COMMANDS_DLQ_QUEUE",
+            "queue": "hospai-pending-commands-dlq"
           }
         ],
         "consumers": [

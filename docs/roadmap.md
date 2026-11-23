@@ -972,6 +972,10 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
     - **Watching the sweep:** a public `GET /health` and a heartbeat let an off-Cloudflare monitor watch both the sweep and the Worker.
     - **Pins:** none move.
     - **Waiting on you:** the vendor and on-call questions (spec §10) and the account set-up (spec §7). The code does not wait on them.
+  - **Code done (2026-11-22, not deployed):**
+    - `runOpsHealthSweep` (`apps/pms-core/src/ops-health-sweep.ts`), `PropertyDO.readOpsHealth`, the sink (`ops-alert-sink.ts`), `GET /health`, platform D1 `0007_ops_alert.sql`, the wrangler cron, observability and Logpush keys, and the DLQ producer bindings. Wrangler 4.114 → 4.166.
+    - 28 tests in `apps/pms-core/test/ops-health-sweep.spec.ts`.
+    - The slice stays unticked until spec §7 is done and the staging rehearsal (§7 step 8) passes.
   - **Why:** the [observability spec](superpowers/specs/2026-07-28-observability-design.md) shipped tenant-tagged logs in Phase 0, and left paging and SLOs to "Phase 1 ops". Workers Logs keep 7 days, and `apps/pms-core/wrangler.jsonc` has no `observability` block. CERT-In applies now: report incidents within 6 hours and keep 180 days of logs [gaps 3, 4].
   - **Locked:** alert per property on the §13 signals, using the existing tag contract (`org_id`, `property_id`):
     - night audit HALTED, or not run by its scheduled time;

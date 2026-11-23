@@ -469,12 +469,37 @@ END`,
 export const PLATFORM_ENTITLEMENT_CATALOG_SQL =
   PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS.join(';\n\n') + ';\n';
 
+export const PLATFORM_OPS_ALERT_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS ops_alert (
+  alert_key        TEXT PRIMARY KEY,
+  signal           TEXT NOT NULL,
+  severity         TEXT NOT NULL CHECK (severity IN ('warning', 'error', 'critical')),
+  org_id           TEXT,
+  property_id      TEXT,
+  status           TEXT NOT NULL CHECK (status IN ('pending', 'open', 'resolved')),
+  seen_count       INTEGER NOT NULL,
+  first_seen_at    INTEGER NOT NULL,
+  last_seen_at     INTEGER NOT NULL,
+  notified_at      INTEGER,
+  resolved_at      INTEGER,
+  detail_json      TEXT NOT NULL
+)`,
+  `CREATE INDEX IF NOT EXISTS ops_alert_status_idx ON ops_alert (status, last_seen_at)`,
+  `CREATE TABLE IF NOT EXISTS ops_sweep_state (
+  name   TEXT PRIMARY KEY,
+  value  INTEGER NOT NULL
+)`,
+];
+
+export const PLATFORM_OPS_ALERT_SQL = PLATFORM_OPS_ALERT_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
   ...PLATFORM_SUBSCRIPTION_INVARIANT_STATEMENTS,
   ...PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS,
+  ...PLATFORM_OPS_ALERT_STATEMENTS,
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];
 

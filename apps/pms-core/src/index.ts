@@ -21,6 +21,7 @@ import {
 import { handlePendingCommandsBatch } from './pending-commands-consumer.js';
 import { handleV1 } from './v1-handler.js';
 import { applySecurityHeaders } from './security-headers.js';
+import { runOpsHealthSweep } from './ops-health-sweep.js';
 
 export type { PmsEnv } from './env.js';
 export { PropertyDO } from './property-do.js';
@@ -29,6 +30,7 @@ export { OrgEntitlementDO } from './org-entitlement-do.js';
 export { NightAuditWorkflow } from './night-audit-workflow.js';
 export { MigrationSweepWorkflow } from './migration-sweep-workflow.js';
 export { PurgeWorkflow } from './purge-workflow.js';
+export { runOpsHealthSweep } from './ops-health-sweep.js';
 export { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
 
 function json(data: unknown, status = 200): Response {
@@ -43,7 +45,10 @@ function logHttpRequest(
   extra?: Record<string, unknown>,
 ): void {
   const url = new URL(request.url);
-  logInfo(ctx, {
+  // 5xx at error level so Workers Issues sees a returned 503 as well as a thrown one (R7.2 §5.1).
+  // `pathname` only: the query string can carry a guest name (`?q=`).
+  const emit = status >= 500 ? logError : logInfo;
+  emit(ctx, {
     msg: 'http.request',
     method: request.method,
     pathname: url.pathname,
@@ -53,6 +58,20 @@ function logHttpRequest(
   });
 }
 
+async function handleHealth(request: Request, env: PmsEnv): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return applySecurityHeaders(json({ error: 'method_not_allowed' }, 405), request);
+  }
+  let ok = true;
+  try {
+    await env.PLATFORM_DB.prepare('SELECT 1').first();
+  } catch {
+    ok = false;
+  }
+  const res = Response.json({ ok }, { status: ok ? 200 : 503, headers: { 'cache-control': 'no-store' } });
+  return applySecurityHeaders(res, request);
+}
+
 export default {
   async fetch(request: Request, env: PmsEnv): Promise<Response> {
     const misconfigured = assertEnvSafeForRequest(env, request);
@@ -60,6 +79,11 @@ export default {
 
     const url = new URL(request.url);
     const { pathname } = url;
+
+    // Uptime check (R7.2 §6): public, no tenant data, platform D1 reachability only.
+    if (pathname === '/health') {
+      return handleHealth(request, env);
+    }
 
     if (pathname === '/v1' || pathname.startsWith('/v1/')) {
       const requestId = crypto.randomUUID();
@@ -143,6 +167,11 @@ export default {
       );
       throw e;
     }
+  },
+
+  // Cron trigger every 5 minutes (staging and production only): the R7.2 health sweep.
+  async scheduled(_controller: ScheduledController, env: PmsEnv): Promise<void> {
+    await runOpsHealthSweep(env, Date.now());
   },
 
   async queue(batch: MessageBatch<unknown>, env: PmsEnv): Promise<void> {

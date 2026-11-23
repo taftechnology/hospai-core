@@ -124,7 +124,12 @@ CREATE TABLE IF NOT EXISTS ops_sweep_state (
 - Warnings are recorded and logged, never sent to the pager.
 - Rows are kept, so one query shows a hotel's alert history. The table holds no guest data, so purge does not need to reach it. An org purge leaves its `org_id` and `property_id` strings, the same as the registry rows it already keeps.
 
-Every write for one sweep goes in one `db.batch()`. A sink failure is logged and retried on the next sweep: a row whose `notified_at` is still null is re-sent.
+- A hotel the sweep could not read keeps its other open alerts. A DLQ alert is not cleared while `metrics()` is unavailable. A sweep never clears what it could not measure.
+- On the first sweep, with no purge watermark yet, the purge check looks back 24 hours.
+
+Every write for one sweep goes in one `db.batch()`. A sink failure is logged and retried on the next sweep:
+- an open row whose `notified_at` is still null is re-sent as a trigger;
+- a resolved row whose `notified_at` is not null still owes a resolve, and `notified_at` is cleared once the resolve is delivered.
 
 ## 4. The paging sink
 
@@ -198,7 +203,7 @@ These are account or vendor steps. The deploy does not do them.
 4. Create the R2 buckets `hospai-logs` and `hospai-logs-staging` (Asia-Pacific), each with a 365-day delete rule.
 5. Create one Logpush job per environment: dataset `workers_trace_events`, the field list from §5.2, and the R2 destination. The job needs an R2 API token scoped to that bucket.
 6. In the Cloudflare dashboard, add an Issues automation that sends new issues to the paging tool.
-7. Apply `0007_ops_alert.sql` to staging and production D1 before deploying the build that reads it.
+7. `0007_ops_alert.sql` needs no manual step on staging: `staging-deploy.yml` applies D1 migrations, and `ensurePlatformSchema` creates the tables at runtime if they are missing. The production deploy workflow, still on the go-live checklist, must apply D1 migrations the same way.
 8. Rehearse on staging: halt a staging hotel's night audit and check that the alert names that hotel. This is the roadmap's test.
 
 ## 8. Tests

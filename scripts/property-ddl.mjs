@@ -123,6 +123,7 @@ if (process.argv.includes('--self-test')) {
   let PLATFORM_PURGE_SQL;
   let PLATFORM_PENDING_COMMAND_OPEN_SQL;
   let PLATFORM_ENTITLEMENT_CATALOG_SQL;
+  let PLATFORM_OPS_ALERT_SQL;
   try {
     ({
       FREEZE_GATE_SQL,
@@ -202,6 +203,7 @@ if (process.argv.includes('--self-test')) {
       PLATFORM_PURGE_SQL,
       PLATFORM_PENDING_COMMAND_OPEN_SQL,
       PLATFORM_ENTITLEMENT_CATALOG_SQL,
+      PLATFORM_OPS_ALERT_SQL,
     } = await import(modPath));
   } catch (e) {
     console.error(
@@ -937,6 +939,16 @@ const targets = [
 
 `,
     sql: PLATFORM_ENTITLEMENT_CATALOG_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0007_ops_alert.sql'),
+    header: `-- Platform D1 ops alert state (R7.2) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- Counts and ages only; no guest data, no error text.
+
+`,
+    sql: PLATFORM_OPS_ALERT_SQL,
   },
 ];
 

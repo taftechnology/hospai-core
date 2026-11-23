@@ -165,6 +165,52 @@ export async function listOrgIds(
   return { ids, nextAfter };
 }
 
+export type LivePropertyRow = {
+  propertyId: string;
+  orgId: string;
+  name: string;
+  jurisdiction: Jurisdiction | null;
+  timeZone: string;
+};
+
+/**
+ * R7.2 health sweep: hotels whose property AND org are live (`active`, or `suspended`, which still
+ * runs night audit). Keyset-paged on `property_id`. `listPropertyIds` stays unfiltered for the
+ * migration sweep.
+ */
+export async function listLivePropertiesPage(
+  env: PmsEnv,
+  opts?: PageOpts,
+): Promise<{ rows: LivePropertyRow[]; nextAfter: string | null }> {
+  await ensurePlatformSchema(env.PLATFORM_DB);
+  const limit = opts?.limit ?? DEFAULT_PAGE_LIMIT;
+  const after = opts?.after ?? '';
+  const { results } = await env.PLATFORM_DB.prepare(
+    `SELECT p.property_id, p.org_id, p.name, p.jurisdiction, p.time_zone
+     FROM property p JOIN org o ON o.org_id = p.org_id
+     WHERE p.status IN ('active', 'suspended') AND o.status IN ('active', 'suspended')
+       AND p.property_id > ?
+     ORDER BY p.property_id ASC LIMIT ?`,
+  )
+    .bind(after, limit)
+    .all<{
+      property_id: string;
+      org_id: string;
+      name: string;
+      jurisdiction: string | null;
+      time_zone: string;
+    }>();
+  const rows = (results ?? []).map((r) => ({
+    propertyId: r.property_id,
+    orgId: r.org_id,
+    name: r.name,
+    jurisdiction: (r.jurisdiction as Jurisdiction | null) ?? null,
+    timeZone: r.time_zone,
+  }));
+  const nextAfter = rows.length === limit ? rows[rows.length - 1]!.propertyId : null;
+  return { rows, nextAfter };
+}
+
 export type PropertySweepRow = {
   propertyId: string;
   orgId: string;

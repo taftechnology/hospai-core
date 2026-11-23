@@ -542,6 +542,7 @@ import {
   ORG_DO_TRANSPORT_BLOCKED_MESSAGE,
 } from './org-do-transport.js';
 import { PROPERTY_DO_TRANSPORT_BLOCKED_MESSAGE } from './property-do-transport.js';
+import { logError } from '@hospai/observability';
 import { runOutboxAlarmStep, type OutboxAlarmContext, type OutboxFlushResult } from './outbox-observability.js';
 import {
   cityLedgerStatementObjectKey,
@@ -1853,6 +1854,22 @@ export const NIGHT_AUDIT_STEPS = [
 ] as const;
 
 export type NightAuditStep = (typeof NIGHT_AUDIT_STEPS)[number];
+
+/** R7.2 §3.2 — what `readOpsHealth` returns. Counts and timestamps only. */
+export type OpsHealth = {
+  nightAudit: {
+    businessDate: string;
+    halted: boolean;
+    failedStep: NightAuditStep | null;
+    runningSince: number | null;
+    lastCompletedAt: number | null;
+    nextRunAt: number | null;
+    alarmFailing: boolean;
+  };
+  outbox: { unackedCount: number; oldestCreatedAt: number | null };
+  provisionalExceptionsOpen: number;
+  eventDeliveryExceptionsOpen: number;
+};
 
 /** Caller-passes-census — PropertyDO never reads PLATFORM_DB. Required for PRE_CHECK. */
 export type NightAuditCensus = { pendingOpenCount: number };
@@ -4200,6 +4217,15 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           step,
         );
       });
+      // Ops signal: ids and step only. The error text can name guests or amounts (R7.2 §5.1).
+      logError(
+        {
+          moduleId: 'pms.core',
+          propertyId: this.getPropertyIdSync() ?? undefined,
+          orgId: this.getOrgIdSync() ?? undefined,
+        },
+        { msg: 'night_audit.step_failed', business_date: businessDate, step },
+      );
       return { status: 'FAILED' as const, error: message };
     }
   }
@@ -30921,6 +30947,53 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       .exec(`SELECT COUNT(*) AS c FROM outbox WHERE acked = 0`)
       .toArray() as Array<{ c: number }>;
     return Number(rows[0]?.c ?? 0);
+  }
+
+  /**
+   * R7.2 §3.2 — read-only health reading for the scheduled sweep. Counts and timestamps only:
+   * no guest data, no error text. Not a command and not routed.
+   */
+  async readOpsHealth(nowMs: number): Promise<OpsHealth> {
+    this.assertRpcAvailable();
+    void nowMs;
+    const sql = this.ctx.storage.sql;
+    const businessDate = this.readBusinessDateSync() ?? '';
+    const failed = sql
+      .exec(
+        `SELECT step FROM night_audit_run WHERE status = 'FAILED' ORDER BY business_date DESC, started_at DESC LIMIT 1`,
+      )
+      .toArray() as Array<{ step: string }>;
+    const running = sql
+      .exec(`SELECT MIN(started_at) AS t FROM night_audit_run WHERE status = 'RUNNING'`)
+      .toArray() as Array<{ t: number | null }>;
+    const completed = sql
+      .exec(
+        `SELECT MAX(completed_at) AS t FROM night_audit_run WHERE step = 'ARCHIVE' AND status = 'COMPLETED'`,
+      )
+      .toArray() as Array<{ t: number | null }>;
+    const alarm = sql
+      .exec(`SELECT next_run_at, last_error FROM alarm_schedule WHERE name = 'night-audit'`)
+      .toArray() as Array<{ next_run_at: number; last_error: string | null }>;
+    const failedStep = failed[0]?.step ?? null;
+    const outbox = outboxBacklogSnapshot(sql);
+    return {
+      nightAudit: {
+        businessDate,
+        halted: failed.length > 0,
+        failedStep: failedStep as NightAuditStep | null,
+        runningSince: running[0]?.t ?? null,
+        lastCompletedAt: completed[0]?.t ?? null,
+        nextRunAt: alarm[0]?.next_run_at ?? null,
+        alarmFailing: alarm[0]?.last_error != null,
+      },
+      outbox: { unackedCount: outbox.unackedCount, oldestCreatedAt: outbox.oldestCreatedAt },
+      provisionalExceptionsOpen: this.countQuerySync(
+        `SELECT COUNT(*) AS n FROM provisional_exception WHERE resolved_at IS NULL`,
+      ),
+      eventDeliveryExceptionsOpen: this.countQuerySync(
+        `SELECT COUNT(*) AS n FROM event_consumer_exception WHERE resolved_at IS NULL`,
+      ),
+    };
   }
 
   async getOutboxBacklog(): Promise<{ unackedCount: number; oldestCreatedAt: number | null }> {

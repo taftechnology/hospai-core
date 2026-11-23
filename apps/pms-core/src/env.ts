@@ -104,6 +104,22 @@ export type PmsEnv = {
   COPILOT_BASE_URL?: string;
   COPILOT_MODEL?: string;
   COPILOT_API_KEY?: string;
+  /**
+   * R7.2 paging sink. All secrets: set with `wrangler secret put`, never in `vars`.
+   * With no `ALERT_SINK_URL` the sweep records and logs alerts and sends nothing.
+   */
+  ALERT_SINK_URL?: string;
+  /** PagerDuty Events v2 routing key (`pagerduty_v2` format). Secret. */
+  ALERT_ROUTING_KEY?: string;
+  /** Bearer token (`webhook_json` format). Secret. */
+  ALERT_SINK_TOKEN?: string;
+  /** External heartbeat monitor URL, pinged when a sweep finishes. Secret. */
+  OPS_HEARTBEAT_URL?: string;
+  /** `pagerduty_v2` (default) or `webhook_json`. A plain var, not a secret. */
+  ALERT_SINK_FORMAT?: string;
+  /** Producer bindings for the two consumer-less DLQs, read by the health sweep (`metrics()` only). */
+  EVENTS_DLQ_QUEUE?: Queue<unknown>;
+  PENDING_COMMANDS_DLQ_QUEUE?: Queue<unknown>;
   /** Workers Assets binding for same-origin SPA (`apps/web-pms/dist`). */
   ASSETS?: Fetcher;
 };

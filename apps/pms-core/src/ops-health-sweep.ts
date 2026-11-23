@@ -14,6 +14,7 @@
  * One failing hotel never stops the sweep. All D1 writes go in one `db.batch()`.
  */
 import { logInfo, logWarn, logError } from '@hospai/observability';
+import { STALE_ALARM_MS } from '@hospai/do-runtime';
 import { locationHintFromTimeZone, resolvePropertyStub } from '@hospai/tenant-router';
 import { isJurisdictionSimulate, type PmsEnv } from './env.js';
 import {
@@ -171,6 +172,11 @@ export function evaluateHealth(
     if (na.nextRunAt != null && nowMs - na.nextRunAt > NIGHT_AUDIT_ALARM_OVERDUE_MS) {
       rules.push('alarm_not_fired');
       detail.alarmLateMinutes = Math.floor((nowMs - na.nextRunAt) / 60_000);
+      // Whether the DO's own storage alarm is set tells "dropped" apart from "set but stale".
+      if (na.storageAlarmAt !== undefined) {
+        detail.storageAlarm =
+          na.storageAlarmAt == null ? 'none' : na.storageAlarmAt < nowMs - STALE_ALARM_MS ? 'stale' : 'pending';
+      }
     }
     if (na.runningSince != null && nowMs - na.runningSince > NIGHT_AUDIT_STEP_RUNNING_MAX_MS) {
       rules.push('step_running_too_long');

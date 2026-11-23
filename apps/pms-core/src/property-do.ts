@@ -1867,6 +1867,8 @@ export type OpsHealth = {
     lastCompletedAt: number | null;
     nextRunAt: number | null;
     alarmFailing: boolean;
+    /** The DO's storage alarm (`getAlarm()`): null when none is set. */
+    storageAlarmAt?: number | null;
   };
   outbox: { unackedCount: number; oldestCreatedAt: number | null };
   provisionalExceptionsOpen: number;
@@ -31068,6 +31070,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
         lastCompletedAt: completed[0]?.t ?? null,
         nextRunAt: alarm[0]?.next_run_at ?? null,
         alarmFailing: alarm[0]?.last_error != null,
+        storageAlarmAt: await this.ctx.storage.getAlarm(),
       },
       outbox: { unackedCount: outbox.unackedCount, oldestCreatedAt: outbox.oldestCreatedAt },
       provisionalExceptionsOpen: this.countQuerySync(

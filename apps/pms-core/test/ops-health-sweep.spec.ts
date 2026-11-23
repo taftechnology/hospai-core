@@ -172,6 +172,13 @@ describe('R7.2 health sweep', () => {
         detail: expect.objectContaining({ rules: ['alarm_not_fired'] }),
       });
       expect(run({ nextRunAt: NOW - 29 * MIN })).toEqual([]);
+      // The DO's own storage alarm tells "dropped" apart from "set but stale".
+      expect(run({ nextRunAt: NOW - 31 * MIN, storageAlarmAt: null })[0]!.detail.storageAlarm).toBe('none');
+      expect(run({ nextRunAt: NOW - 31 * MIN, storageAlarmAt: NOW - 31 * MIN })[0]!.detail.storageAlarm).toBe(
+        'stale',
+      );
+      expect(run({ nextRunAt: NOW - 31 * MIN, storageAlarmAt: NOW + MIN })[0]!.detail.storageAlarm).toBe('pending');
+      expect(run({ nextRunAt: NOW - 31 * MIN })[0]!.detail).not.toHaveProperty('storageAlarm');
       expect(run({ runningSince: NOW - 61 * MIN })[0]!.detail.rules).toEqual(['step_running_too_long']);
       expect(run({ runningSince: NOW - 59 * MIN })).toEqual([]);
       expect(run({ lastCompletedAt: NOW - 27 * 3_600_000 })[0]!.detail.rules).toEqual(['last_completed_too_old']);

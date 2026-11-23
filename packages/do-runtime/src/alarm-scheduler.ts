@@ -10,6 +10,15 @@ export type AlarmHandler = () => void | Promise<void>;
  */
 export const ALARM_FAILURE_BACKOFF_MS = 60_000;
 
+/**
+ * A pending storage alarm this far in the past is treated as dead. A live alarm fires
+ * within seconds of its time (platform retries back off for about two minutes in all),
+ * so an alarm still "set" minutes after its time will never fire. Staging, 2026-11-23:
+ * five objects kept an October alarm time after their retries ran out, and
+ * `getAlarm() === null` alone never re-armed them.
+ */
+export const STALE_ALARM_MS = 5 * 60_000;
+
 export class AlarmScheduler {
   constructor(
     private sql: SqlStorageLike,
@@ -51,15 +60,17 @@ export class AlarmScheduler {
   /**
    * Never-dark guard, for DO wake (constructor). A storage alarm can be dropped after
    * `alarm()` fails repeatedly (the platform retries, then gives up) while `alarm_schedule`
-   * still holds rows nobody will ever fire. If rows exist and no alarm is set, re-arm.
-   * Returns `true` when it armed. Does nothing when an alarm is already pending.
+   * still holds rows nobody will ever fire. If rows exist and no alarm is set, or the set
+   * alarm is more than `STALE_ALARM_MS` in the past, re-arm. Returns `true` when it armed.
+   * Does nothing when a live alarm is pending.
    */
   async ensureArmed(): Promise<boolean> {
     const rows = this.sql
       .exec(`SELECT MIN(next_run_at) AS next FROM alarm_schedule`)
       .toArray() as Array<{ next: number | null }>;
     if (rows[0]?.next == null) return false;
-    if ((await this.storage.getAlarm()) != null) return false;
+    const current = await this.storage.getAlarm();
+    if (current != null && current >= Date.now() - STALE_ALARM_MS) return false;
     await this.armFromTable();
     return true;
   }

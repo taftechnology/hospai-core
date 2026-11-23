@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, type SqlStorageLike } from './index.js';
+import { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, STALE_ALARM_MS, type SqlStorageLike } from './index.js';
 
 type AlarmScheduleRow = {
   name: string;
@@ -236,6 +236,36 @@ describe('AlarmScheduler', () => {
     const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => now + 5_000 });
 
     scheduler.upsertSchedule('outbox', now + 30_000);
+
+    expect(await scheduler.ensureArmed()).toBe(false);
+    expect(setAlarm).not.toHaveBeenCalled();
+  });
+
+  it('ensureArmed re-arms an alarm still set to a time long past (retries ran out)', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const october = now - 51 * 86_400_000;
+    const scheduler = new AlarmScheduler(sql, { setAlarm, getAlarm: async () => october });
+
+    scheduler.upsertSchedule('night-audit', october);
+    scheduler.upsertSchedule('outbox', now - 50 * 86_400_000);
+
+    expect(await scheduler.ensureArmed()).toBe(true);
+    expect(setAlarm).toHaveBeenCalledTimes(1);
+    expect(setAlarm.mock.calls[0]![0]).toBeGreaterThanOrEqual(now);
+  });
+
+  it('ensureArmed leaves an alarm only just past its time alone (it is firing or retrying)', async () => {
+    const now = Date.now();
+    const sql = new AlarmScheduleMemorySql();
+    const setAlarm = vi.fn(async (_t: number) => {});
+    const scheduler = new AlarmScheduler(sql, {
+      setAlarm,
+      getAlarm: async () => now - (STALE_ALARM_MS - 60_000),
+    });
+
+    scheduler.upsertSchedule('outbox', now - 60_000);
 
     expect(await scheduler.ensureArmed()).toBe(false);
     expect(setAlarm).not.toHaveBeenCalled();

@@ -175,7 +175,7 @@ export {
   DEFAULT_RATE_PLAN_ID,
 } from './property-migrations.js';
 
-export { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, type AlarmHandler } from './alarm-scheduler.js';
+export { AlarmScheduler, ALARM_FAILURE_BACKOFF_MS, STALE_ALARM_MS, type AlarmHandler } from './alarm-scheduler.js';
 
 export {
   DEFAULT_QUIET_MS,

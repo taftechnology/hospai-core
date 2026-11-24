@@ -104,14 +104,35 @@ describe('web-admin wrangler.jsonc bindings', () => {
     expect(JSON.stringify(config)).not.toMatch(/HOSPAI_UNSAFE_LOCAL|OPS_ALLOW_DEV_OPERATOR/);
   });
 
-  it('commits no Clerk secret: the secret key is never a var, the authorized parties are fail-closed empty', () => {
+  it('commits no Clerk secret: the secret key is never a var', () => {
     for (const [, section] of sections) {
       const vars = (section.vars ?? {}) as Record<string, string>;
       expect(vars).not.toHaveProperty('CLERK_SECRET_KEY');
       expect(vars).not.toHaveProperty('CLERK_JWT_KEY');
-      expect(vars.CLERK_AUTHORIZED_PARTIES).toBe('');
     }
     expect(raw).not.toMatch(/sk_(test|live)_[A-Za-z0-9]/);
+  });
+
+  it('staging trusts only its own workers.dev origin; top level and production stay fail-closed empty', () => {
+    const vars = (s: Record<string, unknown>) => (s.vars ?? {}) as Record<string, string>;
+    expect(vars(envs.staging!).CLERK_AUTHORIZED_PARTIES).toBe(
+      'https://hospai-ops-console-staging.hospai.workers.dev',
+    );
+    expect(vars(config).CLERK_AUTHORIZED_PARTIES).toBe('');
+    expect(vars(envs.production!).CLERK_AUTHORIZED_PARTIES).toBe('');
+    expect(vars(config).CLERK_PUBLISHABLE_KEY).toBe('');
+    expect(vars(envs.production!).CLERK_PUBLISHABLE_KEY).toBe('');
+  });
+
+  it('staging uses the ops Clerk instance, never the hotel instance', () => {
+    const opsKey = ((envs.staging!.vars ?? {}) as Record<string, string>).CLERK_PUBLISHABLE_KEY!;
+    expect(opsKey).toMatch(/^pk_test_[A-Za-z0-9]+$/);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pmsCore = readFileSync(join(here, '../../../pms-core/wrangler.jsonc'), 'utf8');
+    expect(pmsCore).not.toContain(opsKey);
+    // The staging deploy builds the SPA with the same ops key the Worker verifies against.
+    const deploy = readFileSync(join(here, '../../../../.github/workflows/staging-deploy.yml'), 'utf8');
+    expect(deploy).toContain(`VITE_CLERK_PUBLISHABLE_KEY: ${opsKey}`);
   });
 
   it('has no routes or custom domain yet (hostname is open question Q1)', () => {

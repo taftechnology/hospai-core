@@ -111,6 +111,38 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy --env staging
+      # HospAI Ops Console (R7.1). After pms-core, because its PMS_OPS service binding needs
+      # OpsEntrypoint to exist. Rebuilt on its own: the root build above bakes the HOTEL Clerk key
+      # into every SPA, and the console must carry the OPS instance's key (publishable, so it is
+      # written here; it matches apps/web-admin/wrangler.jsonc env.staging). Skipped with a warning
+      # until the repo secret OPS_CLERK_SECRET_KEY (the ops instance's secret key) exists.
+      - name: Check Ops Console secret
+        id: ops_console
+        env:
+          OPS_CLERK_SECRET_KEY: ${{ secrets.OPS_CLERK_SECRET_KEY }}
+        run: |
+          if [ -n "$OPS_CLERK_SECRET_KEY" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::OPS_CLERK_SECRET_KEY is not set; the Ops Console was not deployed."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build Ops Console (ops Clerk instance)
+        if: steps.ops_console.outputs.deploy == 'true'
+        env:
+          VITE_USE_DEV_OPERATOR: '0'
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_cGVhY2VmdWwtbGVtdXItMTg3OS5jbGVyay5hY2NvdW50cy5kZXYk
+        run: pnpm --filter @hospai/web-admin build
+      - name: Deploy Ops Console
+        if: steps.ops_console.outputs.deploy == 'true'
+        working-directory: apps/web-admin
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPS_CLERK_SECRET_KEY: ${{ secrets.OPS_CLERK_SECRET_KEY }}
+        run: |
+          npx wrangler deploy --env staging
+          printf '%s' "$OPS_CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env staging
       # Why this goes through the Clerk Frontend API (FAPI) and not the Backend API:
       # `azp` is set from the Origin header of a FAPI request. Session tokens minted
       # via BAPI (/v1/sessions/:id/tokens) carry no `azp`, and the Worker fails closed

@@ -66,29 +66,32 @@ pnpm --filter @hospai/web-admin test            # worker (auth, headers, binding
 pnpm --filter @hospai/web-admin test:coverage
 ```
 
-## What you set up before the first deploy (nothing here is done for you)
+## Setup state
 
-1. **The ops Clerk instance** ("HospAI Ops", separate from the hotel instance):
-   - Turn **multi-factor authentication on** (authenticator app or passkey) and require it for every user.
-   - **Restrict sign-up** to an allowlist (invitation or allowlist only). Anyone able to sign up
-     can reach the operator check, though they cannot pass it.
-2. **Secrets** on the Worker, per env (`-e staging`, `-e production`). Never commit values:
+Staging is wired; production waits for the hostname (Q1) and a Clerk production instance.
 
-   ```sh
-   cd apps/web-admin
-   pnpm exec wrangler secret put CLERK_SECRET_KEY -e staging
-   pnpm exec wrangler secret put CLERK_JWT_KEY -e staging     # optional, the instance PEM public key
-   ```
-
-3. **Vars** in `wrangler.jsonc` (per env; they ship empty, which fails closed):
-   - `CLERK_PUBLISHABLE_KEY`: the ops instance's publishable key.
-   - `CLERK_AUTHORIZED_PARTIES`: the console's own origin(s), comma separated, for example
-     `https://<console hostname>`. Without it every request is 401.
-4. **`VITE_CLERK_PUBLISHABLE_KEY`** at build time (the same publishable key), then
-   `pnpm --filter @hospai/web-admin build`.
-5. **`OPS_BOOTSTRAP_EMAILS`** on **pms-core** (a var there): the email of the first operator.
-6. **The hostname** (open question Q1). No `routes` or custom domain is configured yet.
-7. Optional extra layer: Cloudflare Access in front of the hostname. Nothing depends on it.
+1. **The ops Clerk instance: done (2026-11-24).** Clerk application "HospAI Ops"
+   (`app_3MZ38hIQm3KwbruLnlOcvPwhTdx`), development instance, separate from the hotel instance.
+   Set with `clerk config patch`:
+   - multi-factor required at sign-up and sign-in: authenticator app, backup codes, and passkey as
+     a second factor only (a passkey used as the first factor would leave `fva[1]` at -1);
+   - sign-up mode `restricted` (invitation only), disposable email domains blocked;
+   - Google sign-in off; sessions end after 2 hours idle or 12 hours.
+2. **Vars: done for staging.** `env.staging` in `wrangler.jsonc` has the ops publishable key and
+   `CLERK_AUTHORIZED_PARTIES=https://hospai-ops-console-staging.hospai.workers.dev` (the workers.dev
+   host until Q1). Top level and production stay empty, which fails closed.
+3. **Deploy: in `.github/workflows/staging-deploy.yml`**, after pms-core. It rebuilds the SPA with
+   the ops key, deploys, then sets `CLERK_SECRET_KEY` from the repo secret `OPS_CLERK_SECRET_KEY`.
+   Until that secret exists the console step is skipped with a warning.
+4. **Still yours:**
+   - add the repo secret `OPS_CLERK_SECRET_KEY` (the ops instance's secret key, from the Clerk
+     dashboard, API keys): `gh secret set OPS_CLERK_SECRET_KEY`;
+   - `OPS_BOOTSTRAP_EMAILS` on **pms-core** (a var there): the email of the first operator, who
+     also needs a Clerk invitation to the ops instance (sign-up is invitation only);
+   - the hostname (open question Q1), then production: a Clerk production instance, its vars and
+     its secret (`pnpm exec wrangler secret put CLERK_SECRET_KEY -e production`).
+5. `CLERK_JWT_KEY` (the instance's PEM public key, networkless verification) is optional and not set.
+6. Optional extra layer: Cloudflare Access in front of the hostname. Nothing depends on it.
 
 ## Layout
 

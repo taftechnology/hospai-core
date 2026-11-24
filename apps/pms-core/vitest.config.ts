@@ -25,6 +25,11 @@ export default defineWorkersConfig({
         wrangler: { configPath: './wrangler.jsonc' },
         isolatedStorage: false,
         miniflare: {
+          // A second, test-only registry for migration-sweep.spec.ts. The sweep visits every org
+          // and property in the registry it reads; with shared storage the real PLATFORM_DB holds
+          // every tenant the earlier files in the shard created, so a sweep over it wakes hundreds
+          // of DOs and crashed shard 5. The spec copies only its own rows into this one.
+          d1Databases: { MIGRATION_SWEEP_TEST_DB: { id: 'migration-sweep-test' } },
           bindings: {
             HOSPAI_UNSAFE_LOCAL: '1',
             HOSPAI_JURISDICTION_MODE: 'simulate',

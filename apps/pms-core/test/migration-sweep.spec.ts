@@ -39,11 +39,22 @@ function fakeWorkflowStep(stepNames: string[] = []): WorkflowStep {
   } as unknown as WorkflowStep;
 }
 
+/**
+ * The registry the sweep reads in these tests. The sweep visits every org and property in its
+ * registry. With `isolatedStorage: false` (required by Workflows, see below) and `singleWorker`,
+ * the real PLATFORM_DB holds every tenant that earlier spec files in the shard created, so a sweep
+ * over it wakes and migrates hundreds of DOs: that made this file slow, then crashed shard 5.
+ * Each test registers its own tenants here (the DO namespaces are the real ones), so a sweep
+ * visits only them and its cost no longer depends on what else ran in the shard.
+ */
+const sweepRegistry = (env as PmsEnv & { MIGRATION_SWEEP_TEST_DB: D1Database }).MIGRATION_SWEEP_TEST_DB;
+const sweepEnv = { ...env, PLATFORM_DB: sweepRegistry } as PmsEnv;
+
 function runMigrationSweep(
   params: MigrationSweepParams,
   stepNames: string[] = [],
 ): Promise<void> {
-  const receiver = { env: env as PmsEnv } as unknown as MigrationSweepWorkflow;
+  const receiver = { env: sweepEnv } as unknown as MigrationSweepWorkflow;
   const event = {
     payload: params,
     timestamp: new Date(),
@@ -77,6 +88,9 @@ function sweepIssuesForTenants(lines: Record<string, unknown>[], tenantIds: Set<
 
 describe('migration orchestrator (Phase 0)', () => {
   beforeEach(async () => {
+    // The schema gate is module-wide, so each registry is ensured with a fresh gate.
+    resetPlatformSchemaGate();
+    await ensurePlatformSchema(sweepRegistry);
     resetPlatformSchemaGate();
     await ensurePlatformSchema(env.PLATFORM_DB);
   });
@@ -117,6 +131,15 @@ describe('migration orchestrator (Phase 0)', () => {
       actorUserId: 'user_sweep',
     });
     expect(provisioned.ok).toBe(true);
+    // Provisioning writes the real registry; the sweep reads its own, so register the same rows.
+    expect(await createOrg(sweepEnv, orgId, 'Sweep Org')).toBe(true);
+    await insertProperty(sweepEnv, {
+      propertyId,
+      orgId,
+      name: 'Sweep Hotel',
+      jurisdiction: null,
+      timeZone: 'UTC',
+    });
 
     const capture = installLogCapture();
     await runMigrationSweep({ triggeredBy: 'user_sweep' });
@@ -140,8 +163,8 @@ describe('migration orchestrator (Phase 0)', () => {
   it('cold property DO migrates on sweep without prior RPC', async () => {
     const orgId = `org_cold_${crypto.randomUUID()}`;
     const propertyId = `prop_cold_${crypto.randomUUID()}`;
-    await upsertOrg(env, orgId, orgId);
-    await insertProperty(env, {
+    await upsertOrg(sweepEnv, orgId, orgId);
+    await insertProperty(sweepEnv, {
       propertyId,
       orgId,
       name: 'Cold Hotel',
@@ -151,7 +174,7 @@ describe('migration orchestrator (Phase 0)', () => {
 
     await runMigrationSweep({ triggeredBy: 'user_cold' });
 
-    const resolved = await resolvePropertyFromRegistry(env, propertyId);
+    const resolved = await resolvePropertyFromRegistry(sweepEnv, propertyId);
     expect(resolved).not.toBeNull();
     expect(await resolved!.stub.getSchemaVersion()).toBe(PROPERTY_SCHEMA_HEAD);
   }, 15_000);
@@ -206,8 +229,8 @@ describe('migration orchestrator (Phase 0)', () => {
   it('error isolation — one entitlement RPC failure does not fail the page', async () => {
     const orgOk = `org_ok_${crypto.randomUUID()}`;
     const orgBad = `org_bad_${crypto.randomUUID()}`;
-    expect(await createOrg(env, orgOk, orgOk)).toBe(true);
-    expect(await createOrg(env, orgBad, orgBad)).toBe(true);
+    expect(await createOrg(sweepEnv, orgOk, orgOk)).toBe(true);
+    expect(await createOrg(sweepEnv, orgBad, orgBad)).toBe(true);
 
     const badEntitlement = resolveOrgEntitlementStub(env.ORG_ENTITLEMENT_DO, orgBad) as DurableObjectStub<OrgEntitlementDO>;
     await badEntitlement.setSchemaVersionRpcFailureForTest(true);
@@ -228,10 +251,10 @@ describe('migration orchestrator (Phase 0)', () => {
   it('step count is bounded by page batches, not fleet size', async () => {
     const orgIds = [`org_step_a_${crypto.randomUUID()}`, `org_step_b_${crypto.randomUUID()}`, `org_step_c_${crypto.randomUUID()}`].sort();
     for (const id of orgIds) {
-      expect(await createOrg(env, id, id)).toBe(true);
+      expect(await createOrg(sweepEnv, id, id)).toBe(true);
     }
     const propertyId = `prop_step_${crypto.randomUUID()}`;
-    await insertProperty(env, {
+    await insertProperty(sweepEnv, {
       propertyId,
       orgId: orgIds[0]!,
       name: 'Step Hotel',
@@ -243,7 +266,7 @@ describe('migration orchestrator (Phase 0)', () => {
       let pages = 0;
       let after: string | null = null;
       do {
-        const page = await listOrgIds(env, { limit: 2, after });
+        const page = await listOrgIds(sweepEnv, { limit: 2, after });
         after = page.nextAfter;
         pages += 1;
       } while (after);
@@ -254,7 +277,7 @@ describe('migration orchestrator (Phase 0)', () => {
       let pages = 0;
       let after: string | null = null;
       do {
-        const page = await listPropertyIds(env, { limit: 2, after });
+        const page = await listPropertyIds(sweepEnv, { limit: 2, after });
         after = page.nextAfter;
         pages += 1;
       } while (after);

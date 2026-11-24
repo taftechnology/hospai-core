@@ -120,6 +120,11 @@ export type PmsEnv = {
   /** Producer bindings for the two consumer-less DLQs, read by the health sweep (`metrics()` only). */
   EVENTS_DLQ_QUEUE?: Queue<unknown>;
   PENDING_COMMANDS_DLQ_QUEUE?: Queue<unknown>;
+  /**
+   * R7.1 §15: comma-separated verified emails that may become the first `ops_admin` while the
+   * `operator` table is empty. Ignored once any operator row exists. A plain var, not a secret.
+   */
+  OPS_BOOTSTRAP_EMAILS?: string;
   /** Workers Assets binding for same-origin SPA (`apps/web-pms/dist`). */
   ASSETS?: Fetcher;
 };

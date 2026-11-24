@@ -153,7 +153,7 @@ export async function closeOrgForPurge(
   const retentionMs = opts?.retentionMs ?? ORG_PURGE_RETENTION_MS;
   try {
     await env.PLATFORM_DB.prepare(
-      `UPDATE org SET status = 'closing', closing_at = ?, purge_not_before = ? WHERE org_id = ? AND status = 'active'`,
+      `UPDATE org SET status = 'closing', closing_at = ?, purge_not_before = ? WHERE org_id = ? AND status IN ('active', 'suspended')`,
     )
       .bind(now, now + retentionMs, orgId)
       .run();

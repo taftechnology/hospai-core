@@ -1,3 +1,5 @@
+import type { OperatorActor } from '../permissions.js';
+
 export type Jurisdiction = 'eu' | 'us' | 'fedramp';
 
 /** Tenant lifecycle (§4.8). Billing `subscription.status` is a separate vocabulary. */
@@ -23,7 +25,7 @@ export type PropertyRecord = {
   createdAt: number;
 };
 
-export type ProvisionPropertyInput = {
+type ProvisionPropertyBase = {
   orgId: string;
   orgName?: string;
   propertyId: string;
@@ -32,8 +34,18 @@ export type ProvisionPropertyInput = {
   timeZone: string;
   /** ISO 4217 ledger currency — required at provision, same as timeZone (never derived). */
   currency: string;
-  actorUserId: string;
 };
+
+/**
+ * Who provisions. A user becomes an owner of the org (bootstrap contract, unchanged). An operator
+ * (R7.1 `ops.add_property`) is never a tenant member: `syncOrgAndPropertyDo` skips `ensureMember`
+ * and the `user_org` index write, and the hotel gets its owner from `ops.add_org_owner`.
+ */
+export type ProvisionPropertyInput = ProvisionPropertyBase &
+  (
+    | { actorUserId: string; actor?: undefined }
+    | { actor: OperatorActor; actorUserId?: undefined }
+  );
 
 export type ProvisionPropertyResult =
   | { ok: true; property: PropertyRecord; locationHint: string }

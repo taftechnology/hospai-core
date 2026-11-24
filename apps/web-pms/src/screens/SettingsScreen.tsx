@@ -48,6 +48,7 @@ import { SettingsFinanceTab } from './settings-finance.js';
 import { SettingsGuests } from './settings-guests.js';
 import { SettingsSystemTab, SettingsSystemReasonField } from './settings-system.js';
 import { SettingsLogsTab } from './settings-logs.js';
+import { SettingsAccountChanges } from './settings-account-changes.js';
 import { SettingsTaxTab } from './settings-tax.js';
 import { SYSTEM_CHARGE_CODES } from './system-charge-codes.js';
 import { SettingsDomainBool as DomainBool } from './settings-domain-fields.js';
@@ -1224,7 +1225,12 @@ export function SettingsScreen({
           />
         )
       ) : null}
-      {activeTab === 'logs' ? <SettingsLogsTab /> : null}
+      {activeTab === 'logs' ? (
+        <>
+          <SettingsLogsTab />
+          <SettingsAccountChanges />
+        </>
+      ) : null}
       {activeTab === 'tax' ? <SettingsTaxTab propertyId={propertyId} /> : null}
 
 

@@ -321,7 +321,11 @@ async function computeGate(
   try {
     const tenant = await deps.assertTenantActive(
       env,
-      located.propertyId ? { propertyId: located.propertyId } : { orgId: located.orgId },
+      // R7.1 §7: outbox consumers are system work; a suspended org keeps running them.
+      {
+        ...(located.propertyId ? { propertyId: located.propertyId } : { orgId: located.orgId }),
+        intent: 'read',
+      },
     );
     if (!tenant.ok) return { kind: 'skip', reason: 'tenant_inactive' };
     try {

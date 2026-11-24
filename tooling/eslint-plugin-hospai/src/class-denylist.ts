@@ -11,6 +11,7 @@ export const CLASS_DENYLIST = [
   'EntitlementRequiredError',
   'EntitlementResolutionError',
   'HaltError',
+  'OpsEntrypoint',
   'PermissionDoCache',
   'HousekeepingInsufficientStockError',
   'HousekeepingInventoryItemArchivedError',

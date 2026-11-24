@@ -229,3 +229,10 @@ The user decided (2026-11-24): the console is a **separate Vite + React app in t
 **Tests that replace the Access tests in §10:** no token → 401; a token from another Clerk instance (wrong key) → 401; a token whose `azp` is not in `CLERK_AUTHORIZED_PARTIES` → 401; empty `CLERK_AUTHORIZED_PARTIES` → 401 on every request; no second factor → 401 `mfa_required`; a valid token for a user with no operator row and no matching verified email → 403 `not_an_operator`; an unverified email never links; the dev header is ignored unless both local flags are set.
 
 **What the user sets up:** the ops Clerk instance (application, MFA on, sign-up restricted), its keys as `wrangler secret put` on `web-admin`, `CLERK_AUTHORIZED_PARTIES` and `OPS_BOOTSTRAP_EMAILS` vars, and the hostname (Q1).
+
+**Build notes (R7.1 part 1, 2026-11-24):**
+- `OPS_BOOTSTRAP_EMAILS` is a plain var on **pms-core** (read by `OpsEntrypoint.resolveOperator`), not on `web-admin`.
+- `kill:ops.write` is read from KV uncached on each write. KV's minimum `cacheTtl` is 30 seconds, so D9's 10-second cache is not possible, and operator writes are rare.
+- `operator_action` also stores `idempotency_key` (unique) and `request_fingerprint`, so a replay is one lookup inside the same batch rule (D7).
+- §7 "intent from the route method" has one refinement: a non-GET route that only reads declares `readIntent: true` on its route definition (reservation search, guest search, guest batch, the read-only copilot message). A suspended hotel keeps those, so names still resolve on its screens. No route that changes state may set it.
+- Customer detail shows no currency: the registry does not store one. `listOperators` is `ops_admin` only, like the Operators screen.

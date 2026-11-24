@@ -85,6 +85,7 @@ import type {
   PackageListItem,
   PackageComponentTaxMode,
 } from '@hospai/contracts';
+import type { OrgOperatorActionsResponse } from '@hospai/contracts';
 import { reportPath } from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
@@ -108,6 +109,8 @@ export type ListPage<T> = {
 export type TenantOrg = {
   orgId: string;
   name: string | null;
+  /** `suspended` is read-only (R7.1 §7). Absent on a server older than R7.1: treat as `active`. */
+  status?: 'active' | 'suspended';
   multiProperty: boolean;
   properties: Array<{ propertyId: string; name: string; timeZone: string | null }>;
 };
@@ -650,6 +653,11 @@ export function createClient(opts: {
     async getMeTenants() {
       const { body } = await getJson(`/v1/me/tenants`);
       return body as { tenants: TenantOrg[] };
+    },
+    /** R7.1: what HospAI changed on this account, newest first, 50 per page (1-based). */
+    async getOrgOperatorActions(orgId: string, page = 1) {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/operator-actions?page=${page}`);
+      return body as OrgOperatorActionsResponse;
     },
     /** Callers that mutate the current actor's grants should invalidate `['me', propertyId]`. */
     async listOrgMembers(orgId: string) {

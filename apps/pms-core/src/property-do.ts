@@ -1875,6 +1875,23 @@ export type OpsHealth = {
   eventDeliveryExceptionsOpen: number;
 };
 
+/**
+ * R7.1 Ops Console hotel detail. Counts, dates and statuses only: no guest name, amount, folio row
+ * or document number. The key set is asserted in a test, so a new field is a deliberate change.
+ */
+export type OpsConsoleHealth = {
+  businessDate: string | null;
+  lastNightAudit: {
+    businessDate: string;
+    status: 'COMPLETED' | 'RUNNING' | 'FAILED' | 'PARTIAL';
+    exceptionCount: number;
+  } | null;
+  oldestOutboxAgeMs: number | null;
+  roomCount: number;
+  roomTypeCount: number;
+  schemaVersion: number;
+};
+
 /** Caller-passes-census — PropertyDO never reads PLATFORM_DB. Required for PRE_CHECK. */
 export type NightAuditCensus = { pendingOpenCount: number };
 
@@ -2381,6 +2398,8 @@ export class PropertyDO extends DurableObject<PmsEnv> {
     permission: Permission,
   ): Promise<{ ok: false; error: typeof FORBIDDEN | 'not_member' } | null> {
     if (actor.kind === 'system') return null;
+    // R7.1 D5: an operator is never a tenant member and never passes a tenant permission.
+    if (actor.kind === 'operator') return { ok: false, error: FORBIDDEN };
 
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: FORBIDDEN };
@@ -3653,6 +3672,7 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   }
 
   private auditActorSync(actor: ActorContext): string {
+    if (actor.kind === 'operator') return `operator:${actor.operatorId}`;
     return actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
   }
 
@@ -7490,7 +7510,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       if (!classified.ok) return { ok: false, error: classified.error };
     }
 
-    const auditActor = actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
+    const auditActor =
+      actor.kind === 'user'
+        ? actor.userId
+        : actor.kind === 'operator'
+          ? `operator:${actor.operatorId}`
+          : `system:${actor.reason}`;
 
     try {
       const result = this.ctx.storage.transactionSync(() =>
@@ -31079,6 +31104,48 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       eventDeliveryExceptionsOpen: this.countQuerySync(
         `SELECT COUNT(*) AS n FROM event_consumer_exception WHERE resolved_at IS NULL`,
       ),
+    };
+  }
+
+  /** R7.1: one hotel's health for the Ops Console. Read-only; not a command and not routed. */
+  async readConsoleHealth(nowMs: number): Promise<OpsConsoleHealth> {
+    this.assertRpcAvailable();
+    const sql = this.ctx.storage.sql;
+    const latest = sql
+      .exec(`SELECT MAX(business_date) AS d FROM night_audit_run`)
+      .toArray() as Array<{ d: string | null }>;
+    const latestDate = latest[0]?.d ?? null;
+    let lastNightAudit: OpsConsoleHealth['lastNightAudit'] = null;
+    if (latestDate) {
+      const steps = sql
+        .exec(`SELECT step, status FROM night_audit_run WHERE business_date = ?`, latestDate)
+        .toArray() as Array<{ step: string; status: string }>;
+      const status: NonNullable<OpsConsoleHealth['lastNightAudit']>['status'] = steps.some(
+        (r) => r.status === 'FAILED',
+      )
+        ? 'FAILED'
+        : steps.some((r) => r.status === 'RUNNING')
+          ? 'RUNNING'
+          : steps.some((r) => r.step === 'ARCHIVE' && r.status === 'COMPLETED')
+            ? 'COMPLETED'
+            : 'PARTIAL';
+      lastNightAudit = {
+        businessDate: latestDate,
+        status,
+        exceptionCount: this.countQuerySync(
+          `SELECT COUNT(*) AS n FROM provisional_exception WHERE resolved_at IS NULL`,
+        ),
+      };
+    }
+    const outbox = outboxBacklogSnapshot(sql);
+    return {
+      businessDate: this.readBusinessDateSync(),
+      lastNightAudit,
+      oldestOutboxAgeMs:
+        outbox.oldestCreatedAt === null ? null : Math.max(0, nowMs - outbox.oldestCreatedAt),
+      roomCount: this.countQuerySync(`SELECT COUNT(*) AS n FROM room WHERE archived_at IS NULL`),
+      roomTypeCount: this.countQuerySync(`SELECT COUNT(*) AS n FROM room_type WHERE status = 'active'`),
+      schemaVersion: this.countQuerySync(`SELECT COALESCE(MAX(version), 0) AS n FROM schema_version`),
     };
   }
 

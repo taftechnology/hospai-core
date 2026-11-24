@@ -46,6 +46,11 @@ export const INVENTORY_FAIL_CLOSED_NOTES =
 export const HOUSEKEEPING_INVENTORY_NOTES =
   'Housekeeping par stock. Idempotency key is JSON idempotencyKey. FAIL_CLOSED — no replay.';
 
+export const OPS_COMMAND_NOTES =
+  'Operator command (ops-platform spec D6): not a tenant permission, never reachable from /v1. ' +
+  'OpsEntrypoint checks the operator role (ops_admin writes), kill:ops.write, a 1-500 char reason, ' +
+  'and writes its operator_action row in the same D1 batch. FAIL_CLOSED: never queued or replayed.';
+
 export const ROSTER_FAMILY_NOTES =
   'Roster family (Staff-class PII / per-staff key), distinct from membership staff.* ' +
   '(access revocation). §4.8: staff exit is not deletion — identity is pseudonymized and ' +
@@ -1733,6 +1738,108 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'guests:write',
     notes:
       'R6.2 Form C tracker. Removes a TO_FILE row with a reason, then clears the OrgDO details. A failed clear is logged and swept by the org purge. Kill-switch via pms.core entitlement; never queued offline. JSON idempotencyKey.',
+  },
+  // R7.1 operations platform (ops-platform spec §5). Operator commands run in OpsEntrypoint against
+  // Platform D1, not in a PropertyDO: no audit-writer entry, role-checked from the operator registry.
+  {
+    id: 'ops.create_org',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Create a customer org and its subscription.',
+  },
+  {
+    id: 'ops.add_property',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Provision a hotel through provisionProperty with the operator actor.',
+  },
+  {
+    id: 'ops.add_org_owner',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Add an owner to an org by Clerk email lookup.',
+  },
+  {
+    id: 'ops.set_plan',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Change an org subscription plan.',
+  },
+  {
+    id: 'ops.set_addon',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Set an org add-on quantity (0 removes).',
+  },
+  {
+    id: 'ops.suspend_org',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Org active to suspended: read-only, not blacked out.',
+  },
+  {
+    id: 'ops.reinstate_org',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Org suspended to active.',
+  },
+  {
+    id: 'ops.add_operator',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Add an operator to the registry.',
+  },
+  {
+    id: 'ops.set_operator_status',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Enable or disable an operator.',
+  },
+  {
+    id: 'ops.set_operator_role',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes: OPS_COMMAND_NOTES + ' Change an operator role.',
   },
 ];
 

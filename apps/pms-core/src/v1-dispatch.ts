@@ -215,6 +215,7 @@ import {
   ROUTING_RULE_CONFLICT,
   SCOPE_MISMATCH,
   TENANT_NOT_ACTIVE,
+  TENANT_SUSPENDED,
   TIMEZONE_UNSET,
   isCommandError,
   isHousekeepingInventoryCategory,
@@ -264,6 +265,8 @@ import {
   VIRTUAL_NESTED_FORBIDDEN,
   VIRTUAL_OCCUPANCY_EXCEEDS_CONSTITUENTS,
   VIRTUAL_ROOM_COUNT_MUST_BE_ZERO,
+  OPS_PAGE_SIZE,
+  type OrgOperatorActionsResponse,
 } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import {
@@ -558,6 +561,10 @@ function logAriRejectOnCommit(
   });
 }
 
+function isReadMethod(method: string): boolean {
+  return method === 'GET' || method === 'HEAD';
+}
+
 async function resolvePropertyContext(
   ctx: V1DispatchContext,
   propertyId: string,
@@ -568,12 +575,17 @@ async function resolvePropertyContext(
   const property = validatedPrefetch ?? (await getProperty(ctx.env, propertyId));
   if (!property) return json({ error: 'not_found' }, 404);
   ctx.observability.orgId = property.orgId;
+  // R7.1 §7: intent comes from the route method. A suspended org keeps its reads and refuses writes.
   const gate = await assertTenantActive(ctx.env, {
     propertyId,
     orgId: property.orgId,
     prefetchedProperty: validatedPrefetch,
+    intent: isReadMethod(ctx.request.method) || ctx.routeReadIntent === true ? 'read' : 'write',
   });
   if (!gate.ok) {
+    if (gate.error === 'tenant_suspended') {
+      return json({ error: TENANT_SUSPENDED }, commandErrorHttpStatus(TENANT_SUSPENDED));
+    }
     if (gate.error === 'tenant_not_active') {
       logWarn(ctx.observability, {
         msg: 'tenant_not_active',
@@ -613,6 +625,8 @@ export type V1DispatchContext = {
   url: URL;
   match: RegExpMatchArray;
   tenantProperty?: PropertyRecord;
+  /** R7.1 §7: the route is a read sent as POST (search, batch lookup); a suspended org keeps it. */
+  routeReadIntent?: boolean;
 };
 
 type V1RouteBase = {
@@ -620,6 +634,12 @@ type V1RouteBase = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   pattern: RegExp;
   handler: (ctx: V1DispatchContext) => Promise<Response>;
+  /**
+   * R7.1 §7: a non-GET route that only reads (search, batch lookup, the read-only copilot). A
+   * suspended org is read-only, not blacked out, so these stay open. Never set it on a route that
+   * changes state.
+   */
+  readIntent?: true;
 };
 
 type CommandLink =
@@ -636,7 +656,7 @@ export type V1RouteDef =
   | (V1RouteBase & { scope: 'property' } & { permission: Permission } & CommandLink);
 
 type ResolvedTenant =
-  | { orgId: string; propertyId: null }
+  | { orgId: string; propertyId: null; orgStatus: string }
   | { orgId: string; propertyId: string; property: PropertyRecord };
 
 async function resolveTenant(
@@ -654,7 +674,7 @@ async function resolveTenant(
     }
     const orgRow = await getOrg(env, orgId);
     if (!orgRow) return json({ error: 'not_found' }, 404);
-    return { orgId, propertyId: null };
+    return { orgId, propertyId: null, orgStatus: orgRow.status };
   }
 
   if (route.scope === 'property') {
@@ -879,6 +899,68 @@ async function handleGetOrgProperties(ctx: V1DispatchContext): Promise<Response>
     if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
+}
+
+/**
+ * GET /v1/orgs/:orgId/operator-actions (R7.1 §6): what HospAI changed on this account. Filtered by
+ * the URL org only. Each row carries the operator's display name, never their email, and no ticket
+ * reference (an internal HospAI id).
+ */
+async function handleGetOrgOperatorActions(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const rawPage = ctx.url.searchParams.get('page');
+  let page = 1;
+  if (rawPage !== null && rawPage !== '') {
+    if (!/^\d{1,6}$/.test(rawPage) || Number(rawPage) < 1) {
+      return json({ error: 'invalid_request' }, 422);
+    }
+    page = Number(rawPage);
+  }
+  const { results } = await ctx.env.PLATFORM_DB.prepare(
+    `SELECT a.action_id, a.command_id, a.property_id, a.reason, a.before_json, a.after_json,
+            a.created_at, o.display_name
+     FROM operator_action a JOIN operator o ON o.operator_id = a.operator_id
+     WHERE a.org_id = ?
+     ORDER BY a.created_at DESC, a.rowid DESC
+     LIMIT ? OFFSET ?`,
+  )
+    .bind(orgId, OPS_PAGE_SIZE + 1, (page - 1) * OPS_PAGE_SIZE)
+    .all<{
+      action_id: string;
+      command_id: string;
+      property_id: string | null;
+      reason: string;
+      before_json: string | null;
+      after_json: string | null;
+      created_at: number;
+      display_name: string;
+    }>();
+  const rows = results ?? [];
+  const parse = (raw: string | null): unknown => {
+    if (raw === null) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+  const body: OrgOperatorActionsResponse = {
+    orgId,
+    page,
+    hasMore: rows.length > OPS_PAGE_SIZE,
+    actions: rows.slice(0, OPS_PAGE_SIZE).map((r) => ({
+      actionId: r.action_id,
+      commandId: r.command_id,
+      operatorName: r.display_name,
+      propertyId: r.property_id,
+      reason: r.reason,
+      before: parse(r.before_json),
+      after: parse(r.after_json),
+      createdAt: r.created_at,
+    })),
+  };
+  return json(body, 200, ME_HEADERS);
 }
 
 async function handleGetProperty(ctx: V1DispatchContext): Promise<Response> {
@@ -3702,6 +3784,8 @@ const ME_HEADERS = { 'Cache-Control': 'private, no-store' };
 type TenantOrg = {
   orgId: string;
   name: string | null;
+  /** R7.1: `suspended` is read-only; the SPA shows a band. */
+  status: 'active' | 'suspended';
   multiProperty: boolean;
   properties: Array<{ propertyId: string; name: string; timeZone: string | null }>;
 };
@@ -3733,6 +3817,7 @@ async function handleGetMeTenants(ctx: V1DispatchContext): Promise<Response> {
         return {
           orgId,
           name: orgRow.name,
+          status: orgRow.status,
           multiProperty,
           properties: [...properties].sort(
             (a, b) => a.name.localeCompare(b.name) || a.propertyId.localeCompare(b.propertyId),
@@ -12999,6 +13084,7 @@ export const V1_ROUTES: V1RouteDef[] = [
   },
   {
     id: 'post_guests_batch',
+    readIntent: true,
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/guests\/batch$/,
@@ -13545,6 +13631,7 @@ export const V1_ROUTES: V1RouteDef[] = [
   },
   {
     id: 'post_guests_search',
+    readIntent: true,
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/guests-search$/,
@@ -13958,6 +14045,7 @@ export const V1_ROUTES: V1RouteDef[] = [
   },
   {
     id: 'post_reservation_search',
+    readIntent: true,
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/reservations-search$/,
@@ -14734,6 +14822,7 @@ export const V1_ROUTES: V1RouteDef[] = [
   },
   {
     id: 'post_copilot_message',
+    readIntent: true,
     scope: 'property',
     method: 'POST',
     pattern: /^\/v1\/properties\/([^/]+)\/copilot\/messages$/,
@@ -14820,6 +14909,15 @@ export const V1_ROUTES: V1RouteDef[] = [
     pattern: /^\/v1\/me\/tenants$/,
     // user scope: self only, no tenant gate, no kill-switch (like /me it must never brick the shell)
     handler: handleGetMeTenants,
+  },
+  {
+    id: 'get_org_operator_actions',
+    scope: 'org',
+    method: 'GET',
+    pattern: /^\/v1\/orgs\/([^/]+)\/operator-actions$/,
+    // R7.1 §6: read-only, no entitlement, kill-switch not applicable (read). Filtered by the URL org.
+    permission: 'org:read',
+    handler: handleGetOrgOperatorActions,
   },
 ];
 
@@ -15147,6 +15245,20 @@ export async function dispatchV1(
     if (denied) return denied;
   }
 
+  // R7.1 §7: org-scope writes on a suspended org are refused, except org cancel (a customer can
+  // always leave). Property routes apply the same rule in resolvePropertyContext.
+  if (
+    route.scope === 'org' &&
+    !tenant.propertyId &&
+    'orgStatus' in tenant &&
+    tenant.orgStatus === 'suspended' &&
+    !isReadMethod(request.method) &&
+    route.readIntent !== true &&
+    route.id !== 'post_org_cancel'
+  ) {
+    return json({ error: TENANT_SUSPENDED }, commandErrorHttpStatus(TENANT_SUSPENDED));
+  }
+
   return route.handler({
     request,
     env,
@@ -15155,6 +15267,7 @@ export async function dispatchV1(
     url: new URL(request.url),
     match,
     ...(tenant.propertyId ? { tenantProperty: tenant.property } : {}),
+    ...(route.readIntent ? { routeReadIntent: true } : {}),
   });
 }
 

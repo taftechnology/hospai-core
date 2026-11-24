@@ -46,6 +46,8 @@ import { consumePermissionDenyFlash } from './PermissionDenyFlash.js';
 import { LogoutModal } from './LogoutModal.js';
 import { BandHost, BandProvider, useBand } from './Band.js';
 import { TopBar } from './TopBar.js';
+import { useTenantSwitcher } from './tenant-context.js';
+import { ACCOUNT_SUSPENDED_MESSAGE } from '../copy/classified-user-message.js';
 
 const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   dashboard: DashboardIcon,
@@ -82,6 +84,24 @@ function roleLabel(role: PropertyMe['role']): string {
     case 'staff':
       return 'Staff';
   }
+}
+
+/** R7.1 §7: a suspended account is read-only. Every page says so, through the shared copy. */
+export function SuspendedBand() {
+  const switcher = useTenantSwitcher();
+  const org = switcher?.orgs.find((o) => o.orgId === switcher.active.orgId);
+  useBand(
+    'org-suspended',
+    org?.status === 'suspended'
+      ? {
+          intent: 'exception',
+          message: ACCOUNT_SUSPENDED_MESSAGE,
+          testId: 'org-suspended-band',
+          role: 'alert',
+        }
+      : null,
+  );
+  return null;
 }
 
 function PermissionDenyBand({ show }: { show: boolean }) {
@@ -254,6 +274,7 @@ export function AppShell() {
         <div className="app-main">
           <TopBar authority={authority} />
           <BandHost />
+          <SuspendedBand />
           <PermissionDenyBand show={showPermissionDeny} />
           <FrontOfficeLive authority={authority} />
           <main className="main">

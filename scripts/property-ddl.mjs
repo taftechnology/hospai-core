@@ -125,6 +125,7 @@ if (process.argv.includes('--self-test')) {
   let PLATFORM_ENTITLEMENT_CATALOG_SQL;
   let PLATFORM_OPS_ALERT_SQL;
   let PLATFORM_USER_ORG_SQL;
+  let PLATFORM_OPERATOR_SQL;
   try {
     ({
       FREEZE_GATE_SQL,
@@ -206,6 +207,7 @@ if (process.argv.includes('--self-test')) {
       PLATFORM_ENTITLEMENT_CATALOG_SQL,
       PLATFORM_OPS_ALERT_SQL,
       PLATFORM_USER_ORG_SQL,
+      PLATFORM_OPERATOR_SQL,
     } = await import(modPath));
   } catch (e) {
     console.error(
@@ -961,6 +963,16 @@ const targets = [
 
 `,
     sql: PLATFORM_USER_ORG_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0009_operator.sql'),
+    header: `-- Platform D1 operator registry and append-only operator log (R7.1) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- Operator rows are retained; operator_action is append-only. Also adds org status suspended.
+
+`,
+    sql: PLATFORM_OPERATOR_SQL,
   },
 ];
 

@@ -20,7 +20,16 @@ export type SystemActor = {
     | 'event_consumer';
 };
 
-export type ActorContext = UserActor | SystemActor;
+/**
+ * HospAI staff acting through `OpsEntrypoint` (R7.1). Not `staff`: here "staff" means hotel employees.
+ * No `/v1` HTTP path ever produces one, and `gatePermission` never accepts it for a tenant permission.
+ */
+export type OperatorActor = {
+  kind: 'operator';
+  operatorId: string;
+};
+
+export type ActorContext = UserActor | SystemActor | OperatorActor;
 
 
 /** Org-scoped — assertPermission rejects when propertyId != null. */

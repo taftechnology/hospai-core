@@ -1644,6 +1644,8 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   // R4.4: user scope = authenticated actor, no tenant in the URL, no permission, no entitlement.
   // Self only; every org it reports is re-checked in that org's OrgDO.
   { id: 'get_me_tenants', scope: 'user' },
+  // R7.1: the hotel's read-only view of what HospAI changed on its account. Filtered by the URL org.
+  { id: 'get_org_operator_actions', scope: 'org', permission: 'org:read' },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

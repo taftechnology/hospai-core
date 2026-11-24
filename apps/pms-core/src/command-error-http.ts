@@ -173,6 +173,18 @@ import {
   TAX_RULE_NOT_FOUND,
   TAX_RULE_TYPE_UNSUPPORTED,
   TENANT_NOT_ACTIVE,
+  ORG_EXISTS,
+  PROPERTY_EXISTS,
+  JURISDICTION_CONFLICT,
+  USER_NOT_FOUND,
+  PLAN_BELOW_USAGE,
+  OPERATOR_EXISTS,
+  LAST_OPS_ADMIN,
+  NOT_AN_OPERATOR,
+  OPS_WRITES_DISABLED,
+  TENANT_SUSPENDED,
+  MFA_REQUIRED,
+  CLERK_UNREACHABLE,
   TIMEZONE_UNSET,
   TRANSFER_CROSS_RESERVATION,
   TRANSFER_SAME_WINDOW,
@@ -275,10 +287,18 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case COPILOT_UNAVAILABLE:
       return 503;
     case NOT_MEMBER:
+    case USER_NOT_FOUND:
       return 404;
     case FORBIDDEN:
     case SCOPE_MISMATCH:
+    case NOT_AN_OPERATOR:
+    case TENANT_SUSPENDED:
       return 403;
+    case MFA_REQUIRED:
+      return 401;
+    case OPS_WRITES_DISABLED:
+    case CLERK_UNREACHABLE:
+      return 503;
     case PSP_UNAVAILABLE:
       return 501;
     case CONFIG_CLASS_NOT_DOMAIN:
@@ -526,7 +546,14 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case IDEM_KEY_REUSED:
     case ROOM_TYPE_EXISTS:
     case ROOM_TYPE_CODE_EXISTS:
+    case ORG_EXISTS:
+    case PROPERTY_EXISTS:
+    case JURISDICTION_CONFLICT:
+    case OPERATOR_EXISTS:
+    case LAST_OPS_ADMIN:
       return 409;
+    case PLAN_BELOW_USAGE:
+      return 422;
     default: {
       const _exhaustive: never = error;
       return _exhaustive;

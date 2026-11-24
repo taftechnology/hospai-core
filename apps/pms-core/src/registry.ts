@@ -2,6 +2,7 @@ import type { PlanCode, PropertyRecord } from '@hospai/contracts';
 import { validateTenantId } from '@hospai/contracts';
 import {
   PLATFORM_ALL_STATEMENTS,
+  PLATFORM_ORG_SUSPENDED_STATEMENTS,
   PLATFORM_PURGE_ALTERS,
   PLATFORM_PURGE_STATEMENTS,
 } from '@hospai/do-runtime';
@@ -34,6 +35,14 @@ export async function ensurePlatformSchema(db: D1Database): Promise<void> {
       for (const stmt of PLATFORM_PURGE_STATEMENTS) {
         await db.prepare(stmt).run();
       }
+      // R7.1 §7: the org lifecycle trigger gains `suspended`. Replace it only when the live one is
+      // the pre-R7.1 version, so a running registry is never left without the guard.
+      const live = await db
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'org_status_update'`)
+        .first<{ sql: string | null }>();
+      if (!live?.sql?.includes('suspended')) {
+        await db.batch(PLATFORM_ORG_SUSPENDED_STATEMENTS.map((stmt) => db.prepare(stmt)));
+      }
     })().catch((err) => {
       schemaReady = null;
       throw err;
@@ -47,22 +56,34 @@ export function resetPlatformSchemaGate(): void {
   schemaReady = null;
 }
 
-export type TenantActiveDenial = 'not_found' | 'tenant_not_active';
+export type TenantActiveDenial = 'not_found' | 'tenant_not_active' | 'tenant_suspended';
 
 /**
  * Single control-plane gate for HTTP dispatch, replay, and provisioning.
- * Only `status === 'active'` passes.
+ *
+ * Org status by intent (R7.1 §7): a `write` (the default) passes `active` only, except when the
+ * caller sets `allowSuspended` (org cancel: a customer can always leave); a `read` passes `active`
+ * and `suspended`. A suspended org that a write meets is `tenant_suspended`, not `tenant_not_active`.
+ * An explicit `allowedOrgStatuses` overrides the intent (purge, system consumers).
  */
 export async function assertTenantActive(
   env: PmsEnv,
   opts: {
     orgId?: string;
     propertyId?: string;
+    intent?: 'read' | 'write';
+    allowSuspended?: boolean;
     allowedOrgStatuses?: readonly string[];
     prefetchedProperty?: PropertyRecord;
   },
 ): Promise<{ ok: true } | { ok: false; error: TenantActiveDenial; status?: string }> {
-  const allowedOrgStatuses = opts.allowedOrgStatuses ?? ['active'];
+  const allowedOrgStatuses =
+    opts.allowedOrgStatuses ??
+    (opts.intent === 'read' || opts.allowSuspended ? ['active', 'suspended'] : ['active']);
+  const denyOrg = (status: string): { ok: false; error: TenantActiveDenial; status: string } =>
+    status === 'suspended'
+      ? { ok: false, error: 'tenant_suspended', status }
+      : { ok: false, error: 'tenant_not_active', status };
   await ensurePlatformSchema(env.PLATFORM_DB);
   if (opts.propertyId) {
     const property =
@@ -78,17 +99,13 @@ export async function assertTenantActive(
     }
     const org = await getOrg(env, property.orgId);
     if (!org) return { ok: false, error: 'not_found' };
-    if (!allowedOrgStatuses.includes(org.status)) {
-      return { ok: false, error: 'tenant_not_active', status: org.status };
-    }
+    if (!allowedOrgStatuses.includes(org.status)) return denyOrg(org.status);
     return { ok: true };
   }
   if (opts.orgId) {
     const org = await getOrg(env, opts.orgId);
     if (!org) return { ok: false, error: 'not_found' };
-    if (!allowedOrgStatuses.includes(org.status)) {
-      return { ok: false, error: 'tenant_not_active', status: org.status };
-    }
+    if (!allowedOrgStatuses.includes(org.status)) return denyOrg(org.status);
     return { ok: true };
   }
   return { ok: false, error: 'not_found' };
@@ -556,27 +573,15 @@ export async function setKillSwitch(
 export async function insertProperty(
   env: PmsEnv,
   property: Omit<PropertyRecord, 'status' | 'createdAt'> & { status?: PropertyRecord['status'] },
+  /** R7.1 D7: statements committed with the insert in one `db.batch()` (the operator_action row). */
+  withStatements?: (created: PropertyRecord) => D1PreparedStatement[],
 ): Promise<PropertyRecord> {
   validateTenantId(property.propertyId);
   validateTenantId(property.orgId);
   await ensurePlatformSchema(env.PLATFORM_DB);
   const createdAt = Date.now();
   const status = property.status ?? 'active';
-  await env.PLATFORM_DB.prepare(
-    `INSERT INTO property (property_id, org_id, name, jurisdiction, time_zone, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      property.propertyId,
-      property.orgId,
-      property.name,
-      property.jurisdiction,
-      property.timeZone,
-      status,
-      createdAt,
-    )
-    .run();
-  return {
+  const created: PropertyRecord = {
     propertyId: property.propertyId,
     orgId: property.orgId,
     name: property.name,
@@ -585,6 +590,24 @@ export async function insertProperty(
     status,
     createdAt,
   };
+  const insert = env.PLATFORM_DB.prepare(
+    `INSERT INTO property (property_id, org_id, name, jurisdiction, time_zone, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    property.propertyId,
+    property.orgId,
+    property.name,
+    property.jurisdiction,
+    property.timeZone,
+    status,
+    createdAt,
+  );
+  if (withStatements) {
+    await env.PLATFORM_DB.batch([insert, ...withStatements(created)]);
+  } else {
+    await insert.run();
+  }
+  return created;
 }
 
 export async function updatePropertyName(

@@ -43,6 +43,20 @@ export const INTERNAL_ERROR = 'internal_error' as const;
 export const DOMAIN_ERROR = 'domain_error' as const;
 export const TENANT_NOT_ACTIVE = 'tenant_not_active' as const;
 
+/** R7.1 operations platform wire codes (ops-platform spec §3, §5, §7, §15). */
+export const ORG_EXISTS = 'org_exists' as const;
+export const PROPERTY_EXISTS = 'property_exists' as const;
+export const JURISDICTION_CONFLICT = 'jurisdiction_conflict' as const;
+export const USER_NOT_FOUND = 'user_not_found' as const;
+export const PLAN_BELOW_USAGE = 'plan_below_usage' as const;
+export const OPERATOR_EXISTS = 'operator_exists' as const;
+export const LAST_OPS_ADMIN = 'last_ops_admin' as const;
+export const NOT_AN_OPERATOR = 'not_an_operator' as const;
+export const OPS_WRITES_DISABLED = 'ops_writes_disabled' as const;
+export const TENANT_SUSPENDED = 'tenant_suspended' as const;
+export const MFA_REQUIRED = 'mfa_required' as const;
+export const CLERK_UNREACHABLE = 'clerk_unreachable' as const;
+
 /** Night-audit PRE_CHECK wire codes */
 export const PENDING_COMMANDS_UNDRAINED = 'pending_commands_undrained' as const;
 export const PROVISIONAL_EXCEPTIONS_OPEN = 'provisional_exceptions_open' as const;

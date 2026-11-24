@@ -53,3 +53,4 @@ export * from './report-stats.js';
 export * from './manager-report.js';
 export * from './accounting-journal.js';
 export * from './copilot.js';
+export * from './ops.js';

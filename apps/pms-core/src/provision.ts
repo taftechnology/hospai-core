@@ -15,9 +15,19 @@ import type { PropertyDO } from './property-do.js';
 import { getOrg, getProperty, insertProperty, upsertOrg, assertTenantActive } from './registry.js';
 import { indexUserOrg } from './user-org-index.js';
 
+export type ProvisionPropertyOptions = {
+  /**
+   * R7.1 D7: statements committed in the same `db.batch()` as the registry insert. `ops.add_property`
+   * passes its `operator_action` row so the change and its record commit together. Not run when the
+   * property already exists in the same org (an idempotent re-sync changes nothing).
+   */
+  withRegistryInsert?: (created: PropertyRecord) => D1PreparedStatement[];
+};
+
 export async function provisionProperty(
   env: PmsEnv,
   input: ProvisionPropertyInput,
+  opts?: ProvisionPropertyOptions,
 ): Promise<ProvisionPropertyResult> {
   try {
     validateTenantId(input.orgId);
@@ -66,7 +76,7 @@ export async function provisionProperty(
     if (existing.jurisdiction !== input.jurisdiction) {
       return { ok: false, error: 'jurisdiction_conflict' };
     }
-    await syncOrgAndPropertyDo(env, existing, locationHint, input.actorUserId, ledgerCurrency);
+    await syncOrgAndPropertyDo(env, existing, locationHint, provisionActor(input), ledgerCurrency);
     return { ok: true, property: existing, locationHint };
   }
 
@@ -83,32 +93,46 @@ export async function provisionProperty(
 
   let property: PropertyRecord;
   try {
-    property = await insertProperty(env, {
-      propertyId: input.propertyId,
-      orgId: input.orgId,
-      name: input.name,
-      jurisdiction: input.jurisdiction,
-      timeZone: input.timeZone,
-    });
+    property = await insertProperty(
+      env,
+      {
+        propertyId: input.propertyId,
+        orgId: input.orgId,
+        name: input.name,
+        jurisdiction: input.jurisdiction,
+        timeZone: input.timeZone,
+      },
+      opts?.withRegistryInsert,
+    );
   } catch (e) {
     await entitlement.releasePropertySlot(input.orgId);
     throw e;
   }
 
-  await syncOrgAndPropertyDo(env, property, locationHint, input.actorUserId, ledgerCurrency);
+  await syncOrgAndPropertyDo(env, property, locationHint, provisionActor(input), ledgerCurrency);
   return { ok: true, property, locationHint };
+}
+
+type ProvisionActor = { kind: 'user'; userId: string } | { kind: 'operator'; operatorId: string };
+
+function provisionActor(input: ProvisionPropertyInput): ProvisionActor {
+  return input.actor ?? { kind: 'user', userId: input.actorUserId };
 }
 
 async function syncOrgAndPropertyDo(
   env: PmsEnv,
   property: PropertyRecord,
   locationHint: string,
-  actorUserId: string,
+  actor: ProvisionActor,
   ledgerCurrency: string,
 ): Promise<void> {
   const org = resolveOrgStub(env.ORG_DO, { orgId: property.orgId }) as DurableObjectStub<OrgDO>;
-  await org.ensureMember(actorUserId, 'owner');
-  await indexUserOrg(env, actorUserId, property.orgId);
+  // An operator is never a tenant member (R7.1 §5): no membership, no discovery-index row. The hotel
+  // gets its owner from `ops.add_org_owner`.
+  if (actor.kind === 'user') {
+    await org.ensureMember(actor.userId, 'owner');
+    await indexUserOrg(env, actor.userId, property.orgId);
+  }
   await org.upsertPropertyRef({
     propertyId: property.propertyId,
     name: property.name,

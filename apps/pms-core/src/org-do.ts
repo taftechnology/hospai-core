@@ -1025,6 +1025,8 @@ export class OrgDO extends DurableObject<PmsEnv> {
     permission: Permission,
   ): Promise<{ ok: false; error: typeof FORBIDDEN | typeof NOT_MEMBER | typeof SCOPE_MISMATCH } | null> {
     if (actor.kind === 'system') return null;
+    // R7.1 D5: an operator is never a tenant member and never passes a tenant permission.
+    if (actor.kind === 'operator') return { ok: false, error: FORBIDDEN };
 
     if (this.denyGuestReadForTest && permission === 'guests:read') {
       return { ok: false, error: FORBIDDEN };
@@ -1795,7 +1797,12 @@ export class OrgDO extends DurableObject<PmsEnv> {
     const denied = await this.gateCoreEntitlement(orgId);
     if (denied) return denied;
 
-    const auditActor = actor.kind === 'user' ? actor.userId : `system:${actor.reason}`;
+    const auditActor =
+      actor.kind === 'user'
+        ? actor.userId
+        : actor.kind === 'operator'
+          ? `operator:${actor.operatorId}`
+          : `system:${actor.reason}`;
 
     try {
       return this.ctx.storage.transactionSync(() =>
@@ -2056,6 +2063,22 @@ export class OrgDO extends DurableObject<PmsEnv> {
       )
       .toArray()[0];
     return row !== undefined;
+  }
+
+  /** R7.1 Ops Console: distinct users who can open this hotel (org members and its property grants). */
+  async countMembersForProperty(propertyId: string): Promise<number> {
+    this.assertRpcAvailable();
+    const row = this.ctx.storage.sql
+      .exec(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT user_id FROM member
+           UNION
+           SELECT user_id FROM property_member WHERE property_id = ?
+         )`,
+        propertyId,
+      )
+      .toArray()[0] as { n: number } | undefined;
+    return Number(row?.n ?? 0);
   }
 
   async listMembers(): Promise<Array<{ userId: string; role: 'owner' | 'admin' | 'staff' }>> {

@@ -54,6 +54,20 @@ export async function handlePendingCommandsBatch(
       }
 
       const gate = await assertTenantActive(env, { propertyId: provisional.propertyId });
+      if (!gate.ok && gate.error === 'tenant_suspended') {
+        // R7.1 §7: a queued write replayed against a suspended org is surfaced, never dropped.
+        await resolved.stub.recordProvisionalException(provisional, 'tenant_suspended', null);
+        logWarn(ctx, {
+          msg: 'degraded.exception',
+          reason: 'tenant_suspended',
+          propertyId: provisional.propertyId,
+          commandId: provisional.command.type,
+          idempotencyKey: provisional.idempotencyKey,
+          actorUserId: provisional.actor.userId,
+        });
+        await ackTerminal(env, msg);
+        continue;
+      }
       if (!gate.ok) {
         logWarn(ctx, {
           msg: 'degraded.exception',

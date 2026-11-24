@@ -509,6 +509,94 @@ export const PLATFORM_USER_ORG_STATEMENTS: string[] = [
 
 export const PLATFORM_USER_ORG_SQL = PLATFORM_USER_ORG_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * R7.1 operator registry and the append-only operator log (ops-platform spec D4, §6, §15 A5).
+ * `operator` rows are retained (disable, never delete). `operator_action` rows are never updated or
+ * deleted. `before_json` / `after_json` hold plan and add-on codes, statuses and ids only.
+ * `idempotency_key` (`operator:<operatorId>:<clientKey>`) and `request_fingerprint` make a write
+ * replayable: the same key and fingerprint is a no-op, the same key with another fingerprint is a 409.
+ */
+export const PLATFORM_OPERATOR_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS operator (
+  operator_id    TEXT PRIMARY KEY,
+  email          TEXT NOT NULL UNIQUE CHECK (email = lower(email)),
+  display_name   TEXT NOT NULL,
+  role           TEXT NOT NULL CHECK (role IN ('ops_admin', 'ops_viewer')),
+  status         TEXT NOT NULL CHECK (status IN ('active', 'disabled')),
+  clerk_user_id  TEXT UNIQUE,
+  created_at     INTEGER NOT NULL
+)`,
+
+  `CREATE TRIGGER IF NOT EXISTS operator_no_delete
+BEFORE DELETE ON operator
+BEGIN
+  SELECT RAISE(ABORT, 'operator rows are retained; disable instead');
+END`,
+
+  `CREATE TABLE IF NOT EXISTS operator_action (
+  action_id            TEXT PRIMARY KEY,
+  operator_id          TEXT NOT NULL REFERENCES operator(operator_id),
+  command_id           TEXT NOT NULL,
+  org_id               TEXT,
+  property_id          TEXT,
+  reason               TEXT NOT NULL,
+  ticket_ref           TEXT,
+  before_json          TEXT,
+  after_json           TEXT,
+  created_at           INTEGER NOT NULL,
+  idempotency_key      TEXT UNIQUE,
+  request_fingerprint  TEXT
+)`,
+
+  `CREATE INDEX IF NOT EXISTS operator_action_org_idx ON operator_action (org_id, created_at DESC, action_id)`,
+
+  `CREATE INDEX IF NOT EXISTS operator_action_operator_idx ON operator_action (operator_id, created_at DESC, action_id)`,
+
+  `CREATE TRIGGER IF NOT EXISTS operator_action_no_update
+BEFORE UPDATE ON operator_action
+BEGIN
+  SELECT RAISE(ABORT, 'operator_action is append-only');
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS operator_action_no_delete
+BEFORE DELETE ON operator_action
+BEGIN
+  SELECT RAISE(ABORT, 'operator_action is append-only');
+END`,
+];
+
+/**
+ * R7.1 §7: `suspended` joins the org lifecycle. Replaces the 0004 trigger (DROP + CREATE: SQLite
+ * has no ALTER TRIGGER). `ensurePlatformSchema` applies this only when the live trigger lacks
+ * `suspended`, so a running registry is never left without the guard.
+ */
+export const PLATFORM_ORG_SUSPENDED_STATEMENTS: string[] = [
+  `DROP TRIGGER IF EXISTS org_status_update`,
+
+  `CREATE TRIGGER org_status_update
+BEFORE UPDATE OF status ON org
+BEGIN
+  SELECT RAISE(ABORT, 'org status transition forbidden')
+  WHERE NOT (
+    (OLD.status = 'active' AND NEW.status = 'closing')
+    OR (OLD.status = 'closing' AND NEW.status = 'active')
+    OR (OLD.status = 'closing' AND NEW.status = 'purging')
+    OR (OLD.status = 'purging' AND NEW.status = 'purged')
+    OR (OLD.status = 'active' AND NEW.status = 'suspended')
+    OR (OLD.status = 'suspended' AND NEW.status = 'active')
+    OR (OLD.status = 'suspended' AND NEW.status = 'closing')
+    OR (OLD.status = NEW.status)
+  );
+  SELECT RAISE(ABORT, 'org closing→purging requires purge_not_before')
+  WHERE OLD.status = 'closing' AND NEW.status = 'purging' AND NEW.purge_not_before IS NULL;
+  SELECT RAISE(ABORT, 'org purged is terminal')
+  WHERE OLD.status = 'purged' AND NEW.status IS NOT OLD.status;
+END`,
+];
+
+export const PLATFORM_OPERATOR_SQL =
+  [...PLATFORM_OPERATOR_STATEMENTS, ...PLATFORM_ORG_SUSPENDED_STATEMENTS].join(';\n\n') + ';\n';
+
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
@@ -517,6 +605,8 @@ export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS,
   ...PLATFORM_OPS_ALERT_STATEMENTS,
   ...PLATFORM_USER_ORG_STATEMENTS,
+  ...PLATFORM_OPERATOR_STATEMENTS,
+  // PLATFORM_ORG_SUSPENDED_STATEMENTS applied by ensurePlatformSchema after the purge triggers.
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];
 

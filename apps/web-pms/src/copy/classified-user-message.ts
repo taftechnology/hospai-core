@@ -8,6 +8,9 @@ import {
   type PropertyFormat,
 } from '@hospai/client-core';
 
+/** R7.1 §7: shown in the shell band and when a write is refused with `tenant_suspended`. */
+export const ACCOUNT_SUSPENDED_MESSAGE = 'This account is suspended. Contact HospAI.';
+
 const UNKNOWN_MESSAGE = 'Something went wrong — try again or ask a manager.';
 
 const CLASS_MESSAGES: Partial<Record<ClientResultClass, string>> = {
@@ -60,6 +63,7 @@ type MessageContext = {
 };
 
 const DOMAIN_CODE_MESSAGES: Record<string, (body: unknown, context: MessageContext) => string> = {
+  tenant_suspended: () => ACCOUNT_SUSPENDED_MESSAGE,
   balance_due: (body, context) => {
     const balanceMinor = bodyNumberField(body, 'balanceMinor');
     if (typeof balanceMinor === 'number') {

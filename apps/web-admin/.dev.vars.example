@@ -1,0 +1,8 @@
+# Copy to apps/web-admin/.dev.vars (gitignored) for `wrangler dev`. Local only.
+HOSPAI_UNSAFE_LOCAL=1
+OPS_ALLOW_DEV_OPERATOR=1
+
+# To test real Clerk sign-in locally instead of the dev header (the OPS instance):
+# CLERK_SECRET_KEY=sk_test_...
+# CLERK_PUBLISHABLE_KEY=pk_test_...
+# CLERK_AUTHORIZED_PARTIES=http://localhost:8788,http://localhost:5174

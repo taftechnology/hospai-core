@@ -32,7 +32,13 @@ function normalize(file: string): string {
 function inScope(file: string): boolean {
   const f = normalize(file);
   if (f.includes('/packages/ui-kit/')) return false;
-  if (f.includes('/apps/web-pms/src/') && f.endsWith('.tsx') && !f.includes('.test.')) return true;
+  if (
+    (f.includes('/apps/web-pms/src/') || f.includes('/apps/web-admin/src/')) &&
+    f.endsWith('.tsx') &&
+    !f.includes('.test.')
+  ) {
+    return true;
+  }
   if (f.includes('/modules/') && f.includes('/src/ui/') && f.endsWith('.tsx') && !f.includes('.test.')) {
     return true;
   }

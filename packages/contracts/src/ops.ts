@@ -3,6 +3,8 @@
  * (pms-core), the Ops Console Worker, and the hotel's read-only "HospAI account changes" table.
  */
 
+import type { Jurisdiction } from './tenancy/types.js';
+
 export const OPS_COMMAND_IDS = [
   'ops.create_org',
   'ops.add_property',
@@ -50,3 +52,128 @@ export type OrgOperatorActionsResponse = {
   hasMore: boolean;
   actions: OrgOperatorActionRow[];
 };
+
+// ---------------------------------------------------------------------------------------------
+// Results of `OpsEntrypoint` (plain data: they cross the service-binding RPC boundary, and the Ops
+// Console Worker and SPA read the same shapes).
+// ---------------------------------------------------------------------------------------------
+
+export type OpsFailure = {
+  ok: false;
+  error: string;
+  /** HTTP status from the one `commandErrorHttpStatus` table (400 for a code outside it). */
+  status: number;
+  detail?: string;
+  featureKey?: string;
+};
+
+export type OperatorView = {
+  operatorId: string;
+  email: string;
+  displayName: string;
+  role: OpsRole;
+  status: OperatorStatus;
+};
+
+export type OpsWriteOk = {
+  ok: true;
+  /** The `operator_action` row; null when the command changed nothing and wrote no record. */
+  actionId: string | null;
+  replayed: boolean;
+};
+
+export type OpsPropertyView = {
+  propertyId: string;
+  orgId: string;
+  name: string;
+  jurisdiction: Jurisdiction | null;
+  timeZone: string;
+  status: string;
+  createdAt: number;
+};
+
+export type OpsAddPropertyOk = OpsWriteOk & { property: OpsPropertyView };
+
+export type CustomerRow = {
+  orgId: string;
+  name: string;
+  status: string;
+  planCode: string | null;
+  addons: Array<{ addonCode: string; quantity: number }>;
+  propertiesUsed: number;
+  /** null = unlimited. */
+  propertiesLimit: number | null;
+  createdAt: number;
+};
+
+export type CustomerPage = {
+  ok: true;
+  page: number;
+  hasMore: boolean;
+  customers: CustomerRow[];
+};
+
+export type OperatorActionRow = {
+  actionId: string;
+  operatorId: string;
+  operatorName: string;
+  commandId: string;
+  orgId: string | null;
+  propertyId: string | null;
+  reason: string;
+  ticketRef: string | null;
+  before: unknown;
+  after: unknown;
+  createdAt: number;
+};
+
+export type OperatorActionPage = {
+  ok: true;
+  page: number;
+  hasMore: boolean;
+  actions: OperatorActionRow[];
+};
+
+export type CustomerDetail = {
+  ok: true;
+  org: { orgId: string; name: string; status: string; createdAt: number };
+  subscription: { planCode: string; status: string; entitlementVersion: number } | null;
+  addons: Array<{ addonCode: string; quantity: number }>;
+  propertiesUsed: number;
+  propertiesLimit: number | null;
+  properties: Array<{
+    propertyId: string;
+    name: string;
+    timeZone: string;
+    jurisdiction: Jurisdiction | null;
+    status: string;
+  }>;
+  /** User id and role only: no email, no name. */
+  owners: Array<{ userId: string; role: 'owner' }>;
+  actions: OperatorActionRow[];
+};
+
+/**
+ * The only keys `getPropertyHealth` returns (asserted in a test): counts, dates and statuses.
+ * No guest name, amount, folio row or document number.
+ */
+export type PropertyHealthView = {
+  ok: true;
+  propertyId: string;
+  orgId: string;
+  businessDate: string | null;
+  lastNightAudit: {
+    businessDate: string;
+    status: 'COMPLETED' | 'RUNNING' | 'FAILED' | 'PARTIAL';
+    exceptionCount: number;
+  } | null;
+  oldestOutboxAgeMs: number | null;
+  roomCount: number;
+  roomTypeCount: number;
+  activeMemberCount: number;
+  schemaVersion: number;
+};
+
+export type ResolveOperatorResult =
+  | { ok: true; operator: OperatorView; via: 'clerk_user_id' | 'link' | 'bootstrap' }
+  | OpsFailure;

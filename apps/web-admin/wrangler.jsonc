@@ -1,0 +1,77 @@
+{
+  // HospAI Ops Console (R7.1). A Worker with static assets (not Pages): the Vite build in ./dist
+  // plus its own /api/* handler.
+  //
+  // Bindings: ONLY the PMS_OPS service binding to pms-core's OpsEntrypoint, and the assets
+  // binding. No D1, DO, KV, R2 or queue (apps/web-admin/src/worker/wrangler-bindings.test.ts).
+  //
+  // Secrets, never committed (set with `wrangler secret put <NAME> -e <env>`):
+  //   CLERK_SECRET_KEY    the OPS Clerk instance, never the hotel instance
+  //   CLERK_JWT_KEY       optional: the ops instance's PEM public key (networkless verification)
+  //
+  // Empty CLERK_AUTHORIZED_PARTIES / missing Clerk config fail closed: every /api request is 401.
+  // The local-only dev operator flags (HOSPAI_UNSAFE_LOCAL, OPS_ALLOW_DEV_OPERATOR) live in the
+  // gitignored .dev.vars, never in this file (see .dev.vars.example).
+  //
+  // No routes or custom domain yet: the hostname is open question Q1.
+  "name": "hospai-ops-console",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "services": [
+    { "binding": "PMS_OPS", "service": "hospai-pms-core", "entrypoint": "OpsEntrypoint" }
+  ],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "vars": {
+    "CLERK_PUBLISHABLE_KEY": "",
+    "CLERK_AUTHORIZED_PARTIES": ""
+  },
+  "env": {
+    "staging": {
+      "account_id": "9c3a73acfa30fd1c244bf519f7c7bce9",
+      "name": "hospai-ops-console-staging",
+      "main": "src/worker/index.ts",
+      "compatibility_date": "2025-07-01",
+      "compatibility_flags": ["nodejs_compat"],
+      "services": [
+        { "binding": "PMS_OPS", "service": "hospai-pms-core-staging", "entrypoint": "OpsEntrypoint" }
+      ],
+      "assets": {
+        "binding": "ASSETS",
+        "directory": "./dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      },
+      // The user fills these from the ops Clerk instance. Empty = fail closed.
+      "vars": {
+        "CLERK_PUBLISHABLE_KEY": "",
+        "CLERK_AUTHORIZED_PARTIES": ""
+      }
+    },
+    "production": {
+      "account_id": "9c3a73acfa30fd1c244bf519f7c7bce9",
+      "name": "hospai-ops-console",
+      "main": "src/worker/index.ts",
+      "compatibility_date": "2025-07-01",
+      "compatibility_flags": ["nodejs_compat"],
+      "services": [
+        { "binding": "PMS_OPS", "service": "hospai-pms-core", "entrypoint": "OpsEntrypoint" }
+      ],
+      "assets": {
+        "binding": "ASSETS",
+        "directory": "./dist",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": true
+      },
+      "vars": {
+        "CLERK_PUBLISHABLE_KEY": "",
+        "CLERK_AUTHORIZED_PARTIES": ""
+      }
+    }
+  }
+}

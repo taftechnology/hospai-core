@@ -35,6 +35,7 @@ const BADGE_RE = /className="(?:[^"\s]+\s+)*badge(?:\s+[^"\s]+)*"/g;
 
 const SCAN_ROOTS = [
   join(root, 'apps/web-pms/src'),
+  join(root, 'apps/web-admin/src'),
   join(root, 'modules/pms/housekeeping/src/ui'),
 ];
 

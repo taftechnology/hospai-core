@@ -39,6 +39,14 @@ describe('no-fetch-in-components', () => {
     ).toEqual([expect.objectContaining({ messageId: 'forbidden' })]);
   });
 
+  it('flags fetch in web-admin tsx, and allows it in the api module and the worker', () => {
+    expect(
+      lint(`export function A() { fetch('/api'); return null; }`, '/repo/apps/web-admin/src/screens/A.tsx'),
+    ).toEqual([expect.objectContaining({ messageId: 'forbidden' })]);
+    expect(lint(`fetch('/api');`, '/repo/apps/web-admin/src/api/client.ts')).toEqual([]);
+    expect(lint(`fetch('/x');`, '/repo/apps/web-admin/src/worker/index.ts')).toEqual([]);
+  });
+
   it('allows fetch outside web-pms tsx', () => {
     expect(lint(`fetch('/v1');`, '/repo/packages/client-core/src/transport.ts')).toEqual([]);
     expect(lint(`fetch('/v1');`, '/repo/apps/web-pms/src/client.ts')).toEqual([]);

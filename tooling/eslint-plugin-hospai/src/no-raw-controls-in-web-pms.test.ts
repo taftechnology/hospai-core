@@ -48,6 +48,14 @@ describe('no-raw-controls-in-web-pms', () => {
     ]);
   });
 
+  it('reports on a raw control in web-admin screens, not in its tests', () => {
+    const code = `export function A() { return <input />; }`;
+    expect(lint(code, '/repo/apps/web-admin/src/screens/A.tsx')).toEqual([
+      expect.objectContaining({ messageId: 'forbidden' }),
+    ]);
+    expect(lint(code, '/repo/apps/web-admin/src/screens/A.test.tsx')).toEqual([]);
+  });
+
   it('does not report inside packages/ui-kit', () => {
     expect(
       lint(`export function X() { return <button type="button">Save</button>; }`, uiKit),

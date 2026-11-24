@@ -30,7 +30,7 @@ type StyleAttrNode = {
 
 function isWebPmsTsx(file: string): boolean {
   const f = file.replace(/\\/g, '/');
-  return f.includes('/apps/web-pms/') && f.endsWith('.tsx');
+  return (f.includes('/apps/web-pms/') || f.includes('/apps/web-admin/')) && f.endsWith('.tsx');
 }
 
 function cssVarKeyName(key: PropNode['key']): string | null {

@@ -20,7 +20,7 @@ import {
 } from './event-consumers.js';
 import { handlePendingCommandsBatch } from './pending-commands-consumer.js';
 import { handleV1 } from './v1-handler.js';
-import { applySecurityHeaders } from './security-headers.js';
+import { applySecurityHeaders } from '@hospai/http-security';
 import { runOpsHealthSweep } from './ops-health-sweep.js';
 
 export type { PmsEnv } from './env.js';

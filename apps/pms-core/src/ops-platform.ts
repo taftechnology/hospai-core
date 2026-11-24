@@ -48,6 +48,18 @@ import {
   validateTenantId,
   type CommandError,
   type Jurisdiction,
+  type CustomerDetail,
+  type CustomerPage,
+  type CustomerRow,
+  type OperatorActionPage,
+  type OperatorActionRow,
+  type OperatorView,
+  type OpsAddPropertyOk,
+  type OpsFailure,
+  type OpsPropertyView,
+  type OpsWriteOk,
+  type PropertyHealthView,
+  type ResolveOperatorResult,
   type OpsCommandId,
   type OpsRole,
   type OperatorStatus,
@@ -61,7 +73,6 @@ import { isPropertyDoTransportFailure } from './do-transport-failure.js';
 import type { PmsEnv } from './env.js';
 import type { OrgDO } from './org-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from './provision.js';
-import type { OpsConsoleHealth } from './property-do.js';
 import { ensurePlatformSchema, getOrg, getProperty } from './registry.js';
 import { indexUserOrg } from './user-org-index.js';
 
@@ -69,121 +80,20 @@ import { indexUserOrg } from './user-org-index.js';
 // Result shapes (plain data: they cross the service-binding RPC boundary)
 // ---------------------------------------------------------------------------------------------
 
-export type OpsFailure = {
-  ok: false;
-  error: string;
-  /** HTTP status from the one `commandErrorHttpStatus` table (400 for a code outside it). */
-  status: number;
-  detail?: string;
-  featureKey?: string;
-};
-
-export type OperatorView = {
-  operatorId: string;
-  email: string;
-  displayName: string;
-  role: OpsRole;
-  status: OperatorStatus;
-};
-
-export type OpsWriteOk = {
-  ok: true;
-  /** The `operator_action` row; null when the command changed nothing and wrote no record. */
-  actionId: string | null;
-  replayed: boolean;
-};
-
-export type OpsPropertyView = {
-  propertyId: string;
-  orgId: string;
-  name: string;
-  jurisdiction: Jurisdiction | null;
-  timeZone: string;
-  status: string;
-  createdAt: number;
-};
-
-export type OpsAddPropertyOk = OpsWriteOk & { property: OpsPropertyView };
-
-export type CustomerRow = {
-  orgId: string;
-  name: string;
-  status: string;
-  planCode: string | null;
-  addons: Array<{ addonCode: string; quantity: number }>;
-  propertiesUsed: number;
-  /** null = unlimited. */
-  propertiesLimit: number | null;
-  createdAt: number;
-};
-
-export type CustomerPage = {
-  ok: true;
-  page: number;
-  hasMore: boolean;
-  customers: CustomerRow[];
-};
-
-export type OperatorActionRow = {
-  actionId: string;
-  operatorId: string;
-  operatorName: string;
-  commandId: string;
-  orgId: string | null;
-  propertyId: string | null;
-  reason: string;
-  ticketRef: string | null;
-  before: unknown;
-  after: unknown;
-  createdAt: number;
-};
-
-export type OperatorActionPage = {
-  ok: true;
-  page: number;
-  hasMore: boolean;
-  actions: OperatorActionRow[];
-};
-
-export type CustomerDetail = {
-  ok: true;
-  org: { orgId: string; name: string; status: string; createdAt: number };
-  subscription: { planCode: string; status: string; entitlementVersion: number } | null;
-  addons: Array<{ addonCode: string; quantity: number }>;
-  propertiesUsed: number;
-  propertiesLimit: number | null;
-  properties: Array<{
-    propertyId: string;
-    name: string;
-    timeZone: string;
-    jurisdiction: Jurisdiction | null;
-    status: string;
-  }>;
-  /** User id and role only: no email, no name. */
-  owners: Array<{ userId: string; role: 'owner' }>;
-  actions: OperatorActionRow[];
-};
-
-/**
- * The only keys `getPropertyHealth` returns (asserted in a test): counts, dates and statuses.
- * No guest name, amount, folio row or document number.
- */
-export type PropertyHealthView = {
-  ok: true;
-  propertyId: string;
-  orgId: string;
-  businessDate: string | null;
-  lastNightAudit: OpsConsoleHealth['lastNightAudit'];
-  oldestOutboxAgeMs: number | null;
-  roomCount: number;
-  roomTypeCount: number;
-  activeMemberCount: number;
-  schemaVersion: number;
-};
-
-export type ResolveOperatorResult =
-  | { ok: true; operator: OperatorView; via: 'clerk_user_id' | 'link' | 'bootstrap' }
-  | OpsFailure;
+export type {
+  CustomerDetail,
+  CustomerPage,
+  CustomerRow,
+  OperatorActionPage,
+  OperatorActionRow,
+  OperatorView,
+  OpsAddPropertyOk,
+  OpsFailure,
+  OpsPropertyView,
+  OpsWriteOk,
+  PropertyHealthView,
+  ResolveOperatorResult,
+} from '@hospai/contracts';
 
 // ---------------------------------------------------------------------------------------------
 // Small helpers

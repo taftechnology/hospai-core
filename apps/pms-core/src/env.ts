@@ -1,7 +1,7 @@
 import type { DomainEventMessage } from '@hospai/contracts';
 import type { OrgDO } from './org-do.js';
 import type { PropertyDO } from './property-do.js';
-import { applySecurityHeaders } from './security-headers.js';
+import { applySecurityHeaders } from '@hospai/http-security';
 
 /** RPC payload for `NightAuditWorkflow` — registry-resolved `propertyId` only, never a raw DO id. */
 export type NightAuditWorkflowParams = { propertyId: string };

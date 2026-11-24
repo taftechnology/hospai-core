@@ -395,4 +395,21 @@ if (process.argv.includes('--self-test')) {
   console.log(
     `OK class-resolution: ${result.stats.referenced} class references across ${result.stats.tsxCount} tsx files, ${result.stats.definedCount} classes defined`,
   );
+
+  // apps/web-admin: its classes must resolve in ITS OWN css (and ui-kit), not in the hotel app's.
+  const adminSrc = join(root, 'apps/web-admin/src');
+  const adminTsx = walk(adminSrc).filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'));
+  const adminCss = [
+    ...walk(adminSrc).filter((f) => f.endsWith('.css')),
+    join(root, 'packages/ui-kit/src/styles.css'),
+  ];
+  const adminResult = checkClassResolution({
+    tsxByFile: Object.fromEntries(adminTsx.map((f) => [f.slice(root.length + 1), readFileSync(f, 'utf8')])),
+    cssByFile: Object.fromEntries(adminCss.map((f) => [f.slice(root.length + 1), readFileSync(f, 'utf8')])),
+  });
+  for (const e of adminResult.errors) console.error(e.replace('the web-pms CSS', 'the web-admin CSS'));
+  if (!adminResult.ok) process.exit(1);
+  console.log(
+    `OK class-resolution (web-admin): ${adminResult.stats.referenced} class references across ${adminResult.stats.tsxCount} tsx files`,
+  );
 }

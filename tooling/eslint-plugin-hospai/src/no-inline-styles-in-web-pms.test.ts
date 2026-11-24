@@ -41,6 +41,15 @@ describe('no-inline-styles-in-web-pms', () => {
     ).toEqual([expect.objectContaining({ messageId: 'forbidden' })]);
   });
 
+  it('flags layout inline styles in web-admin tsx', () => {
+    expect(
+      lint(
+        `export function A() { return <div style={{ margin: 0 }} />; }`,
+        '/repo/apps/web-admin/src/screens/A.tsx',
+      ),
+    ).toEqual([expect.objectContaining({ messageId: 'forbidden' })]);
+  });
+
   it('allows CSS custom property inline styles', () => {
     expect(
       lint(

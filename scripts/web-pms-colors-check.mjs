@@ -17,7 +17,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const cssRoots = [join(root, 'apps/web-pms'), join(root, 'packages/ui-kit')];
+// apps/web-admin has no tokens of its own (it imports web-pms tokens.css), but its CSS must stay literal-free.
+const cssRoots = [join(root, 'apps/web-pms'), join(root, 'apps/web-admin'), join(root, 'packages/ui-kit')];
 const MIN_CONTRAST = 4.5;
 const MIN_NON_TEXT_CONTRAST = 3;
 
@@ -780,7 +781,7 @@ if (process.argv.includes('--self-test')) {
 } else {
   const files = cssRoots.flatMap((dir) => walkCss(dir));
   if (files.length === 0) {
-    console.error('No CSS files under apps/web-pms or packages/ui-kit');
+    console.error('No CSS files under apps/web-pms, apps/web-admin or packages/ui-kit');
     process.exit(1);
   }
   const cssByFile = Object.fromEntries(

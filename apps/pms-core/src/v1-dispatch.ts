@@ -299,7 +299,7 @@ import { COPILOT_HIDDEN_NAME, guestRefsOf, nameFromBatchEntry, scrubGuestRefs } 
 import { runCopilot, type CopilotToolOutcome } from './copilot-run.js';
 import type { OrgEntitlementDO } from './org-entitlement-do.js';
 import { authorizedParties, resolveActor, requirePermission, type Actor } from './auth.js';
-import { applySecurityHeaders } from './security-headers.js';
+import { applySecurityHeaders } from '@hospai/http-security';
 import { isScanContentType, scanFilename, sha256Hex } from './guest-documents.js';
 import { parseRequestJson } from './parse-request-json.js';
 import {

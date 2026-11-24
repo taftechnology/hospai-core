@@ -1006,7 +1006,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
     - Switching from A to B shows B's board with no A data.
     - Cache assertions use the consumer keys, including `propertyId`.
 
-- [ ] **R7.1 Operations platform v1 — customers, hotels and plans** ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §1–§10; absorbs the read-only console that was R7.3, 2026-11-22)
+- [x] **R7.1 Operations platform v1 — customers, hotels and plans** (shipped 2026-11-24 as the HospAI Ops Console, `apps/web-admin`, own Clerk instance per spec §15) ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §1–§10; absorbs the read-only console that was R7.3, 2026-11-22)
   - **Why:** "provisioned by ops" means a signed-in user calling `POST /v1/orgs`, plus hand-written SQL against Platform D1 for plan changes (`seedSubscription` and `trySetOrgStatus` in `apps/pms-core/src/registry.ts` are test helpers). Nine more hotels and a plan change by hand leave no record of who changed what, or why [gaps 7, 14, 15, 16].
   - **Locked:**
     - `apps/web-admin`: a separate Worker with static assets behind Cloudflare Access with a hardware key (§4.9 rule 6). The Worker verifies the Access JWT on every request and fails closed on empty config. Its only binding is a service binding to a new `OpsEntrypoint` in `pms-core`.

@@ -302,7 +302,10 @@
       "vars": {
         "CLERK_PUBLISHABLE_KEY": "pk_test_Y2FyaW5nLWRyYWtlLTgzMTcuY2xlcmsuYWNjb3VudHMuZGV2JA",
         "CLERK_JWT_KEY": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz0WNHC+JnWi1vOlQ7gKY\nWVlUX42VEEOW8qoE4moMrNfs/F1VZOPtb3lelmGVIe56IeGteCjsG8kpws12NdDg\n39xJu3YEwKsMZFea4dtfJNslR0Km5I/6Kb/mFfioaL+3/ZLWipWTZmJZP8mdpeZ/\nTwKCzfzERYFdt2YaPyrQXY6R5qIYjeDy/n4w9sW1yIwWLk3Fl7pYW6VPtxUrL7Oi\nKGFJTpmmDr0Gh9M527UanIGBF/EV+QTJZVFJpbeirAWGYaAEkB0TGBMbpA48bwle\nYYgeRo3DGuOzJAX9fe7H8HE0AmhAkJQz6d/xmIFRsy7AjHUkAJ9t+e2U7FtrWHt2\nWQIDAQAB\n-----END PUBLIC KEY-----",
-        "CLERK_AUTHORIZED_PARTIES": "https://hospai-pms-core-staging.hospai.workers.dev"
+        "CLERK_AUTHORIZED_PARTIES": "https://hospai-pms-core-staging.hospai.workers.dev",
+        // R7.1: the first Ops Console admin (an ops Clerk instance email). Read only while the
+        // operator table is empty; ignored once any operator exists.
+        "OPS_BOOTSTRAP_EMAILS": "iamabdus@gmail.com"
       }
     },
     // Production env — resources created 2026-11-19 in the HospAI account (Asia-Pacific hints for R2 and D1).

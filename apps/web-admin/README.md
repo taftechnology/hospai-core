@@ -86,8 +86,9 @@ Staging is wired; production waits for the hostname (Q1) and a Clerk production 
 4. **Still yours:**
    - add the repo secret `OPS_CLERK_SECRET_KEY` (the ops instance's secret key, from the Clerk
      dashboard, API keys): `gh secret set OPS_CLERK_SECRET_KEY`;
-   - `OPS_BOOTSTRAP_EMAILS` on **pms-core** (a var there): the email of the first operator, who
-     also needs a Clerk invitation to the ops instance (sign-up is invitation only);
+   - accept the ops Clerk invitation sent to the first operator on 2026-11-24 (it expires on
+     2026-12-24): set a password and a second factor. That email is `OPS_BOOTSTRAP_EMAILS` in
+     pms-core `env.staging`, so the first sign-in to the console makes it the first `ops_admin`;
    - the hostname (open question Q1), then production: a Clerk production instance, its vars and
      its secret (`pnpm exec wrangler secret put CLERK_SECRET_KEY -e production`).
 5. `CLERK_JWT_KEY` (the instance's PEM public key, networkless verification) is optional and not set.

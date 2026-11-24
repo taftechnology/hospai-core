@@ -1,7 +1,8 @@
-import { SignIn, UserButton, useAuth } from '@clerk/react';
-import { Alert, PageHeader } from '@hospai/ui-kit';
+import { useAuth, useClerk } from '@clerk/react';
+import { Alert, Button, PageHeader } from '@hospai/ui-kit';
 import { useEffect, type ReactNode } from 'react';
 import { registerTokenGetter, setDevOperator } from '../api/client.js';
+import { ConsoleSignIn } from './ConsoleSignIn.js';
 import { devOperatorEmail, opsAuthMode, type OpsAuthMode } from './auth-mode.js';
 
 function ClerkSession({ children }: { children: ReactNode }) {
@@ -11,12 +12,7 @@ function ClerkSession({ children }: { children: ReactNode }) {
   useEffect(() => () => registerTokenGetter(null), []);
   if (!isLoaded) return null;
   if (!isSignedIn) {
-    return (
-      <div className="ops-centered">
-        <PageHeader title="HospAI Ops Console" subtitle="Staff sign-in. A second factor is required." />
-        <SignIn routing="hash" />
-      </div>
-    );
+    return <ConsoleSignIn />;
   }
   return <>{children}</>;
 }
@@ -38,8 +34,17 @@ export function AuthGate({ children, mode = opsAuthMode() }: { children: ReactNo
   );
 }
 
+function ClerkSignOut() {
+  const { signOut } = useClerk();
+  return (
+    <Button type="button" onClick={() => void signOut()}>
+      Sign out
+    </Button>
+  );
+}
+
 export function SignOutControl({ mode = opsAuthMode() }: { mode?: OpsAuthMode }) {
-  if (mode === 'clerk') return <UserButton />;
+  if (mode === 'clerk') return <ClerkSignOut />;
   if (mode === 'dev') return <span>Local dev operator</span>;
   return null;
 }

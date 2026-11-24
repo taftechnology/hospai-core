@@ -121,6 +121,21 @@ a {
   gap: var(--space-4);
 }
 
+/* Console sign-in: a centred card that fits a 375px viewport. */
+.ops-sign-in {
+  padding: 0 var(--space-4);
+}
+
+.ops-sign-in__card {
+  width: 100%;
+}
+
+.ops-sign-in__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
 /* R7.5 copy setup dialog */
 .ops-fieldset {
   display: flex;

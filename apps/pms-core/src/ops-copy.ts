@@ -622,15 +622,50 @@ export async function finishCopyRun(
     .run();
 }
 
+/**
+ * Read-modify-write the run's `result_json` / `id_map_json` as a compare-and-swap on the two columns just read.
+ * Workflow steps are at-least-once, so a retried or overlapping step can write the same row between this
+ * writer's read and its write; a plain overwrite would drop that writer's entries (the `rateJobs` ledger).
+ * D1 has no multi-statement transaction here and the maps are one JSON blob, so the swap is the atomic unit:
+ * a lost race re-reads and re-applies `change` to the fresh row, so nothing another writer stored is lost.
+ */
+async function updateRun(
+  env: PmsEnv,
+  copyId: string,
+  change: (map: IdMap, results: Partial<Record<OpsCopyKind, OpsCopyKindResult>>) => void,
+): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const row = await loadRun(env, copyId);
+    if (!row) return;
+    const map = readMap(row.id_map_json);
+    const results = readResults(row.result_json);
+    change(map, results);
+    const res = await env.PLATFORM_DB.prepare(
+      `UPDATE ops_copy_run SET result_json = ?, id_map_json = ?, updated_at = ?
+       WHERE copy_id = ? AND result_json = ? AND id_map_json = ?`,
+    )
+      .bind(JSON.stringify(results), JSON.stringify(map), Date.now(), copyId, row.result_json, row.id_map_json)
+      .run();
+    if ((res.meta?.changes ?? 1) > 0) return;
+  }
+  throw new Error('ops_copy_run_contended');
+}
+
+/**
+ * Persist a finished kind. `ctx.map` was loaded when the step started, so it is merged into the stored map
+ * (keys unioned; both writers derive the same deterministic target ids from `targetIdFor`, so a shared key
+ * carries the same value) and the stored `rateJobs` entries win over the stale ones.
+ */
 async function saveKind(ctx: RunCtx, kind: OpsCopyKind, acc: Acc): Promise<void> {
-  const row = (await loadRun(ctx.env, ctx.copyId)) ?? ctx.run;
-  const results = readResults(row.result_json);
-  results[kind] = kind === 'rate_plans' ? composeRatePlans(acc.result('done'), ctx.map.rateJobs) : acc.result('done');
-  await ctx.env.PLATFORM_DB.prepare(
-    `UPDATE ops_copy_run SET result_json = ?, id_map_json = ?, updated_at = ? WHERE copy_id = ?`,
-  )
-    .bind(JSON.stringify(results), JSON.stringify(ctx.map), Date.now(), ctx.copyId)
-    .run();
+  await updateRun(ctx.env, ctx.copyId, (map, results) => {
+    map.roomTypes = { ...map.roomTypes, ...ctx.map.roomTypes };
+    map.ratePlans = { ...map.ratePlans, ...ctx.map.ratePlans };
+    map.categories = { ...map.categories, ...ctx.map.categories };
+    map.products = { ...map.products, ...ctx.map.products };
+    map.planBase = ctx.map.planBase ?? map.planBase;
+    map.rateJobs = { ...ctx.map.rateJobs, ...map.rateJobs };
+    results[kind] = kind === 'rate_plans' ? composeRatePlans(acc.result('done'), map.rateJobs) : acc.result('done');
+  });
 }
 
 /** Run one kind to the end. Every item is an idempotent replay, so the whole step is safe to retry. */
@@ -905,9 +940,12 @@ export async function listCopyRateJobs(env: PmsEnv, copyId: string): Promise<Arr
   if ('ok' in ctx) return [];
   const plans = await ctx.source.listRatePlans();
   const jobs: Array<[string, string]> = [];
-  for (const plan of plans) {
-    if (plan.parentRatePlanId || !ctx.map.ratePlans[plan.ratePlanId]) continue;
-    for (const roomTypeId of Object.keys(ctx.map.roomTypes)) jobs.push([plan.ratePlanId, roomTypeId]);
+  const roomTypeIds = Object.keys(ctx.map.roomTypes).sort();
+  const planIds = plans.map((p) => p.ratePlanId).sort();
+  const parentless = new Set(plans.filter((p) => !p.parentRatePlanId).map((p) => p.ratePlanId));
+  for (const ratePlanId of planIds) {
+    if (!parentless.has(ratePlanId) || !ctx.map.ratePlans[ratePlanId]) continue;
+    for (const roomTypeId of roomTypeIds) jobs.push([ratePlanId, roomTypeId]);
   }
   return jobs.slice(0, COPY_RATE_JOBS_MAX);
 }
@@ -936,9 +974,12 @@ export async function executeCopyRates(
   if (!from) return { ok: false, error: INTERNAL_ERROR };
   const to = addDays(from, RATE_HORIZON_DAYS);
   let created = 0;
-  const skipped: OpsCopyKindResult['skipped'] = [];
+  const perJob: Array<{ key: string; created: number; skipped: OpsCopyKindResult['skipped'] }> = [];
   try {
     for (const [sourcePlan, sourceRoomType] of jobs) {
+      const entry = { key: `${sourcePlan}/${sourceRoomType}`, created: 0, skipped: [] as OpsCopyKindResult['skipped'] };
+      perJob.push(entry);
+      const skipped = entry.skipped;
       const ratePlanId = ctx.map.ratePlans[sourcePlan];
       const roomTypeId = ctx.map.roomTypes[sourceRoomType];
       if (!ratePlanId || !roomTypeId) {
@@ -960,7 +1001,10 @@ export async function executeCopyRates(
           await ctx.target.tryUpsertRateDay(ctx.actor, input, await itemIdem(ctx, 'rate_day', sourceId, 'rates.update_room_type_rate', input)),
         );
         if (failed) skipped.push({ sourceId, label: sourcePlan, reason: failed });
-        else created += 1;
+        else {
+          created += 1;
+          entry.created += 1;
+        }
       }
     }
   } catch (e) {
@@ -968,7 +1012,7 @@ export async function executeCopyRates(
     logError({ moduleId: 'pms.core' }, { msg: 'ops.copy_setup_rates_failed', copyId, error: String(e) });
     return { ok: false, error: INTERNAL_ERROR };
   }
-  await recordRates(env, copyId, jobs, created, skipped);
+  await recordRates(env, copyId, perJob);
   return { ok: true, created };
 }
 
@@ -985,24 +1029,16 @@ function composeRatePlans(base: OpsCopyKindResult, ledger: RateJobLedger): OpsCo
   return { ...acc.result(), created: plans + rateDays, parts: { plans, rateDays } };
 }
 
+/** One ledger entry per (plan, room type) job, so any chunking or order of the same jobs converges on one total. */
 async function recordRates(
   env: PmsEnv,
   copyId: string,
-  jobs: Array<[string, string]>,
-  created: number,
-  skipped: OpsCopyKindResult['skipped'],
+  perJob: Array<{ key: string; created: number; skipped: OpsCopyKindResult['skipped'] }>,
 ): Promise<void> {
-  const row = await loadRun(env, copyId);
-  if (!row) return;
-  const map = readMap(row.id_map_json);
-  map.rateJobs[jobs.map((j) => j.join('/')).join('|')] = { created, skipped };
-  const results = readResults(row.result_json);
-  results.rate_plans = composeRatePlans(map.planBase ?? results.rate_plans ?? new Acc().result(), map.rateJobs);
-  await env.PLATFORM_DB.prepare(
-    `UPDATE ops_copy_run SET result_json = ?, id_map_json = ?, updated_at = ? WHERE copy_id = ?`,
-  )
-    .bind(JSON.stringify(results), JSON.stringify(map), Date.now(), copyId)
-    .run();
+  await updateRun(env, copyId, (map, results) => {
+    for (const j of perJob) map.rateJobs[j.key] = { created: j.created, skipped: j.skipped };
+    results.rate_plans = composeRatePlans(map.planBase ?? results.rate_plans ?? new Acc().result(), map.rateJobs);
+  });
 }
 
 // --- packages -------------------------------------------------------------------------------

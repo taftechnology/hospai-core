@@ -527,6 +527,72 @@ describe('R7.5 ops.copy_setup: the copy', () => {
     expect((await target.listPackages('all')).packages).toHaveLength(1);
   });
 
+  it('a kind step saving a stale id map does not drop the rate ledger a rates sub-step recorded meanwhile', async () => {
+    const { sourceId, targetId } = await hotels();
+    await seedSource(sourceId);
+    const accepted = await copy.copySetup(env, { ...w(admin.operatorId), sourcePropertyId: sourceId, targetPropertyId: targetId, kinds: ALL_KINDS });
+    expect(accepted).toMatchObject({ ok: true });
+    if (!accepted.ok) return;
+    const { copyId } = accepted;
+
+    for (const kind of ['charge_codes', 'tax_rules', 'room_types', 'products', 'rate_plans'] as OpsCopyKind[]) {
+      expect(await copy.executeCopyKind(env, copyId, kind)).toMatchObject({ ok: true });
+    }
+    const jobs = await copy.listCopyRateJobs(env, copyId);
+    expect(jobs.length).toBeGreaterThan(0);
+
+    // A retried `rate_plans` step loads its map, and while it runs a rates sub-step records its ledger.
+    // The sub-step lands exactly between the step's read of the row and its write (deterministic, no timing).
+    let ratesCreated = 0;
+    let injected = false;
+    const racing = {
+      ...env,
+      PLATFORM_DB: new Proxy(env.PLATFORM_DB, {
+        get(target, prop) {
+          if (prop !== 'prepare') return Reflect.get(target, prop, target);
+          return (query: string) => {
+            const stmt = target.prepare(query);
+            if (injected || !/^\s*UPDATE ops_copy_run SET result_json/.test(query)) return stmt;
+            return {
+              bind: (...args: unknown[]) => {
+                const bound = stmt.bind(...args);
+                return {
+                  run: async () => {
+                    injected = true;
+                    const rates = await copy.executeCopyRates(env, copyId, jobs);
+                    expect(rates).toMatchObject({ ok: true });
+                    if (rates.ok) ratesCreated = rates.created;
+                    return bound.run();
+                  },
+                };
+              },
+            };
+          };
+        },
+      }),
+    } as unknown as PmsEnv;
+    expect(await copy.executeCopyKind(racing, copyId, 'rate_plans')).toMatchObject({ ok: true });
+    expect(injected).toBe(true);
+    expect(ratesCreated).toBeGreaterThan(0);
+
+    // The ledger is per (plan, room type) job, so the background Workflow instance recording the same jobs in
+    // its own chunks overwrites the same entries instead of adding to them.
+    const row = await env.PLATFORM_DB.prepare(`SELECT id_map_json FROM ops_copy_run WHERE copy_id = ?`).bind(copyId).first<{ id_map_json: string }>();
+    const map = JSON.parse(row!.id_map_json) as { rateJobs: Record<string, { created: number }>; planBase: unknown };
+    expect(Object.keys(map.rateJobs).sort()).toEqual(jobs.map((j) => j.join('/')).sort());
+    const status = await statusOf(copyId);
+    expect(status.results.rate_plans).toMatchObject({ state: 'done', parts: { rateDays: ratesCreated } });
+
+    // Same jobs again, reversed and split differently: still the same total.
+    const reversed = [...jobs].reverse();
+    const mid = Math.max(1, Math.floor(reversed.length / 2));
+    expect(await copy.executeCopyRates(env, copyId, reversed.slice(0, mid))).toMatchObject({ ok: true });
+    expect(await copy.executeCopyRates(env, copyId, reversed.slice(mid))).toMatchObject({ ok: true });
+    expect((await statusOf(copyId)).results.rate_plans).toMatchObject({ parts: { rateDays: ratesCreated } });
+    expect(ratesCreated).toBe(12);
+    expect(map.planBase).not.toBeNull();
+  });
+
   it('the same request sent again after completion is a replay and starts nothing', async () => {
     const { sourceId, targetId } = await hotels();
     await seedSource(sourceId);

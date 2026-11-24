@@ -5,7 +5,7 @@ export type DegradedReadClass = 'READ_STALE' | 'FAIL_CLOSED';
 
 /** HTTP /v1 route permission audit — validated by check:permissions; consumed by pms-core dispatcher. */
 export type V1HttpRouteAudit =
-  | { scope: 'bootstrap' | 'dev' }
+  | { scope: 'bootstrap' | 'dev' | 'user' }
   | {
       scope: 'org';
       permission: Permission;
@@ -1641,6 +1641,9 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
     entitlement: 'pms.core',
     degradedRead: 'FAIL_CLOSED',
   },
+  // R4.4: user scope = authenticated actor, no tenant in the URL, no permission, no entitlement.
+  // Self only; every org it reports is re-checked in that org's OrgDO.
+  { id: 'get_me_tenants', scope: 'user' },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

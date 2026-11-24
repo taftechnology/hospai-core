@@ -274,6 +274,11 @@ import {
   require,
 } from '@hospai/entitlement-client';
 import { logError, logInfo, logWarn, type ObservabilityContext } from '@hospai/observability';
+import {
+  indexUserOrg,
+  listIndexedOrgIds,
+  unindexUserOrgIfNoMembership,
+} from './user-org-index.js';
 import { resolveOrgEntitlementStub, resolveOrgStub } from '@hospai/tenant-router';
 import {
   COPILOT_METER_KEY,
@@ -625,6 +630,8 @@ type CommandLink =
 export type V1RouteDef =
   | (V1RouteBase & { scope: 'bootstrap' })
   | (V1RouteBase & { scope: 'dev' })
+  // R4.4: authenticated actor, no tenant in the URL, no permission, no entitlement, no kill-switch.
+  | (V1RouteBase & { scope: 'user' })
   | (V1RouteBase & { scope: 'org' } & { permission: Permission } & CommandLink)
   | (V1RouteBase & { scope: 'property' } & { permission: Permission } & CommandLink);
 
@@ -692,6 +699,7 @@ async function handlePostOrgs(ctx: V1DispatchContext): Promise<Response> {
   const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: body.orgId }) as DurableObjectStub<OrgDO>;
   await org.ensureMetaOrgId(body.orgId);
   await org.ensureMember(ctx.actor.userId, 'owner');
+  await indexUserOrg(ctx.env, ctx.actor.userId, body.orgId);
   return json({ orgId: body.orgId, name: body.name }, 201);
 }
 
@@ -3691,6 +3699,61 @@ async function handleGetFrontDeskRecentShifts(ctx: V1DispatchContext): Promise<R
 
 const ME_HEADERS = { 'Cache-Control': 'private, no-store' };
 
+type TenantOrg = {
+  orgId: string;
+  name: string | null;
+  multiProperty: boolean;
+  properties: Array<{ propertyId: string; name: string; timeZone: string | null }>;
+};
+
+/**
+ * GET /v1/me/tenants (R4.4): the hotels this user can open, grouped by org. The platform D1
+ * `user_org` index only says where to look; every org it names is re-checked in that org's OrgDO,
+ * and only properties where the user's effective role is non-null are returned.
+ */
+async function handleGetMeTenants(ctx: V1DispatchContext): Promise<Response> {
+  const userId = ctx.actor.userId;
+  const orgIds = await listIndexedOrgIds(ctx.env, userId);
+
+  const resolved = await Promise.all(
+    orgIds.map(async (orgId): Promise<TenantOrg | null> => {
+      try {
+        const orgRow = await getOrg(ctx.env, orgId);
+        if (!orgRow || (orgRow.status !== 'active' && orgRow.status !== 'suspended')) return null;
+        const stub = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+        const properties = await stub.listAccessiblePropertiesFor(userId);
+        if (properties.length === 0) return null;
+        let multiProperty = false;
+        try {
+          const snap = await loadSnapshot(ctx.env, orgId);
+          multiProperty = snap.features['pms.multi_property'] === true;
+        } catch {
+          multiProperty = false;
+        }
+        return {
+          orgId,
+          name: orgRow.name,
+          multiProperty,
+          properties: [...properties].sort(
+            (a, b) => a.name.localeCompare(b.name) || a.propertyId.localeCompare(b.propertyId),
+          ),
+        };
+      } catch (e) {
+        // One org never fails the whole list: it is omitted and logged (org id only).
+        const tags = { moduleId: ctx.observability.moduleId, orgId };
+        if (isOrgDoTransportFailure(e, ctx.env)) logWarn(tags, { msg: 'me_tenants.org_unreachable' });
+        else logError(tags, { msg: 'me_tenants.org_failed' });
+        return null;
+      }
+    }),
+  );
+
+  const tenants = resolved
+    .filter((t): t is TenantOrg => t !== null)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || a.orgId.localeCompare(b.orgId));
+  return json({ tenants }, 200, ME_HEADERS);
+}
+
 async function handleListOrgMembers(ctx: V1DispatchContext): Promise<Response> {
   const orgId = decodeURIComponent(ctx.match[1]!);
   ctx.observability.orgId = orgId;
@@ -3736,6 +3799,7 @@ async function handleCreateOrgMember(ctx: V1DispatchContext): Promise<Response> 
       }
       return membershipErrorResponse(result.error, 'org:manage');
     }
+    await indexUserOrg(ctx.env, result.userId, orgId);
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
@@ -3762,6 +3826,7 @@ async function handleUpdateOrgMember(ctx: V1DispatchContext): Promise<Response> 
       mode: 'update',
     });
     if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
+    await indexUserOrg(ctx.env, result.userId, orgId);
     return json(
       {
         ok: true,
@@ -3786,6 +3851,9 @@ async function handleDeleteOrgMember(ctx: V1DispatchContext): Promise<Response> 
   try {
     const result = await org.removeOrgMember(actor, targetUserId);
     if (!result.ok) return membershipErrorResponse(result.error, 'org:manage');
+    await unindexUserOrgIfNoMembership(ctx.env, result.userId, orgId, () =>
+      org.hasAnyMembership(result.userId),
+    );
     return json({ ok: true, userId: result.userId }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
@@ -3855,6 +3923,7 @@ async function handleCreatePropertyMember(ctx: V1DispatchContext): Promise<Respo
       }
       return membershipErrorResponse(result.error, 'staff:write');
     }
+    await indexUserOrg(ctx.env, result.userId, resolvedCtx.property.orgId);
     return json({ ok: true, userId: result.userId, role: result.role }, 201);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
@@ -3888,6 +3957,7 @@ async function handleUpdatePropertyMember(ctx: V1DispatchContext): Promise<Respo
       mode: 'update',
     });
     if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
+    await indexUserOrg(ctx.env, result.userId, resolvedCtx.property.orgId);
     return json(
       {
         ok: true,
@@ -3916,6 +3986,9 @@ async function handleDeletePropertyMember(ctx: V1DispatchContext): Promise<Respo
   try {
     const result = await org.removePropertyMember(actor, propertyId, targetUserId);
     if (!result.ok) return membershipErrorResponse(result.error, 'staff:write');
+    await unindexUserOrgIfNoMembership(ctx.env, result.userId, resolvedCtx.property.orgId, () =>
+      org.hasAnyMembership(result.userId),
+    );
     return json({ ok: true, userId: result.userId }, 200);
   } catch (e) {
     if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
@@ -3941,6 +4014,8 @@ async function handleGetPropertyMe(ctx: V1DispatchContext): Promise<Response> {
       // Defensive: HTTP gate normally 404s before handler; keep for direct-style parity
       return json({ error: 'not_found' }, 404, ME_HEADERS);
     }
+    // Back-fills users who existed before the discovery index did (best effort, never fails /me).
+    await indexUserOrg(ctx.env, ctx.actor.userId, resolvedCtx.property.orgId);
     return json(
       {
         ok: true,
@@ -14738,6 +14813,14 @@ export const V1_ROUTES: V1RouteDef[] = [
     entitlement: 'pms.core',
     handler: handleGetReservationInvoices,
   },
+  {
+    id: 'get_me_tenants',
+    scope: 'user',
+    method: 'GET',
+    pattern: /^\/v1\/me\/tenants$/,
+    // user scope: self only, no tenant gate, no kill-switch (like /me it must never brick the shell)
+    handler: handleGetMeTenants,
+  },
 ];
 
 function addDays(isoDate: string, days: number): string {
@@ -15027,7 +15110,7 @@ export async function dispatchV1(
     return route.handler({ request, env, observability, actor, url: new URL(request.url), match });
   }
 
-  if (route.scope === 'bootstrap') {
+  if (route.scope === 'bootstrap' || route.scope === 'user') {
     return route.handler({ request, env, observability, actor, url: new URL(request.url), match });
   }
 

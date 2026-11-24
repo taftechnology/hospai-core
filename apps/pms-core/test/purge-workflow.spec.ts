@@ -560,6 +560,20 @@ describe('PurgeWorkflow org plan', () => {
     const { stub: propStub } = await provisionedPropertyStub(propertyId, 'UTC', 'USD', orgId);
     await propStub.resetLaneGuardForTest({ quietMs: 60_000 });
 
+    // R4.4: discovery index rows for this org (and one for another org that must survive).
+    const otherOrgId = `org_keep_${crypto.randomUUID().slice(0, 8)}`;
+    for (const [u, o] of [
+      ['user_idx_a', orgId],
+      ['user_idx_b', orgId],
+      ['user_idx_a', otherOrgId],
+    ] as const) {
+      await env.PLATFORM_DB.prepare(
+        `INSERT INTO user_org (user_id, org_id, updated_at) VALUES (?, ?, ?)`,
+      )
+        .bind(u, o, 1)
+        .run();
+    }
+
     expect((await closeOrgForPurge(env, orgId, { now: () => 0, retentionMs: 1_000 })).ok).toBe(true);
 
     const workflowId = await nextOrgPurgeWorkflowId(env, orgId);
@@ -586,6 +600,7 @@ describe('PurgeWorkflow org plan', () => {
       'purge-org-do',
       'purge-r2',
       'purge-pending-command-open',
+      'purge-user-org',
       'purge-guest-documents-r2',
       'skip-iceberg',
       'verify',
@@ -617,7 +632,17 @@ describe('PurgeWorkflow org plan', () => {
       status: 'reached',
       deleted: expect.any(Number),
     });
+    expect(stores.find((s) => s.store === 'platform_user_org')).toEqual({
+      store: 'platform_user_org',
+      status: 'reached',
+      // user_idx_a, user_idx_b, plus the provisioning actor indexed by provisionProperty.
+      deleted: 3,
+    });
     expect(stores.every((s) => s.status !== 'pending')).toBe(true);
+
+    const left = await env.PLATFORM_DB.prepare(`SELECT org_id FROM user_org WHERE user_id IN ('user_idx_a','user_idx_b')`)
+      .all<{ org_id: string }>();
+    expect((left.results ?? []).map((r) => r.org_id)).toEqual([otherOrgId]);
   });
 
   it('org purge deletes every Form C person row and the certificate counts them', async () => {

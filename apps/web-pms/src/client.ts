@@ -10,10 +10,13 @@ import {
 } from '@hospai/client-core';
 import type { EntitlementSnapshot } from '@hospai/contracts/entitlements';
 import { readTenantConfig } from './config/tenant.js';
+import { configureTenantDefault, createTenantAccessor } from './tenant-store.js';
 import { createClerkCredentials } from './providers/clerk-credentials.js';
 import { createDevActorCredentials } from './providers/dev-actor-credentials.js';
 
-const tenant = readTenantConfig(import.meta.env);
+// R4.4: the tenant is chosen at runtime; the build-time ids are only an optional default.
+configureTenantDefault(readTenantConfig(import.meta.env));
+const tenant = createTenantAccessor();
 
 function credentialProvider() {
   if (import.meta.env.VITE_USE_DEV_ACTOR === '1') {
@@ -68,6 +71,13 @@ export const api = createClient({
   },
 });
 export const queuedCommands = queued;
+
+/** Forget everything bound to the previous hotel (R4.4): entitlement snapshot, queued log, idempotency keys. */
+export function resetTenantBoundState(): void {
+  entitlements.reset();
+  queued.clear();
+  keyStore.clear();
+}
 export { tenant };
 
 export function asClassified(err: unknown): ClassifiedResponse {

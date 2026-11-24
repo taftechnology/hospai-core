@@ -15,9 +15,10 @@ import { createGuest, orgStub as testOrgStub } from './guest-helpers.js';
 /** Captured 2026-08-15 on main; re-capture if fixture changes. */
 const BASELINE_ME_PREPARE_TOTAL = 5;
 const BASELINE_ME_ELAPSED_MS = 3;
-const POST_F1_ME_PREPARE_TOTAL = 2;
-/** pms.core entitlement routes add one snapshot prepare beyond /me. */
-const POST_F1_ENTITLED_PROPERTY_PREPARE_TOTAL = POST_F1_ME_PREPARE_TOTAL + 1;
+/** Two registry reads plus the R4.4 user_org back-fill upsert on every successful /me. */
+const POST_F1_ME_PREPARE_TOTAL = 3;
+/** pms.core entitlement routes add one snapshot prepare beyond the two registry reads. */
+const POST_F1_ENTITLED_PROPERTY_PREPARE_TOTAL = 3;
 
 /**
  * Counts registry prepares made by one request only. Spying on the shared

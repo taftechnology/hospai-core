@@ -104,6 +104,14 @@ export type ListPage<T> = {
   nextCursor: string | null;
 };
 
+/** One org in `GET /v1/me/tenants` (R4.4): only hotels the caller can open. */
+export type TenantOrg = {
+  orgId: string;
+  name: string | null;
+  multiProperty: boolean;
+  properties: Array<{ propertyId: string; name: string; timeZone: string | null }>;
+};
+
 export type NamedListEntry = {
   code: string;
   name: string;
@@ -637,6 +645,11 @@ export function createClient(opts: {
         permissions: PropertyScopedPermission[];
         orgPermissions: OrgScopedPermission[];
       };
+    },
+    /** The hotels the signed-in user can open, grouped by org (user scope, no tenant in the URL). */
+    async getMeTenants() {
+      const { body } = await getJson(`/v1/me/tenants`);
+      return body as { tenants: TenantOrg[] };
     },
     /** Callers that mutate the current actor's grants should invalidate `['me', propertyId]`. */
     async listOrgMembers(orgId: string) {

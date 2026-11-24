@@ -13,6 +13,7 @@ import type { OrgDO } from './org-do.js';
 import type { OrgEntitlementDO } from './org-entitlement-do.js';
 import type { PropertyDO } from './property-do.js';
 import { getOrg, getProperty, insertProperty, upsertOrg, assertTenantActive } from './registry.js';
+import { indexUserOrg } from './user-org-index.js';
 
 export async function provisionProperty(
   env: PmsEnv,
@@ -107,6 +108,7 @@ async function syncOrgAndPropertyDo(
 ): Promise<void> {
   const org = resolveOrgStub(env.ORG_DO, { orgId: property.orgId }) as DurableObjectStub<OrgDO>;
   await org.ensureMember(actorUserId, 'owner');
+  await indexUserOrg(env, actorUserId, property.orgId);
   await org.upsertPropertyRef({
     propertyId: property.propertyId,
     name: property.name,

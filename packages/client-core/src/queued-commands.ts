@@ -9,6 +9,8 @@ export type QueuedCommandEntry = {
 export function createQueuedCommandLog(): {
   entries: () => readonly QueuedCommandEntry[];
   subscribe: (listener: () => void) => () => void;
+  /** Drop every entry (the active hotel changed, R4.4). */
+  clear: () => void;
   recordFromProvisionalBody: (
     body: unknown,
     context?: { reservationId?: string },
@@ -30,6 +32,10 @@ export function createQueuedCommandLog(): {
       return () => {
         listeners.delete(listener);
       };
+    },
+    clear: () => {
+      items.length = 0;
+      emit();
     },
     recordFromProvisionalBody: (body: unknown, context?: { reservationId?: string }) => {
       if (body === null || typeof body !== 'object') return;

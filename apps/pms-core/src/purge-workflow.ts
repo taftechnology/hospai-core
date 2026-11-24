@@ -31,6 +31,7 @@ import {
   replaceStore,
   type PurgeStoreRecord,
 } from './purge-certificate.js';
+import { deleteUserOrgRowsForOrg } from './user-org-index.js';
 import {
   assertTenantActive,
   getProperty,
@@ -225,6 +226,11 @@ async function runOrgPlan(
     )
       .bind(...snapshot.propertyIds)
       .run();
+  });
+
+  await step.do('purge-user-org', async () => {
+    const deleted = await deleteUserOrgRowsForOrg(env, params.orgId);
+    replaceStore(stores, { store: 'platform_user_org', status: 'reached', deleted });
   });
 
   await step.do('purge-guest-documents-r2', async () => {

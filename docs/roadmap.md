@@ -991,7 +991,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
 
 ### Part B — before hotel 2 is provisioned
 
-- [ ] **R4.4 Property switcher — hotel chosen at runtime** (moved from Track 5, 2026-11-22)
+- [x] **R4.4 Property switcher — hotel chosen at runtime** (moved from Track 5, 2026-11-22; shipped 2026-11-24, [spec](superpowers/specs/2026-11-23-runtime-tenant-selection-design.md))
   - **Why:** `apps/web-pms/src/config/tenant.ts` reads `VITE_ORG_ID` and `VITE_PROPERTY_ID` at build time, and about 190 references use `tenant.*`. A second hotel would need a second build [gap 13].
   - **Locked:**
     - Org and property come from the signed-in user at runtime. `VITE_*` remain only as the local demo default.
@@ -1017,7 +1017,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
     - New org status **`suspended`**: reads work, mutations return `403 tenant_suspended`, org cancel still works, system work (night audit, outbox) continues.
     - Kill-switch: `kill:ops.write` refuses every operator write; the tenant kill-switch is unchanged.
     - Screens: a customer list from the registry with no DO calls, customer detail, hotel health for one PropertyDO at a time (counts and dates only), and the operator log.
-    - Pins: `COMMAND_CATALOG` 161, `V1_HTTP_ROUTE_AUDIT` 260 with last id `get_org_operator_actions`.
+    - Pins: `COMMAND_CATALOG` 161, `V1_HTTP_ROUTE_AUDIT` 261 with last id `get_org_operator_actions`.
   - **Scope out:** `entitlement_override` (plans and add-ons cover every concession needed); self-serve sign-up and billing (R5.6); any guest or folio read and the §4.9 support grants (R7.3); org cancel or purge from the console; sending email or invitations.
   - **Tests:** the spec's §10. Among them:
     - A second property on Growth is `limit_exceeded`, and succeeds after `ops.set_plan group`.

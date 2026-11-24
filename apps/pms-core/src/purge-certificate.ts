@@ -63,6 +63,8 @@ export function initialStores(env: PmsEnv): PurgeStoreRecord[] {
     { store: 'org_do_form_c', status: 'pending' },
     r2,
     { store: 'r2_guest_documents', status: 'pending' },
+    // Org purge only (R4.4 discovery index); a guest purge never reads or writes it.
+    { store: 'platform_user_org', status: 'skipped', reason: 'org_purge_only' },
     { store: 'iceberg', status: 'skipped', reason: 'no_iceberg_binding' },
   ];
 }

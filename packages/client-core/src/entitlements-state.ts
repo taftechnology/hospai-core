@@ -6,6 +6,8 @@ export function createEntitlementStore(opts: {
   get: () => EntitlementSnapshot | null;
   set: (s: EntitlementSnapshot) => void;
   onEntitlementRequired: () => Promise<void>;
+  /** Forget the snapshot (the active org changed, R4.4); the next 402 reloads it. */
+  reset: () => void;
 } {
   let current: EntitlementSnapshot | null = null;
   return {
@@ -15,6 +17,9 @@ export function createEntitlementStore(opts: {
     },
     onEntitlementRequired: async () => {
       current = await opts.loadSnapshot();
+    },
+    reset: () => {
+      current = null;
     },
   };
 }

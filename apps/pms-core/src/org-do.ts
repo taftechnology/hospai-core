@@ -2005,6 +2005,59 @@ export class OrgDO extends DurableObject<PmsEnv> {
     }));
   }
 
+  /**
+   * Hotels this user can open (R4.4): the properties where `getEffectiveRole` is non-null, in one
+   * SQL pass. An org `member` sees every active ref; otherwise only the user's own
+   * `property_member` grants. Never used to authorize, only to list.
+   */
+  async listAccessiblePropertiesFor(
+    userId: string,
+  ): Promise<Array<{ propertyId: string; name: string; timeZone: string | null }>> {
+    this.assertRpcAvailable();
+    const isOrgMember = this.ctx.storage.sql
+      .exec(`SELECT 1 AS one FROM member WHERE user_id = ?`, userId)
+      .toArray()[0];
+    const rows = (
+      isOrgMember
+        ? this.ctx.storage.sql
+            .exec(
+              `SELECT property_id, name, time_zone FROM property_ref WHERE status = 'active' ORDER BY name, property_id`,
+            )
+            .toArray()
+        : this.ctx.storage.sql
+            .exec(
+              `SELECT pr.property_id AS property_id, pr.name AS name, pr.time_zone AS time_zone
+                 FROM property_member pm
+                 JOIN property_ref pr ON pr.property_id = pm.property_id
+                WHERE pm.user_id = ? AND pr.status = 'active'
+                ORDER BY pr.name, pr.property_id`,
+              userId,
+            )
+            .toArray()
+    ) as Array<{ property_id: string; name: string; time_zone: string | null }>;
+    return rows.map((r) => ({
+      propertyId: r.property_id,
+      name: r.name,
+      timeZone: r.time_zone ?? null,
+    }));
+  }
+
+  /** True when the user still has an org `member` row or any `property_member` grant (index delete guard). */
+  async hasAnyMembership(userId: string): Promise<boolean> {
+    this.assertRpcAvailable();
+    const row = this.ctx.storage.sql
+      .exec(
+        `SELECT 1 AS one FROM member WHERE user_id = ?
+         UNION ALL
+         SELECT 1 AS one FROM property_member WHERE user_id = ?
+         LIMIT 1`,
+        userId,
+        userId,
+      )
+      .toArray()[0];
+    return row !== undefined;
+  }
+
   async listMembers(): Promise<Array<{ userId: string; role: 'owner' | 'admin' | 'staff' }>> {
     const rows = this.ctx.storage.sql
       .exec(`SELECT user_id, role FROM member ORDER BY user_id`)

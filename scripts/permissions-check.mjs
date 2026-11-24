@@ -148,6 +148,17 @@ for (const p of catalogPermissions) {
 
 for (const route of V1_HTTP_ROUTE_AUDIT) {
   if (route.scope === 'bootstrap' || route.scope === 'dev') continue;
+  if (route.scope === 'user') {
+    // R4.4: user scope is explicit, not a loophole. Authenticated self-only route: it must carry
+    // no tenant gate of any kind, so a permission/entitlement/command here is a drift error.
+    for (const key of ['permission', 'commandId', 'entitlement', 'degradedRead']) {
+      if (route[key] !== undefined) {
+        console.error(`HTTP route with scope 'user' must not declare ${key}: ${route.id}`);
+        failed = true;
+      }
+    }
+    continue;
+  }
   if (!route.permission) {
     console.error(`HTTP route audit missing permission: ${route.id}`);
     failed = true;

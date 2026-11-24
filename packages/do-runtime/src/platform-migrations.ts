@@ -493,6 +493,22 @@ export const PLATFORM_OPS_ALERT_STATEMENTS: string[] = [
 
 export const PLATFORM_OPS_ALERT_SQL = PLATFORM_OPS_ALERT_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * R4.4 discovery index: which orgs to look in for a user. Ids only, never used to authorize —
+ * every org it names is re-checked against that org's OrgDO before anything is returned.
+ */
+export const PLATFORM_USER_ORG_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS user_org (
+  user_id    TEXT NOT NULL,
+  org_id     TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, org_id)
+)`,
+  `CREATE INDEX IF NOT EXISTS user_org_org_idx ON user_org (org_id)`,
+];
+
+export const PLATFORM_USER_ORG_SQL = PLATFORM_USER_ORG_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_REGISTRY_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_STATEMENTS_ALL,
@@ -500,6 +516,7 @@ export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_PENDING_COMMAND_OPEN_STATEMENTS,
   ...PLATFORM_ENTITLEMENT_CATALOG_STATEMENTS,
   ...PLATFORM_OPS_ALERT_STATEMENTS,
+  ...PLATFORM_USER_ORG_STATEMENTS,
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];
 

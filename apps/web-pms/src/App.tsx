@@ -37,6 +37,7 @@ import { RouteErrorBoundary } from './shell/RouteErrorBoundary.js';
 import { CityLedgerScreen } from './screens/CityLedgerScreen.js';
 import { SignInScreen } from './screens/SignInScreen.js';
 import { AppShell } from './shell/AppShell.js';
+import { TenantProvider } from './shell/TenantProvider.js';
 import { ClerkSignedInGate } from './providers/ClerkSignedInGate.js';
 import { UiGallery } from './dev/UiGallery.js';
 import { ReportRunnerGate } from './reports/ReportRunnerGate.js';
@@ -78,7 +79,7 @@ export const router = createBrowserRouter(
   createRoutesFromElements(
     <>
           <Route
-            element={<ClerkSignedInGate><AppShell /></ClerkSignedInGate>}
+            element={<ClerkSignedInGate><TenantProvider><AppShell /></TenantProvider></ClerkSignedInGate>}
             errorElement={<RouteErrorBoundary />}
           >
             {/* R2.6: home follows live permissions (housekeeping-only → Housekeeping). */}

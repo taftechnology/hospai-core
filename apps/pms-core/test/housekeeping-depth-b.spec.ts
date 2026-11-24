@@ -774,7 +774,7 @@ describe('housekeeping depth B: inspections, stages, guest audit [R4.11]', () =>
     await setKillSwitch(env, 'pms.core', false);
 
     // R4.11 Part C appends ten more routes after these.
-    expect(V1_HTTP_ROUTE_AUDIT.slice(-35, -25).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
+    expect(V1_HTTP_ROUTE_AUDIT.slice(-36, -26).map((r) => [r.id, 'permission' in r ? r.permission : null])).toEqual([
       ['post_inspection_template', 'settings:configure'],
       ['post_housekeeping_inspection', 'housekeeping:write'],
       ['post_guest_audit', 'housekeeping:write'],

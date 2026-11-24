@@ -48,6 +48,7 @@ export {
   type NightAuditStatus,
   type NightAuditStepStatus,
   type NamedListEntry,
+  type TenantOrg,
   type OperationalConfigItem,
   type OperationalConfigKey,
   type OperationalConfigRead,

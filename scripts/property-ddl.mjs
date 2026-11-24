@@ -124,6 +124,7 @@ if (process.argv.includes('--self-test')) {
   let PLATFORM_PENDING_COMMAND_OPEN_SQL;
   let PLATFORM_ENTITLEMENT_CATALOG_SQL;
   let PLATFORM_OPS_ALERT_SQL;
+  let PLATFORM_USER_ORG_SQL;
   try {
     ({
       FREEZE_GATE_SQL,
@@ -204,6 +205,7 @@ if (process.argv.includes('--self-test')) {
       PLATFORM_PENDING_COMMAND_OPEN_SQL,
       PLATFORM_ENTITLEMENT_CATALOG_SQL,
       PLATFORM_OPS_ALERT_SQL,
+      PLATFORM_USER_ORG_SQL,
     } = await import(modPath));
   } catch (e) {
     console.error(
@@ -949,6 +951,16 @@ const targets = [
 
 `,
     sql: PLATFORM_OPS_ALERT_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0008_user_org.sql'),
+    header: `-- Platform D1 user to org discovery index (R4.4) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- Clerk user ids and org ids only. Never used to authorize; every org is re-checked in its OrgDO.
+
+`,
+    sql: PLATFORM_USER_ORG_SQL,
   },
 ];
 

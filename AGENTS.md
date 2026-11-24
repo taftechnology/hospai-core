@@ -224,7 +224,7 @@ After roadmap R4.12 Part A (accounting journal, 2026-11-22; R6.2 Form C, R4.16 C
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **151** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **259** routes, last id **`get_reservation_invoices`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `V1_HTTP_ROUTE_AUDIT` | **260** routes, last id **`get_me_tenants`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `AUDIT_WRITER_COMMAND_IDS` | **117** | `packages/contracts/src/register.test.ts` |
 | `PROPERTY_SCHEMA_HEAD` | **58** | `packages/do-runtime` migrate tests |
 | `ORG_SCHEMA_HEAD` | **14** | `packages/do-runtime` migrate tests |

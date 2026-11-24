@@ -61,6 +61,7 @@ export const CLASS_DENYLIST = [
   'LedgerAmountMismatchError',
   'MigrationSweepWorkflow',
   'NightAuditWorkflow',
+  'OpsCopyWorkflow',
   'OrgDO',
   'OrgEntitlementDO',
   'OutboxPayloadTooLargeError',

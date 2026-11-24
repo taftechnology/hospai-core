@@ -182,6 +182,8 @@ import {
   LAST_OPS_ADMIN,
   NOT_AN_OPERATOR,
   OPS_WRITES_DISABLED,
+  ORG_MISMATCH,
+  TARGET_NOT_EMPTY,
   TENANT_SUSPENDED,
   MFA_REQUIRED,
   CLERK_UNREACHABLE,
@@ -551,6 +553,8 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case JURISDICTION_CONFLICT:
     case OPERATOR_EXISTS:
     case LAST_OPS_ADMIN:
+    case ORG_MISMATCH:
+    case TARGET_NOT_EMPTY:
       return 409;
     case PLAN_BELOW_USAGE:
       return 422;

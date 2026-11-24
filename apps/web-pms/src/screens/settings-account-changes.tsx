@@ -29,6 +29,7 @@ const ACTION_LABELS: Record<string, string> = {
   'ops.set_addon': 'Add-on changed',
   'ops.suspend_org': 'Account suspended',
   'ops.reinstate_org': 'Account reinstated',
+  'ops.copy_setup': 'Setup copied from another hotel',
 };
 
 function actionLabel(commandId: string): string {

@@ -3,6 +3,7 @@ import type {
   CustomerPage,
   OperatorActionPage,
   OperatorView,
+  OpsCopyStatus,
   OpsRole,
   PropertyHealthView,
 } from '@hospai/contracts';
@@ -50,6 +51,24 @@ export const useOperatorActions = (orgId: string, operatorId: string, page: numb
     },
   });
 
+/** How often the copy result view asks for progress. Tests shorten it. */
+let copyPollMs = 2000;
+export function setCopyPollMs(ms: number): void {
+  copyPollMs = ms;
+}
+
+/** One copy's progress. Polls until the run is completed or failed, then stops. */
+export const useCopyStatus = (copyId: string) =>
+  useQuery({
+    queryKey: opsKeys.copy(copyId),
+    queryFn: () => apiGet<OpsCopyStatus>(`/copies/${encodeURIComponent(copyId)}`),
+    refetchInterval: (query) => {
+      const state = query.state.data?.state;
+      return state === 'completed' || state === 'failed' ? false : copyPollMs;
+    },
+    staleTime: 0,
+  });
+
 export const useOperators = (enabled: boolean) =>
   useQuery({
     queryKey: opsKeys.operators(),
@@ -78,8 +97,12 @@ export function useClientKey() {
 
 export type WriteMeta = { reason: string; ticketRef: string };
 
-/** A write to `path`: sends `{ clientKey, reason, ticketRef?, ...payload }`, then invalidates `invalidate`. */
-export function useOpsWrite(path: string, invalidate: () => QueryKey[]) {
+/**
+ * A write to `path`: sends `{ clientKey, reason, ticketRef?, ...payload }`, then invalidates `invalidate`.
+ * `keepKeyOnSuccess` keeps the idempotency key after a success, so sending the same request again is
+ * the same request (a copy that failed half-way resumes with it).
+ */
+export function useOpsWrite(path: string, invalidate: () => QueryKey[], opts?: { keepKeyOnSuccess?: boolean }) {
   const qc = useQueryClient();
   const { keyFor, clear } = useClientKey();
   return useMutation({
@@ -90,10 +113,10 @@ export function useOpsWrite(path: string, invalidate: () => QueryKey[]) {
         ...(input.meta.ticketRef.trim() ? { ticketRef: input.meta.ticketRef.trim() } : {}),
         clientKey: keyFor({ path, ...input.payload, reason: input.meta.reason.trim(), ticketRef: input.meta.ticketRef.trim() }),
       };
-      return apiPost<{ actionId: string | null; replayed: boolean }>(path, body);
+      return apiPost<{ actionId: string | null; replayed: boolean; copyId?: string }>(path, body);
     },
     onSuccess: async () => {
-      clear();
+      if (!opts?.keepKeyOnSuccess) clear();
       await Promise.all(invalidate().map((queryKey) => qc.invalidateQueries({ queryKey })));
     },
   });

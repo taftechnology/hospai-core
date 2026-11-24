@@ -30,6 +30,7 @@ export { OrgEntitlementDO } from './org-entitlement-do.js';
 export { NightAuditWorkflow } from './night-audit-workflow.js';
 export { MigrationSweepWorkflow } from './migration-sweep-workflow.js';
 export { PurgeWorkflow } from './purge-workflow.js';
+export { OpsCopyWorkflow } from './ops-copy-workflow.js';
 export { runOpsHealthSweep } from './ops-health-sweep.js';
 // R7.1: the Ops Console's service-binding entrypoint. Not reachable from fetch().
 export { OpsEntrypoint } from './ops-entrypoint.js';

@@ -8,8 +8,9 @@
  * `{ ok: false, error, status }` with the status from the one `commandErrorHttpStatus` table.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import type { Jurisdiction, OperatorStatus, OpsRole } from '@hospai/contracts';
+import type { Jurisdiction, OperatorStatus, OpsCopyKind, OpsRole } from '@hospai/contracts';
 import type { PmsEnv } from './env.js';
+import * as copy from './ops-copy.js';
 import * as ops from './ops-platform.js';
 
 type W = ops.WriteInput;
@@ -39,6 +40,11 @@ export class OpsEntrypoint extends WorkerEntrypoint<PmsEnv> {
   }
   listOperators(input: { operatorId: string }) {
     return ops.listOperators(this.env, input);
+  }
+
+  /** R7.5: the state of one copy. `ops_viewer` can read it. */
+  getCopyStatus(input: { operatorId: string; copyId: string }) {
+    return copy.getCopyStatus(this.env, input);
   }
 
   // The ten ops.* writes
@@ -80,5 +86,10 @@ export class OpsEntrypoint extends WorkerEntrypoint<PmsEnv> {
   }
   setOperatorRole(input: W & { targetOperatorId: string; role: OpsRole }) {
     return ops.setOperatorRole(this.env, input);
+  }
+
+  /** R7.5 `ops.copy_setup`: accepted here, then run as `OpsCopyWorkflow`. Poll `getCopyStatus` with the returned `copyId`. */
+  copySetup(input: W & { sourcePropertyId: string; targetPropertyId: string; kinds: OpsCopyKind[] }) {
+    return copy.copySetup(this.env, input);
   }
 }

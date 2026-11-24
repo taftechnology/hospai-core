@@ -3,6 +3,8 @@
  * `ApiError` and turned into operator copy by `opsErrorMessage`, never printed as raw JSON.
  */
 
+import { kindList } from '../copy-labels.js';
+
 export type ApiError = Error & { status: number; code: string; detail?: string };
 
 export function isApiError(e: unknown): e is ApiError {
@@ -79,6 +81,13 @@ const DETAIL_MESSAGES: Record<string, string> = {
   name: 'Enter a name.',
   email: 'Enter a valid email address.',
   display_name: 'Enter a display name.',
+  kinds: 'Tick at least one thing to copy.',
+  same_property: 'Choose a different hotel to copy from.',
+  currency_mismatch: 'The two hotels use different ledger currencies, so amounts cannot be copied. Copy only the kinds without amounts.',
+  reservations: 'This hotel has already taken a reservation, so setup cannot be copied into it.',
+  copy_in_progress: 'A copy into this hotel is already running. Wait for it to finish.',
+  workflow_unavailable: 'The copy could not be started. Send it again in a moment.',
+  copy_id: 'That copy id is not valid.',
 };
 
 const CODE_MESSAGES: Record<string, string> = {
@@ -93,6 +102,8 @@ const CODE_MESSAGES: Record<string, string> = {
   jurisdiction_conflict: 'That jurisdiction conflicts with the customer’s existing hotels.',
   limit_exceeded: 'The plan’s hotel limit is reached. Change the plan or add a +1 property add-on first.',
   tenant_not_active: 'The customer is not active. Reinstate it first.',
+  org_mismatch: 'Those two hotels do not belong to the same customer.',
+  target_not_empty: 'This hotel already has setup of that kind, or has taken a reservation. Copy only works into an empty hotel.',
   user_not_found: 'No signed-up user has that email. Ask the person to sign up to the hotel app first.',
   plan_below_usage: 'That change would put the customer below the hotels it already has.',
   invalid_status_transition: 'The customer is not in a state that allows this change.',
@@ -111,6 +122,11 @@ const CODE_MESSAGES: Record<string, string> = {
 /** Operator-facing copy for any failure. Never the raw body, never a bare status line. */
 export function opsErrorMessage(err: unknown, fallback = 'That did not work. Try again.'): string {
   if (!isApiError(err)) return fallback;
+  if (err.code === 'target_not_empty') {
+    if (err.detail === 'reservations' || err.detail === 'copy_in_progress') return DETAIL_MESSAGES[err.detail]!;
+    if (err.detail) return `This hotel already has ${kindList(err.detail)}. Copy only works into an empty hotel.`;
+  }
+  if (err.code === 'limit_exceeded' && err.detail === 'kinds') return 'That is more than a copy can carry. Tick fewer things.';
   if (err.code === 'invalid_request' && err.detail) {
     return DETAIL_MESSAGES[err.detail] ?? 'Check the highlighted fields and try again.';
   }

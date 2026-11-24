@@ -1,6 +1,7 @@
 import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setCopyPollMs } from '../api/hooks.js';
 import { opsKeys } from '../api/keys.js';
 import { makeQueryClient } from '../App.js';
 import { customerDetail, customerRow, installFetch, renderAt } from './test-utils.js';
@@ -344,5 +345,180 @@ describe('sign-in failures', () => {
     installFetch('ops_admin', (c) => (c.path === '/me' ? { status: 401, body: { error: 'mfa_required' } } : undefined));
     renderAt('/customers');
     expect(await screen.findByText(/second factor is required/)).toBeInTheDocument();
+  });
+});
+
+describe('copy setup (R7.5)', () => {
+  const orgDetail = {
+    ...customerDetail(),
+    properties: [
+      { propertyId: 'prop_a', name: 'Hotel A', timeZone: 'UTC', jurisdiction: null, status: 'active' },
+      { propertyId: 'prop_b', name: 'Hotel B', timeZone: 'UTC', jurisdiction: null, status: 'active' },
+      { propertyId: 'prop_c', name: 'Hotel C', timeZone: 'UTC', jurisdiction: null, status: 'active' },
+    ],
+  };
+  const health = {
+    ok: true,
+    propertyId: 'prop_b',
+    orgId: 'org_a',
+    businessDate: '2026-11-24',
+    lastNightAudit: null,
+    oldestOutboxAgeMs: null,
+    roomCount: 0,
+    roomTypeCount: 0,
+    activeMemberCount: 0,
+    schemaVersion: 58,
+  };
+  const status = (state: 'pending' | 'running' | 'completed' | 'failed', extra: Record<string, unknown> = {}) => ({
+    ok: true,
+    copyId: 'opa_copy_1',
+    state,
+    orgId: 'org_a',
+    sourcePropertyId: 'prop_a',
+    targetPropertyId: 'prop_b',
+    kinds: ['room_types', 'rate_plans'],
+    results:
+      state === 'completed'
+        ? {
+            room_types: { state: 'done', created: 3, skipped: [{ sourceId: 'rt_old', label: 'Old room', reason: 'archived' }], skippedMore: 0 },
+            rate_plans: { state: 'done', created: 14, parts: { plans: 2, rateDays: 12 }, skipped: [], skippedMore: 0 },
+          }
+        : {
+            room_types: { state: state === 'failed' ? 'done' : 'running', created: state === 'failed' ? 3 : 0, skipped: [], skippedMore: 0 },
+            rate_plans: { state: state === 'failed' ? 'failed' : 'pending', created: 0, skipped: [], skippedMore: 0 },
+          },
+    error: state === 'failed' ? 'step_failed' : null,
+    createdAt: 1,
+    updatedAt: 2,
+    notCopied: [],
+    ...extra,
+  });
+  const base = (c: { path: string }) =>
+    c.path === '/properties/prop_b/health' ? { body: health } : c.path === '/customers/org_a' ? { body: orgDetail } : undefined;
+
+  async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: 'Copy setup from another hotel' }));
+    return screen.findByRole('dialog');
+  }
+
+  it('is offered to admins only', async () => {
+    installFetch('ops_viewer', base);
+    renderAt('/customers/org_a/hotels/prop_b');
+    await screen.findByRole('heading', { level: 1, name: 'Hotel health' });
+    expect(screen.queryByRole('button', { name: 'Copy setup from another hotel' })).toBeNull();
+  });
+
+  it('lists only the same customer’s other hotels, and requires a source, a kind and a reason', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', base);
+    renderAt('/customers/org_a/hotels/prop_b');
+    const dialog = await openDialog(user);
+
+    const select = await within(dialog).findByLabelText('Copy from');
+    await within(dialog).findByRole('option', { name: 'Hotel A (prop_a)' });
+    const options = within(select).getAllByRole('option').map((o) => o.textContent);
+    expect(options).toEqual(['Choose a hotel', 'Hotel A (prop_a)', 'Hotel C (prop_c)']);
+    expect(within(dialog).getByText('Not copied: set these by hand')).toBeInTheDocument();
+    for (const item of ['Rooms', 'Users and members', 'GSTIN and legal name', 'Invoice and receipt series and counters', 'E-invoicing and POS credentials', 'Bank details']) {
+      expect(within(dialog).getByText(item)).toBeInTheDocument();
+    }
+
+    // No reason: refused before any request.
+    await user.click(within(dialog).getByRole('button', { name: 'Copy setup' }));
+    expect(await within(dialog).findByText(/Enter a reason/)).toBeInTheDocument();
+    // Reason but no source.
+    await user.type(within(dialog).getByLabelText('Reason'), 'Hotel 2');
+    await user.click(within(dialog).getByRole('button', { name: 'Copy setup' }));
+    expect(await within(dialog).findByText('Choose the hotel to copy from.')).toBeInTheDocument();
+    // Source but no kind.
+    await user.selectOptions(select, 'prop_a');
+    for (const box of within(dialog).getAllByRole('checkbox')) await user.click(box);
+    await user.click(within(dialog).getByRole('button', { name: 'Copy setup' }));
+    expect(await within(dialog).findByText('Tick at least one thing to copy.')).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+  });
+
+  it('sends the request, then polls the result until it is done and shows counts, skipped items and the checklist', async () => {
+    setCopyPollMs(20);
+    const user = userEvent.setup();
+    let polls = 0;
+    const { calls } = installFetch('ops_admin', (c) => {
+      if (c.method === 'POST' && c.path === '/properties/prop_b/copy-setup') {
+        return { body: { ok: true, actionId: 'opa_copy_1', copyId: 'opa_copy_1', replayed: false } };
+      }
+      if (c.path === '/copies/opa_copy_1') {
+        polls += 1;
+        return { body: polls < 3 ? status('running') : status('completed') };
+      }
+      return base(c);
+    });
+    renderAt('/customers/org_a/hotels/prop_b');
+    const dialog = await openDialog(user);
+    await user.selectOptions(await within(dialog).findByLabelText('Copy from'), 'prop_a');
+    for (const label of ['Charge codes', 'Tax rules', 'Product categories and items', 'Packages', 'Hotel policies (an approved list of settings)']) {
+      await user.click(within(dialog).getByLabelText(label));
+    }
+    await user.type(within(dialog).getByLabelText('Reason'), 'Hotel 2 onboarding');
+    await user.type(within(dialog).getByLabelText('Ticket reference (optional)'), 'T-7');
+    await user.click(within(dialog).getByRole('button', { name: 'Copy setup' }));
+
+    expect(await within(dialog).findByText('Copy finished')).toBeInTheDocument();
+    const post = calls.find((c) => c.method === 'POST')!;
+    expect(post.path).toBe('/properties/prop_b/copy-setup');
+    expect(post.body).toMatchObject({
+      sourcePropertyId: 'prop_a',
+      kinds: ['room_types', 'rate_plans'],
+      reason: 'Hotel 2 onboarding',
+      ticketRef: 'T-7',
+    });
+    expect(typeof post.body!.clientKey).toBe('string');
+    expect(within(dialog).getByText('Rate plans and rates')).toBeInTheDocument();
+    expect(within(dialog).getByText('3')).toBeInTheDocument();
+    expect(within(dialog).getByText('14 (2 plans, 12 rate days)')).toBeInTheDocument();
+    const skipped = within(dialog).getByRole('region', { name: 'Skipped items' });
+    expect(within(skipped).getByText('Old room')).toBeInTheDocument();
+    expect(within(skipped).getByText('Archived at the source hotel')).toBeInTheDocument();
+    expect(within(dialog).getByText('Not copied: set these by hand')).toBeInTheDocument();
+    expect(within(dialog).getByText('Bank details')).toBeInTheDocument();
+
+    // Polling stops once the run is completed.
+    const seen = calls.filter((c) => c.path === '/copies/opa_copy_1').length;
+    await new Promise((r) => setTimeout(r, 120));
+    expect(calls.filter((c) => c.path === '/copies/opa_copy_1').length).toBe(seen);
+    setCopyPollMs(2000);
+  });
+
+  it('a stopped copy can be resumed with the same request, and a refusal is shown in words', async () => {
+    setCopyPollMs(20);
+    const user = userEvent.setup();
+    let resumed = false;
+    const { calls } = installFetch('ops_admin', (c) => {
+      if (c.method === 'POST') {
+        if (!resumed && calls.filter((x) => x.method === 'POST').length === 1) {
+          return { status: 409, body: { error: 'target_not_empty', detail: 'charge_codes,room_types' } };
+        }
+        return { body: { ok: true, actionId: 'opa_copy_1', copyId: 'opa_copy_1', replayed: resumed } };
+      }
+      if (c.path === '/copies/opa_copy_1') return { body: resumed ? status('completed') : status('failed') };
+      return base(c);
+    });
+    renderAt('/customers/org_a/hotels/prop_b');
+    const dialog = await openDialog(user);
+    await user.selectOptions(await within(dialog).findByLabelText('Copy from'), 'prop_a');
+    await user.type(within(dialog).getByLabelText('Reason'), 'Hotel 2');
+    await user.click(within(dialog).getByRole('button', { name: 'Copy setup' }));
+    const refusal = await within(dialog).findByText('This hotel already has charge codes, room types. Copy only works into an empty hotel.');
+    expect(refusal.closest('[role="alert"]')).not.toBeNull();
+    expect(dialog.textContent).not.toContain('target_not_empty');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Copy setup' }));
+    expect(await within(dialog).findByText('The copy stopped')).toBeInTheDocument();
+    resumed = true;
+    await user.click(within(dialog).getByRole('button', { name: 'Resume copy' }));
+    expect(await within(dialog).findByText('Copy finished')).toBeInTheDocument();
+    const posts = calls.filter((c) => c.method === 'POST');
+    expect(posts).toHaveLength(3);
+    expect(posts[2]!.body!.clientKey).toBe(posts[1]!.body!.clientKey);
+    setCopyPollMs(2000);
   });
 });

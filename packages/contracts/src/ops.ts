@@ -16,6 +16,8 @@ export const OPS_COMMAND_IDS = [
   'ops.add_operator',
   'ops.set_operator_status',
   'ops.set_operator_role',
+  // R7.5 (spec §11 C1): a BACKGROUND command run as a Workflow, not one of the ten INTERACTIVE D1 writes.
+  'ops.copy_setup',
 ] as const;
 export type OpsCommandId = (typeof OPS_COMMAND_IDS)[number];
 
@@ -177,3 +179,96 @@ export type PropertyHealthView = {
 export type ResolveOperatorResult =
   | { ok: true; operator: OperatorView; via: 'clerk_user_id' | 'link' | 'bootstrap' }
   | OpsFailure;
+
+// ---------------------------------------------------------------------------------------------
+// R7.5 Copy setup from another hotel (spec §11)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The seven kinds a copy can carry (spec C4), in the one order the workflow runs them. The order is
+ * the dependency order, not the order the operator ticked them: charge codes before the tax rules
+ * and products that name them, room types before the rate plans, rates and packages that point at
+ * them, products before the plan inclusions and package components that use them.
+ */
+export const OPS_COPY_KINDS = [
+  'charge_codes',
+  'tax_rules',
+  'room_types',
+  'products',
+  'rate_plans',
+  'packages',
+  'config',
+] as const;
+export type OpsCopyKind = (typeof OPS_COPY_KINDS)[number];
+
+/** `kinds[]` is capped at the number of kinds at the HTTP and RPC boundary (`limit_exceeded`). */
+export const OPS_COPY_KINDS_MAX = OPS_COPY_KINDS.length;
+
+/**
+ * What a copy never carries (spec C5). The console shows this as the hand checklist once a copy is
+ * accepted; a test asserts none of it reaches the target.
+ */
+export const OPS_COPY_NOT_COPIED = [
+  'Rooms',
+  'Users and members',
+  'GSTIN and legal name',
+  'Invoice and receipt series and counters',
+  'E-invoicing and POS credentials',
+  'Bank details',
+  'The business date and the night-audit schedule',
+] as const;
+
+export type OpsCopyRunState = 'pending' | 'running' | 'completed' | 'failed';
+export type OpsCopyKindState = 'pending' | 'running' | 'done' | 'failed';
+
+/** One source item the copy did not create, and why (spec C7). `reason` is a plain code. */
+export type OpsCopySkipped = { sourceId: string; label: string; reason: string };
+
+export type OpsCopyKindResult = {
+  state: OpsCopyKindState;
+  /** Everything this kind created on the target (the sum of `parts`). */
+  created: number;
+  /** Breakdown where a kind makes more than one thing: `{ plans, rateDays }`, `{ categories, items }`. */
+  parts?: Record<string, number>;
+  /** At most `OPS_COPY_SKIPPED_MAX` items are listed; `skippedMore` counts the rest. */
+  skipped: OpsCopySkipped[];
+  skippedMore: number;
+};
+
+export const OPS_COPY_SKIPPED_MAX = 200;
+
+export type OpsCopyStatus = {
+  ok: true;
+  copyId: string;
+  state: OpsCopyRunState;
+  orgId: string;
+  sourcePropertyId: string;
+  targetPropertyId: string;
+  kinds: OpsCopyKind[];
+  /** One entry per requested kind, in run order. */
+  results: Partial<Record<OpsCopyKind, OpsCopyKindResult>>;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  notCopied: readonly string[];
+};
+
+export type OpsCopyAccepted = OpsWriteOk & { copyId: string };
+
+/** What `PropertyDO.readCopyCensus` reports about a hotel before a copy: counts and key names only. */
+export type OpsCopyCensus = {
+  reservations: number;
+  roomTypes: number;
+  ratePlans: number;
+  rateDays: number;
+  packages: number;
+  /** Custom charge codes: those a hotel (or a copy) created, not the ones every hotel is born with. */
+  chargeCodes: number;
+  /** The codes every hotel is born with (created by a migration): ROOM, MISC, TAX and the other system codes. */
+  seededChargeCodes: string[];
+  taxRules: number;
+  productCategories: number;
+  products: number;
+  configKeys: string[];
+  ledgerCurrency: string | null;
+};

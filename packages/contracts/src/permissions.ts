@@ -27,7 +27,26 @@ export type SystemActor = {
 export type OperatorActor = {
   kind: 'operator';
   operatorId: string;
+  /**
+   * R7.5: set only by the copy-setup workflow. A PropertyDO accepts an operator for the three
+   * setup permissions in `OPERATOR_COPY_PERMISSIONS`, and for nothing else. Without it an operator
+   * never passes a tenant permission (R7.1 D5).
+   */
+  scope?: 'copy_setup';
+  /**
+   * R7.5: with `scope`, the one hotel the copy writes into. A PropertyDO for any other hotel refuses
+   * the actor, so a copy-scoped operator can never act on a live hotel.
+   */
+  targetPropertyId?: string;
 };
+
+/** Tenant permissions a `copy_setup` operator may pass: the ones the replayed commands and the allowlisted config keys need. */
+export const OPERATOR_COPY_PERMISSIONS = [
+  'inventory:write',
+  'inventory:configure',
+  'rates:write',
+  'settings:configure',
+] as const;
 
 export type ActorContext = UserActor | SystemActor | OperatorActor;
 

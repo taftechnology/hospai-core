@@ -1027,7 +1027,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
     - A suspended org's check-in is refused while its reads work.
     - A bad or missing Access JWT returns 401.
 
-- [ ] **R7.5 Copy setup from another hotel** ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §11)
+- [x] **R7.5 Copy setup from another hotel** (shipped 2026-11-24 in the Ops Console) ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §11)
   - **Why:** hotels 2–10 have one owner and mostly one setup. Re-typing room types, rates, packages, charge codes and tax rules per hotel costs days and invites mistakes.
   - **Locked:**
     - One `BACKGROUND` command, `ops.copy_setup`, runs as a Workflow. Same org only. The target must be empty: no reservation ever, and no rows of the kinds copied. That makes it provisioning, not a support write.

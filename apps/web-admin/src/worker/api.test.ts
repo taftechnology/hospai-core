@@ -151,3 +151,66 @@ describe('reads', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('copy setup (R7.5)', () => {
+  const copyBody = {
+    clientKey: 'ck-copy',
+    reason: 'Hotel 2 onboarding',
+    ticketRef: 'T-9',
+    sourcePropertyId: 'prop_src',
+    kinds: ['room_types', 'rate_plans'],
+  };
+
+  it('forwards only known fields: the target comes from the URL, the operator from the session', async () => {
+    signIn();
+    const env = makeEnv();
+    const res = await worker.fetch(
+      post('/api/properties/prop_tgt/copy-setup', {
+        ...copyBody,
+        targetPropertyId: 'prop_attacker',
+        operatorId: 'op_attacker',
+        extra: true,
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(env.PMS_OPS.copySetup).toHaveBeenCalledWith({
+      operatorId: 'op_1',
+      clientKey: 'ck-copy',
+      reason: 'Hotel 2 onboarding',
+      ticketRef: 'T-9',
+      sourcePropertyId: 'prop_src',
+      targetPropertyId: 'prop_tgt',
+      kinds: ['room_types', 'rate_plans'],
+    });
+    expect(((await res.json()) as { copyId: string }).copyId).toBe('opa_copy_1');
+  });
+
+  it('refuses kinds that are not an array, and more kinds than exist, before the binding', async () => {
+    signIn();
+    const env = makeEnv();
+    expect((await worker.fetch(post('/api/properties/p/copy-setup', { ...copyBody, kinds: 'room_types' }), env)).status).toBe(400);
+    const over = await worker.fetch(post('/api/properties/p/copy-setup', { ...copyBody, kinds: Array(8).fill('config') }), env);
+    expect(over.status).toBe(422);
+    expect(await over.json()).toEqual({ error: 'limit_exceeded', detail: 'kinds' });
+    expect(env.PMS_OPS.copySetup).not.toHaveBeenCalled();
+  });
+
+  it('needs the same origin like every write, and passes the entrypoint failure status through', async () => {
+    signIn();
+    const env = makeEnv();
+    expect((await worker.fetch(post('/api/properties/p/copy-setup', copyBody, {}), env)).status).toBe(403);
+    expect(env.PMS_OPS.copySetup).not.toHaveBeenCalled();
+    const pms = fakePms({ copySetup: vi.fn(async () => ({ ok: false, error: 'org_mismatch', status: 409 })) });
+    const refused = await worker.fetch(post('/api/properties/p/copy-setup', copyBody), makeEnv({ PMS_OPS: pms }));
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: 'org_mismatch' });
+  });
+
+  it('GET /api/copies/:id reads the status for the signed-in operator', async () => {
+    signIn();
+    const env = makeEnv();
+    await worker.fetch(new Request(`${ORIGIN}/api/copies/opa_copy_1`, { headers: { authorization: 'Bearer t' } }), env);
+    expect(env.PMS_OPS.getCopyStatus).toHaveBeenCalledWith({ operatorId: 'op_1', copyId: 'opa_copy_1' });
+  });
+});

@@ -33,6 +33,12 @@ export type PurgeWorkflowParams =
       retentionMs?: number;
     };
 
+/**
+ * RPC payload for `OpsCopyWorkflow` (R7.5). Ids only: the run row in Platform D1 (`ops_copy_run`)
+ * holds source, target, kinds and progress, so a restarted instance reads the same truth.
+ */
+export type OpsCopyWorkflowParams = { copyId: string; operatorId: string; attempt: number };
+
 /** One consumer's retry. The events queue message stays the original envelope. */
 export type EventRetryMessage = {
   consumerId: string;
@@ -65,6 +71,8 @@ export type PmsEnv = {
   MIGRATION_SWEEP_WORKFLOW: Workflow<MigrationSweepParams>;
   /** §4.8 cross-store purge — guest erase + org cancel/purge. */
   PURGE_WORKFLOW: Workflow<PurgeWorkflowParams>;
+  /** R7.5 copy setup from another hotel — one step per kind, run by an operator. */
+  OPS_COPY_WORKFLOW: Workflow<OpsCopyWorkflowParams>;
   PLATFORM_DB: D1Database;
   /** ARI projection — availability_day rows projected by the event consumer. */
   ARI_KV: KVNamespace;

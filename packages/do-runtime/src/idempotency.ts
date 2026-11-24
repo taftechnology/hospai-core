@@ -19,6 +19,8 @@ export function consumerIdempotencyKey(consumerId: string, eventId: string): str
 
 export function scopeIdempotencyKey(actor: ActorContext, clientKey: string): string {
   if (actor.kind === 'user') return `${actor.userId}:${clientKey}`;
+  // R7.5: an operator's keys are their own, never the shared `system:` namespace (spec C6).
+  if (actor.kind === 'operator') return `operator:${actor.operatorId}:${clientKey}`;
   return `system:${clientKey}`;
 }
 

@@ -313,6 +313,8 @@ import {
   fingerprintPayload,
   isStaffRef,
   type ActorContext,
+  OPERATOR_COPY_PERMISSIONS,
+  type OpsCopyCensus,
   type EventSource,
   type HousekeepingPriorityLevel,
   type HousekeepingPriorityLevelInput,
@@ -2399,7 +2401,17 @@ export class PropertyDO extends DurableObject<PmsEnv> {
   ): Promise<{ ok: false; error: typeof FORBIDDEN | 'not_member' } | null> {
     if (actor.kind === 'system') return null;
     // R7.1 D5: an operator is never a tenant member and never passes a tenant permission.
-    if (actor.kind === 'operator') return { ok: false, error: FORBIDDEN };
+    if (actor.kind === 'operator') {
+      // R7.5: only the copy-setup workflow's operator, and only for the setup permissions its nine
+      // replayed commands need. No other operator, and no other permission, ever passes.
+      const thisProperty = this.getPropertyIdSync();
+      const copyScoped =
+        actor.scope === 'copy_setup' &&
+        thisProperty !== null &&
+        actor.targetPropertyId === thisProperty &&
+        (OPERATOR_COPY_PERMISSIONS as readonly string[]).includes(permission);
+      return copyScoped ? null : { ok: false, error: FORBIDDEN };
+    }
 
     const orgId = this.getOrgIdSync();
     if (!orgId) return { ok: false, error: FORBIDDEN };
@@ -31146,6 +31158,42 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       roomCount: this.countQuerySync(`SELECT COUNT(*) AS n FROM room WHERE archived_at IS NULL`),
       roomTypeCount: this.countQuerySync(`SELECT COUNT(*) AS n FROM room_type WHERE status = 'active'`),
       schemaVersion: this.countQuerySync(`SELECT COALESCE(MAX(version), 0) AS n FROM schema_version`),
+    };
+  }
+
+  /**
+   * R7.5: what a copy needs to know about a hotel before it starts. Counts and key names only: no
+   * guest, folio or document row. `reservations` counts every reservation ever (any status), so a
+   * hotel that has taken a booking is never an empty target. Seeded defaults do not count: the
+   * default rate plan and the system charge codes exist in every hotel.
+   */
+  async readCopyCensus(configKeys: string[]): Promise<OpsCopyCensus> {
+    this.assertRpcAvailable();
+    const sql = this.ctx.storage.sql;
+    const keys = (Array.isArray(configKeys) ? configKeys : []).slice(0, 100);
+    const stored = new Set(
+      (sql.exec(`SELECT key FROM property_config`).toArray() as Array<{ key: string }>).map((r) => r.key),
+    );
+    return {
+      reservations: this.countQuerySync(`SELECT COUNT(*) AS n FROM reservation`),
+      roomTypes: this.countQuerySync(`SELECT COUNT(*) AS n FROM room_type`),
+      ratePlans: (
+        sql.exec(`SELECT COUNT(*) AS n FROM rate_plan WHERE rate_plan_id <> ?`, DEFAULT_RATE_PLAN_ID).toArray() as Array<{
+          n: number;
+        }>
+      )[0]!.n,
+      rateDays: this.countQuerySync(`SELECT COUNT(*) AS n FROM rate_day`),
+      packages: this.countQuerySync(`SELECT COUNT(*) AS n FROM package`),
+      // A migration seeds the codes every hotel is born with at created_at = 0 (ROOM, MISC, TAX, ...).
+      chargeCodes: this.countQuerySync(`SELECT COUNT(*) AS n FROM charge_code WHERE created_at > 0`),
+      seededChargeCodes: (
+        sql.exec(`SELECT code FROM charge_code WHERE created_at = 0 ORDER BY code`).toArray() as Array<{ code: string }>
+      ).map((r) => r.code),
+      taxRules: this.countQuerySync(`SELECT COUNT(*) AS n FROM tax_rule`),
+      productCategories: this.countQuerySync(`SELECT COUNT(*) AS n FROM products_category`),
+      products: this.countQuerySync(`SELECT COUNT(*) AS n FROM products_item`),
+      configKeys: keys.filter((k) => stored.has(k)),
+      ledgerCurrency: this.readStoredLedgerCurrencySync() ?? null,
     };
   }
 

@@ -1841,6 +1841,21 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     permission: 'shell:internal',
     notes: OPS_COMMAND_NOTES + ' Change an operator role.',
   },
+  // R7.5 copy setup (ops-platform spec §11). Lane BACKGROUND is real: the command is accepted in one
+  // D1 batch and the copy runs as the OpsCopyWorkflow, one step per kind. It replays existing admin
+  // commands on the target PropertyDO, which write their own audit rows; this id has no audit-writer.
+  {
+    id: 'ops.copy_setup',
+    prototypeAction: null,
+    lane: 'BACKGROUND',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: [],
+    permission: 'shell:internal',
+    notes:
+      OPS_COMMAND_NOTES +
+      ' Copy setup (room types, rate plans and rates, packages, charge codes, tax rules, products, allowlisted DOMAIN config) from one hotel into an empty hotel of the same org, as a Workflow with a step per kind.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

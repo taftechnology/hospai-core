@@ -3,7 +3,18 @@
  * decides authorization (viewer reads, admin writes) and validates the payload. This file parses
  * once, picks only known fields, and maps `{ ok: false, status }` to an HTTP status.
  */
-import { OPS_PAGE_SIZE, OPS_ROLES, OPERATOR_STATUSES, type OpsFailure, type OpsRole, type OperatorStatus, type Jurisdiction } from '@hospai/contracts';
+import {
+  LIMIT_EXCEEDED,
+  OPS_COPY_KINDS_MAX,
+  OPS_PAGE_SIZE,
+  OPS_ROLES,
+  OPERATOR_STATUSES,
+  type OpsCopyKind,
+  type OpsFailure,
+  type OpsRole,
+  type OperatorStatus,
+  type Jurisdiction,
+} from '@hospai/contracts';
 import { authenticateOperator } from './auth.js';
 import type { AdminEnv, PmsOpsBinding, WriteBase } from './env.js';
 
@@ -114,6 +125,9 @@ async function route(ctx: Ctx, operator: { displayName: string; role: OpsRole })
       );
     }
     if (path === '/api/operators') return respond(await pms.listOperators({ operatorId }));
+    if ((m = /^\/api\/copies\/([^/]+)$/.exec(path))) {
+      return respond(await pms.getCopyStatus({ operatorId, copyId: enc(m[1]!) }));
+    }
     return null;
   }
 
@@ -123,6 +137,20 @@ async function route(ctx: Ctx, operator: { displayName: string; role: OpsRole })
     const b = parsed;
     const base = writeBase(operatorId, b);
 
+    if ((m = /^\/api\/properties\/([^/]+)\/copy-setup$/.exec(path))) {
+      // R7.5: the target is the hotel in the URL; the source and the kinds come from the body.
+      // `kinds` is capped here as well as in pms-core, so an oversized array never reaches the binding.
+      if (!Array.isArray(b.kinds)) return badRequest('kinds');
+      if (b.kinds.length > OPS_COPY_KINDS_MAX) return failure({ ok: false, error: LIMIT_EXCEEDED, status: 422, detail: 'kinds' });
+      return respond(
+        await pms.copySetup({
+          ...base,
+          sourcePropertyId: str(b.sourcePropertyId),
+          targetPropertyId: enc(m[1]!),
+          kinds: b.kinds.map((k) => str(k)) as OpsCopyKind[],
+        }),
+      );
+    }
     if (path === '/api/customers') {
       return respond(await pms.createOrg({ ...base, orgId: str(b.orgId), name: str(b.name), planCode: str(b.planCode) }));
     }

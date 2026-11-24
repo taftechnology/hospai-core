@@ -6,6 +6,9 @@ import type {
   OperatorStatus,
   OperatorView,
   OpsAddPropertyOk,
+  OpsCopyAccepted,
+  OpsCopyKind,
+  OpsCopyStatus,
   OpsFailure,
   OpsRole,
   OpsWriteOk,
@@ -62,6 +65,11 @@ export interface PmsOpsBinding {
   addOperator: Write<{ email: string; displayName: string; role: OpsRole }>;
   setOperatorStatus: Write<{ targetOperatorId: string; status: OperatorStatus }>;
   setOperatorRole: Write<{ targetOperatorId: string; role: OpsRole }>;
+  /** R7.5: accepted here, run as a Workflow; poll `getCopyStatus` with the returned `copyId`. */
+  copySetup(
+    input: WriteBase & { sourcePropertyId: string; targetPropertyId: string; kinds: OpsCopyKind[] },
+  ): Promise<OpsCopyAccepted | OpsFailure>;
+  getCopyStatus(input: { operatorId: string; copyId: string }): Promise<OpsCopyStatus | OpsFailure>;
 }
 
 export interface AdminEnv {

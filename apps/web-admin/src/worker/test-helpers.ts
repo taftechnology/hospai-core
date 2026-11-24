@@ -28,6 +28,8 @@ export function fakePms(overrides: Partial<Record<keyof PmsOpsBinding, unknown>>
     addOperator: ok,
     setOperatorStatus: ok,
     setOperatorRole: ok,
+    copySetup: vi.fn(async () => ({ ok: true, actionId: 'opa_copy_1', copyId: 'opa_copy_1', replayed: false })),
+    getCopyStatus: vi.fn(async () => ({ ok: false, error: 'not_found', status: 404 })),
     ...overrides,
   };
   return pms as unknown as PmsOpsBinding & { [K in keyof typeof pms]: (typeof pms)[K] };

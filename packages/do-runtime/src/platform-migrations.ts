@@ -594,6 +594,38 @@ BEGIN
 END`,
 ];
 
+/**
+ * R7.5 copy-setup run state (ops-platform spec §11 C7). One row per accepted `ops.copy_setup`; its
+ * `copy_id` is the `operator_action` id written in the same D1 batch. Unlike `operator_action` it is
+ * updated as the workflow steps finish: `result_json` holds per-kind counts and skipped items,
+ * `id_map_json` the source-to-target ids the later kinds need, `attempt` which Workflow instance (`<copy_id>-<attempt>`) is running. A partial unique index allows one
+ * unfinished copy per target hotel. The rows hold ids, names the hotel typed and counts: no guest data.
+ */
+export const PLATFORM_OPS_COPY_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS ops_copy_run (
+  copy_id             TEXT PRIMARY KEY,
+  operator_id         TEXT NOT NULL REFERENCES operator(operator_id),
+  org_id              TEXT NOT NULL,
+  source_property_id  TEXT NOT NULL,
+  target_property_id  TEXT NOT NULL,
+  kinds_json          TEXT NOT NULL,
+  status              TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  result_json         TEXT NOT NULL DEFAULT '{}',
+  id_map_json         TEXT NOT NULL DEFAULT '{}',
+  attempt             INTEGER NOT NULL DEFAULT 1,
+  error               TEXT,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL
+)`,
+
+  `CREATE UNIQUE INDEX IF NOT EXISTS ops_copy_run_one_open_per_target
+ON ops_copy_run (target_property_id) WHERE status IN ('pending', 'running')`,
+
+  `CREATE INDEX IF NOT EXISTS ops_copy_run_org_idx ON ops_copy_run (org_id, created_at DESC)`,
+];
+
+export const PLATFORM_OPS_COPY_SQL = PLATFORM_OPS_COPY_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PLATFORM_OPERATOR_SQL =
   [...PLATFORM_OPERATOR_STATEMENTS, ...PLATFORM_ORG_SUSPENDED_STATEMENTS].join(';\n\n') + ';\n';
 
@@ -606,6 +638,7 @@ export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_OPS_ALERT_STATEMENTS,
   ...PLATFORM_USER_ORG_STATEMENTS,
   ...PLATFORM_OPERATOR_STATEMENTS,
+  ...PLATFORM_OPS_COPY_STATEMENTS,
   // PLATFORM_ORG_SUSPENDED_STATEMENTS applied by ensurePlatformSchema after the purge triggers.
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];

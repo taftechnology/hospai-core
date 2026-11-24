@@ -104,7 +104,7 @@ export function opsFail(error: string, detail?: string, extra?: { featureKey?: s
   return { ok: false, error, status, ...(detail ? { detail } : {}), ...(extra ?? {}) };
 }
 
-type OperatorRow = {
+export type OperatorRow = {
   operator_id: string;
   email: string;
   display_name: string;
@@ -132,17 +132,17 @@ function normalizeEmail(raw: unknown): string | null {
   return email;
 }
 
-function cleanText(raw: unknown, min: number, max: number): string | null {
+export function cleanText(raw: unknown, min: number, max: number): string | null {
   if (typeof raw !== 'string') return null;
   const text = raw.trim();
   return text.length >= min && text.length <= max ? text : null;
 }
 
-function newActionId(): string {
+export function newActionId(): string {
   return `opa_${crypto.randomUUID()}`;
 }
 
-function parseJson(raw: string | null): unknown {
+export function parseJson(raw: string | null): unknown {
   if (raw === null) return null;
   try {
     return JSON.parse(raw);
@@ -166,7 +166,7 @@ async function loadOperator(env: PmsEnv, operatorId: unknown): Promise<OperatorR
 }
 
 /** Re-checks the operator against D1: `not_an_operator` if unknown or disabled, `forbidden` for a viewer on a write. */
-async function authorize(
+export async function authorize(
   env: PmsEnv,
   operatorId: unknown,
   need: 'read' | 'write' | 'admin_read',
@@ -195,7 +195,7 @@ export type WriteInput = {
   ticketRef?: string | null;
 };
 
-type Prepared = {
+export type Prepared = {
   operator: OperatorRow;
   reason: string;
   ticketRef: string | null;
@@ -208,7 +208,7 @@ type Prepared = {
  * `payload` is the whole command payload (including reason and ticketRef): it is hashed and it is
  * what the command then executes.
  */
-async function prepareWrite(
+export async function prepareWrite(
   env: PmsEnv,
   commandId: OpsCommandId,
   input: WriteInput,
@@ -236,9 +236,9 @@ async function prepareWrite(
   };
 }
 
-type PriorAction = { action_id: string; request_fingerprint: string | null; after_json: string | null };
+export type PriorAction = { action_id: string; request_fingerprint: string | null; after_json: string | null };
 
-async function findPrior(env: PmsEnv, p: Prepared): Promise<PriorAction | null> {
+export async function findPrior(env: PmsEnv, p: Prepared): Promise<PriorAction | null> {
   return env.PLATFORM_DB.prepare(
     `SELECT action_id, request_fingerprint, after_json FROM operator_action WHERE idempotency_key = ?`,
   )
@@ -246,7 +246,7 @@ async function findPrior(env: PmsEnv, p: Prepared): Promise<PriorAction | null> 
     .first<PriorAction>();
 }
 
-type ActionSpec = {
+export type ActionSpec = {
   commandId: OpsCommandId | 'operator.link' | 'operator.bootstrap';
   orgId: string | null;
   propertyId?: string | null;
@@ -258,7 +258,7 @@ type ActionSpec = {
  * The `operator_action` insert. With `guarded`, the row is written only if the statement just before
  * it in the batch changed a row (SQLite `changes()`), so a refused UPDATE leaves no record either.
  */
-function actionStatement(
+export function actionStatement(
   env: PmsEnv,
   actionId: string,
   p: Prepared,
@@ -287,7 +287,7 @@ function actionStatement(
   return env.PLATFORM_DB.prepare(sql).bind(...values);
 }
 
-type BatchOutcome =
+export type BatchOutcome =
   | { kind: 'ok'; changedFirst: number }
   | { kind: 'replayed'; prior: PriorAction }
   | { kind: 'failed'; failure: OpsFailure };
@@ -297,7 +297,7 @@ type BatchOutcome =
  * violation on the idempotency key is a concurrent replay; `onConflict` maps any other constraint
  * failure (existing org, existing email) to its code.
  */
-async function runBatch(
+export async function runBatch(
   env: PmsEnv,
   p: Prepared,
   statements: D1PreparedStatement[],
@@ -318,11 +318,11 @@ async function runBatch(
   }
 }
 
-function replayCheck(p: Prepared, prior: PriorAction): OpsFailure | null {
+export function replayCheck(p: Prepared, prior: PriorAction): OpsFailure | null {
   return prior.request_fingerprint === p.fingerprint ? null : opsFail(IDEM_KEY_REUSED);
 }
 
-function tenantIdOk(id: unknown): id is string {
+export function tenantIdOk(id: unknown): id is string {
   if (typeof id !== 'string') return false;
   try {
     validateTenantId(id);

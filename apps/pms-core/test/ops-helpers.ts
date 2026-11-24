@@ -14,6 +14,7 @@ export async function resetOperatorRegistry(): Promise<void> {
   await ensurePlatformSchema(env.PLATFORM_DB);
   await env.PLATFORM_DB.prepare(`DROP TRIGGER IF EXISTS operator_action_no_delete`).run();
   await env.PLATFORM_DB.prepare(`DROP TRIGGER IF EXISTS operator_no_delete`).run();
+  await env.PLATFORM_DB.prepare(`DELETE FROM ops_copy_run`).run();
   await env.PLATFORM_DB.prepare(`DELETE FROM operator_action`).run();
   await env.PLATFORM_DB.prepare(`DELETE FROM operator`).run();
   for (const stmt of PLATFORM_OPERATOR_STATEMENTS) await env.PLATFORM_DB.prepare(stmt).run();

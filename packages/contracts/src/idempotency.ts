@@ -56,6 +56,9 @@ export const OPS_WRITES_DISABLED = 'ops_writes_disabled' as const;
 export const TENANT_SUSPENDED = 'tenant_suspended' as const;
 export const MFA_REQUIRED = 'mfa_required' as const;
 export const CLERK_UNREACHABLE = 'clerk_unreachable' as const;
+/** R7.5 copy setup (ops-platform spec §11 C2, C3). */
+export const ORG_MISMATCH = 'org_mismatch' as const;
+export const TARGET_NOT_EMPTY = 'target_not_empty' as const;
 
 /** Night-audit PRE_CHECK wire codes */
 export const PENDING_COMMANDS_UNDRAINED = 'pending_commands_undrained' as const;

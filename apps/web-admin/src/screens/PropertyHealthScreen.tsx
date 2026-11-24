@@ -1,12 +1,17 @@
-import { Badge, EmptyState, Metric, Metrics, PageHeader, SectionLabel } from '@hospai/ui-kit';
+import { Badge, Button, EmptyState, Metric, Metrics, PageHeader, SectionLabel } from '@hospai/ui-kit';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { usePropertyHealth } from '../api/hooks.js';
+import { useIsAdmin } from '../auth/OperatorContext.js';
 import { LoadFailure, LoadingBlock } from '../components/common.js';
 import { formatAge } from '../format.js';
+import { CopySetupDialog } from './CopySetupDialog.js';
 
 export function PropertyHealthScreen() {
   const { orgId = '', propertyId = '' } = useParams();
   const q = usePropertyHealth(propertyId);
+  const isAdmin = useIsAdmin();
+  const [copyOpen, setCopyOpen] = useState(false);
   const back = <Link to={`/customers/${encodeURIComponent(orgId)}`}>Back to customer</Link>;
 
   if (q.isPending) {
@@ -33,7 +38,11 @@ export function PropertyHealthScreen() {
         title="Hotel health"
         subtitle={`${h.propertyId} of ${h.orgId}. Counts and dates only; no guest data.`}
         back={back}
+        actions={isAdmin ? <Button onClick={() => setCopyOpen(true)}>Copy setup from another hotel</Button> : undefined}
       />
+      {copyOpen ? (
+        <CopySetupDialog orgId={orgId} targetPropertyId={propertyId} onClose={() => setCopyOpen(false)} />
+      ) : null}
       <section className="ops-section">
         <SectionLabel>Now</SectionLabel>
         <Metrics>

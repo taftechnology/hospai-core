@@ -1,7 +1,7 @@
 # HospAI operations platform — design
 
 **Date:** 2026-11-22
-**Status:** Accepted for build: §1–§10 (R7.1) and §11 (R7.5). §12 (R7.3) is direction only and gets its own spec before it is built.
+**Status:** Accepted for build: §1–§10 (R7.1) and §11 (R7.5). §12 (R7.3) is direction only and gets its own spec before it is built. **Amended 2026-11-24 (§15):** the console is the **HospAI Ops Console**, a separate Vite + React app in this monorepo that signs in with its **own Clerk instance**, not Cloudflare Access. §15 overrides D2, D3's "no secret" line, D4's email match and the Access tests in §10.
 **Roadmap:** Track G. **R7.1** and **R7.5** in Part B (before hotel 2), **R7.3** in Part C.
 **Sources:**
 - [`ARCHITECTURE.md` §4.9](../../../ARCHITECTURE.md#49-admin--support-access) (admin and support access), §6.1–§6.4 (entitlements, kill-switch), §11 (`apps/web-admin`).
@@ -17,7 +17,7 @@ Prototype: none — internal tool, no BluePMS or prototype surface.
 Live: apps/web-admin (new Worker + SPA) + apps/pms-core (OpsEntrypoint, registry, tenant gate) + apps/web-pms (one read-only table, suspended band)
 Locked call: one staff-only app, behind Cloudflare Access, where HospAI creates customers and hotels, changes plans and add-ons, suspends and reinstates, and sees each hotel's health. Every change is a recorded command with an operator actor that the hotel can see. No standing access to guest or folio data.
 Scope out: §9
-Pins: COMMAND_CATALOG 151 → 161 (R7.1), 162 (R7.5) · last route get_org_operator_actions (260) · PROPERTY_SCHEMA_HEAD unchanged · ORG_SCHEMA_HEAD unchanged · NIGHT_AUDIT_STEPS unchanged
+Pins: COMMAND_CATALOG 151 → 161 (R7.1), 162 (R7.5) · last route get_org_operator_actions (261; R4.4 took 260) · PROPERTY_SCHEMA_HEAD unchanged · ORG_SCHEMA_HEAD unchanged · NIGHT_AUDIT_STEPS unchanged
 Tests: §10, fail-first for tenancy (cross-org provision, foreign rows) and the suspended gate
 Verify: pnpm build && pnpm typecheck && pnpm lint && pnpm test:local
 ```
@@ -162,7 +162,7 @@ Fail-first where marked.
 - **Suspended (fail-first):** after `ops.suspend_org`, a property GET succeeds, a check-in returns 403 `tenant_suspended`, org cancel succeeds, a queued command replays into the exception queue, and the night audit still runs; after `ops.reinstate_org` the check-in succeeds.
 - **Health:** `getPropertyHealth` returns no field that holds a guest name, amount or document number (assert on the key set).
 - **Kill-switch:** with `kill:ops.write` set, every write → 503 and reads work.
-- **Pins:** `COMMAND_CATALOG` 161; `V1_HTTP_ROUTE_AUDIT` 260 with last id `get_org_operator_actions`; `permissions-check` matches `V1_ROUTES`; `AUDIT_WRITER_COMMAND_IDS` unchanged at 117, because `ops.*` are not PropertyDO commands.
+- **Pins:** `COMMAND_CATALOG` 161; `V1_HTTP_ROUTE_AUDIT` 261 with last id `get_org_operator_actions`; `permissions-check` matches `V1_ROUTES`; `AUDIT_WRITER_COMMAND_IDS` unchanged at 117, because `ops.*` are not PropertyDO commands.
 
 ## 11. R7.5 Copy setup from another hotel
 
@@ -211,3 +211,21 @@ Written up as its own spec before it is built:
 - **Q1 Hostname** for the console (for example `ops.` on the HospAI domain). The user creates the Access application and policy.
 - **Q2 Second operator.** Who it is and when. It decides when R7.3's WRITE grants can be used.
 - **Q3 Owner invitation.** v1 needs the hotel's admin to sign up first. If that is too awkward for hotels 2–10, a Clerk invitation from `ops.add_org_owner` is a small follow-up.
+
+## 15. Amendment 2026-11-24 — Ops Console with its own Clerk instance
+
+The user decided (2026-11-24): the console is a **separate Vite + React app in the monorepo** with a **separate Clerk instance**. This replaces Cloudflare Access as the sign-in layer. Everything else in §1–§14 stands.
+
+| # | Replaces | Decision |
+|---|---|---|
+| A1 | D1 name | The app stays at `apps/web-admin` (the name `ARCHITECTURE.md` §11 already uses); its product name is **HospAI Ops Console**. It is a Worker with static assets (Vite build) plus its own `/api/*` handler, as D1 says. |
+| A2 | D2 | **Sign-in is a dedicated Clerk instance** ("HospAI Ops"), never the hotel instance. The SPA uses `@clerk/react` with the ops publishable key and sends the session token as `Authorization: Bearer`. On every `/api/*` request the Worker verifies it with `@clerk/backend` `authenticateRequest` against the **ops** instance (`CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, optional `CLERK_JWT_KEY`) with `authorizedParties` from `CLERK_AUTHORIZED_PARTIES`. An empty `CLERK_AUTHORIZED_PARTIES` or missing Clerk config **fails closed** (401 on every request), the same rule as pms-core. A hotel-instance token fails verification because the keys differ. |
+| A3 | D2 hardware key | **Second factor required.** The Worker reads the session token's `fva` claim (factor verification age) and refuses a session whose second factor was never verified (`fva[1] < 0` or missing) with 401 `mfa_required`. The user enables MFA (passkey or authenticator) and restricts sign-up to an allowlist in the ops Clerk dashboard. Cloudflare Access in front of the hostname remains an optional extra layer; nothing depends on it. |
+| A4 | D3 | Bindings in `wrangler.jsonc` are still only `PMS_OPS` (service binding to `OpsEntrypoint`) and `assets`, and the bindings test still holds. The Worker now holds **one class of secret: the ops Clerk instance's keys**. It holds no tenant secret and no hotel-instance key. |
+| A5 | D4 | `operator` gains `clerk_user_id TEXT UNIQUE NULL`. A request resolves the operator by `clerk_user_id`. When no row has that id, the Worker fetches the Clerk user once (ops Backend API) and passes its **verified** primary email to `OpsEntrypoint.resolveOperator`, which links an `active` row with that email and a null `clerk_user_id` (action `operator.link`). An unverified email never links. Bootstrap works as D4 says, keyed by the same verified email, and stores the `clerk_user_id` on the new row. |
+| A6 | D10 | `Origin` check unchanged. The first-party client is Bearer, as in `web-pms`. |
+| A7 | local dev | With `HOSPAI_UNSAFE_LOCAL=1` and `OPS_ALLOW_DEV_OPERATOR=1`, an `x-dev-operator: <email>` header stands in for Clerk (the same gate shape as pms-core's `x-dev-actor`). Both flags are absent from the staging and production wrangler envs, and a test asserts that. |
+
+**Tests that replace the Access tests in §10:** no token → 401; a token from another Clerk instance (wrong key) → 401; a token whose `azp` is not in `CLERK_AUTHORIZED_PARTIES` → 401; empty `CLERK_AUTHORIZED_PARTIES` → 401 on every request; no second factor → 401 `mfa_required`; a valid token for a user with no operator row and no matching verified email → 403 `not_an_operator`; an unverified email never links; the dev header is ignored unless both local flags are set.
+
+**What the user sets up:** the ops Clerk instance (application, MFA on, sign-up restricted), its keys as `wrangler secret put` on `web-admin`, `CLERK_AUTHORIZED_PARTIES` and `OPS_BOOTSTRAP_EMAILS` vars, and the hostname (Q1).

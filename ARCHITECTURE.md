@@ -745,8 +745,11 @@ type ElevationGrant = {
 5. **Elevations are a reviewed metric.** Grant volume per operator, `WRITE` grants without a
    linked ticket resolution, and repeat elevations against the same tenant go to a weekly
    review. An access-control system nobody reads is theatre.
-6. **The admin console is a separate Worker** behind Cloudflare Access with hardware-key
-   enforcement, bound to nothing a customer-facing Worker can reach.
+6. **The admin console is a separate Worker** (the HospAI Ops Console, `apps/web-admin`) that
+   signs in through its **own Clerk instance** with a required second factor (amended
+   2026-11-24, [ops platform spec §15](docs/superpowers/specs/2026-11-22-ops-platform-design.md)),
+   bound to nothing a customer-facing Worker can reach. Cloudflare Access in front of it is an
+   optional extra layer.
 
 ---
 
@@ -2048,7 +2051,7 @@ hospai-pms/
 │   ├── workflows/                   night audit, activation, reconciliation, dunning,
 │   │                                cross-store purge, settlement reconciliation
 │   ├── web-pms/                     operator SPA (React + Vite)
-│   └── web-admin/                   internal console (behind Cloudflare Access)
+│   └── web-admin/                   HospAI Ops Console (own Clerk instance, MFA)
 │
 ├── modules/
 │   ├── core/{tenancy, identity, entitlements, configuration, notifications, audit}

@@ -1009,7 +1009,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
 - [x] **R7.1 Operations platform v1 — customers, hotels and plans** (shipped 2026-11-24 as the HospAI Ops Console, `apps/web-admin`, own Clerk instance per spec §15) ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §1–§10; absorbs the read-only console that was R7.3, 2026-11-22)
   - **Why:** "provisioned by ops" means a signed-in user calling `POST /v1/orgs`, plus hand-written SQL against Platform D1 for plan changes (`seedSubscription` and `trySetOrgStatus` in `apps/pms-core/src/registry.ts` are test helpers). Nine more hotels and a plan change by hand leave no record of who changed what, or why [gaps 7, 14, 15, 16].
   - **Locked:**
-    - `apps/web-admin`: a separate Worker with static assets behind Cloudflare Access with a hardware key (§4.9 rule 6). The Worker verifies the Access JWT on every request and fails closed on empty config. Its only binding is a service binding to a new `OpsEntrypoint` in `pms-core`.
+    - `apps/web-admin`: a separate Worker with static assets and its own Clerk instance (spec §15, amended 2026-11-24; this replaced Cloudflare Access with a hardware key, which stays an optional extra layer). The Worker verifies the Clerk session on every request, requires a completed second factor, checks `azp` against `CLERK_AUTHORIZED_PARTIES`, and fails closed on empty config. Its only binding is a service binding to a new `OpsEntrypoint` in `pms-core`.
     - Operators live in a Platform D1 `operator` table (`ops_admin`, `ops_viewer`). A new actor kind **`operator`** (not `staff`, which means hotel employees here). It never passes a tenant permission check.
     - Ten `ops.*` commands: create org, add property, add the first owner, set plan, set add-on, suspend, reinstate, and three to manage operators. Each needs a `reason`, is idempotent per operator, and writes an append-only `operator_action` row in the same D1 batch. No SQL path.
     - The hotel sees these changes on a new org route `get_org_operator_actions` (`org:read`), shown in `web-pms` as **HospAI account changes**.
@@ -1025,7 +1025,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
     - A write without a reason is rejected.
     - The change shows in that org's operator actions and never in another org's.
     - A suspended org's check-in is refused while its reads work.
-    - A bad or missing Access JWT returns 401.
+    - A bad or missing Clerk session, a wrong `azp`, or a session without a second factor returns 401.
 
 - [x] **R7.5 Copy setup from another hotel** (shipped 2026-11-24 in the Ops Console) ([spec](superpowers/specs/2026-11-22-ops-platform-design.md) §11)
   - **Why:** hotels 2–10 have one owner and mostly one setup. Re-typing room types, rates, packages, charge codes and tax rules per hotel costs days and invites mistakes.

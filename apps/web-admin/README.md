@@ -81,18 +81,16 @@ Staging is wired; production waits for the hostname (Q1) and a Clerk production 
    `CLERK_AUTHORIZED_PARTIES=https://hospai-ops-console-staging.hospai.workers.dev` (the workers.dev
    host until Q1). Top level and production stay empty, which fails closed.
 3. **Deploy: in `.github/workflows/staging-deploy.yml`**, after pms-core. It rebuilds the SPA with
-   the ops key, deploys, then sets `CLERK_SECRET_KEY` from the repo secret `OPS_CLERK_SECRET_KEY`.
-   Until that secret exists the console step is skipped with a warning.
-4. **Still yours:**
-   - add the repo secret `OPS_CLERK_SECRET_KEY` (the ops instance's secret key, from the Clerk
-     dashboard, API keys): `gh secret set OPS_CLERK_SECRET_KEY`;
-   - accept the ops Clerk invitation sent to the first operator on 2026-11-24 (it expires on
-     2026-12-24): set a password and a second factor. That email is `OPS_BOOTSTRAP_EMAILS` in
-     pms-core `env.staging`, so the first sign-in to the console makes it the first `ops_admin`;
-   - the hostname (open question Q1), then production: a Clerk production instance, its vars and
-     its secret (`pnpm exec wrangler secret put CLERK_SECRET_KEY -e production`).
-5. `CLERK_JWT_KEY` (the instance's PEM public key, networkless verification) is optional and not set.
-6. Optional extra layer: Cloudflare Access in front of the hostname. Nothing depends on it.
+   the ops key, deploys, then sets `CLERK_SECRET_KEY` from the repo secret `OPS_CLERK_SECRET_KEY`
+   (set 2026-11-24). If that secret is ever missing, the console step is skipped with a warning.
+4. **First operator: done (2026-11-24).** The invited operator set a password and an authenticator
+   app and signed in; because that email is `OPS_BOOTSTRAP_EMAILS` in pms-core `env.staging`, the
+   sign-in made it the first `ops_admin` (`operator.bootstrap` in the operator log). Add further
+   operators from the Operators screen.
+5. **Still open:** the hostname (open question Q1), then production: a Clerk production instance,
+   its vars and its secret (`pnpm exec wrangler secret put CLERK_SECRET_KEY -e production`).
+6. `CLERK_JWT_KEY` (the instance's PEM public key, networkless verification) is optional and not set.
+7. Optional extra layer: Cloudflare Access in front of the hostname. Nothing depends on it.
 
 ## Layout
 

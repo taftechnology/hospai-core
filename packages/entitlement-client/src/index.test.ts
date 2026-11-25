@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EntitlementSnapshot } from '@hospai/contracts';
 import {
+  checkKillSwitch,
   EntitlementDoCache,
   EntitlementRequiredError,
   parseFeatureValue,
@@ -37,6 +38,25 @@ describe('require', () => {
     expect(parseFeatureValue('LIMIT', '20')).toBe(20);
     expect(parseFeatureValue('LIMIT', 'unlimited')).toBe('unlimited');
     expect(parseFeatureValue('CONFIG', 'required')).toBe('required');
+  });
+});
+
+describe('checkKillSwitch', () => {
+  function kvWith(value: string | null) {
+    const get = vi.fn(async (_key: string, _opts?: { cacheTtl?: number }) => value);
+    return { get, env: { ENTITLEMENT_KV: { get } } as unknown as EntitlementEnv };
+  }
+
+  it('reads kill:<feature> with a 60 s cache, not longer', async () => {
+    const { get, env } = kvWith(null);
+    expect(await checkKillSwitch(env, 'pms.core')).toBe(false);
+    expect(get).toHaveBeenCalledWith('kill:pms.core', { cacheTtl: 60 });
+  });
+
+  it('is on for any non-empty value and off for an empty one', async () => {
+    expect(await checkKillSwitch(kvWith('1').env, 'pms.core')).toBe(true);
+    expect(await checkKillSwitch(kvWith('incident 42').env, 'pms.core')).toBe(true);
+    expect(await checkKillSwitch(kvWith('').env, 'pms.core')).toBe(false);
   });
 });
 

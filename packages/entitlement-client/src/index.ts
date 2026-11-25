@@ -77,8 +77,17 @@ export function require(snapshot: EntitlementSnapshot, featureKey: FeatureKey): 
   throw new EntitlementRequiredError(featureKey);
 }
 
+/**
+ * Kill-switch cache (ARCHITECTURE.md §6.4): a thrown switch reaches every colo within 60 s.
+ * Production KV accepts 30 since 2026-01-30, but the workerd bundled with the vitest pool still
+ * rejects anything under 60 (`Invalid cache_ttl`), so 30 waits for that upgrade.
+ */
+export const KILL_SWITCH_CACHE_TTL_SECONDS = 60;
+
 export async function checkKillSwitch(env: EntitlementEnv, featureKey: FeatureKey): Promise<boolean> {
-  const killed = await env.ENTITLEMENT_KV.get(killKvKey(featureKey), { cacheTtl: 60 });
+  const killed = await env.ENTITLEMENT_KV.get(killKvKey(featureKey), {
+    cacheTtl: KILL_SWITCH_CACHE_TTL_SECONDS,
+  });
   return killed !== null && killed !== '';
 }
 

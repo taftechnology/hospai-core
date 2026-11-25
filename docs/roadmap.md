@@ -935,7 +935,8 @@ Track P being `[x]` means the software is ready. **The pilot is live** when the 
 - [ ] **Parallel run** — at least three consecutive nights with both systems live. Each night, compare the night audit (room revenue, tax by component, payments, in-house count) and the **Manager Report** with BluePMS. Any difference is explained and fixed before cut-over; the comparison is kept as the sign-off record.
 - [ ] **Operations runbooks** (added 2026-11-22, from the [platform operations research](research/reports/Hotel%20PMS%20platform%20operations.md) gaps 5, 6, 9, 11, 12):
   - an incident and breach runbook (CERT-In 6 hours, notice to the hotel within hours);
-  - one restore drill from DO point-in-time recovery that refuses points before a purge;
+  - one restore drill from DO point-in-time recovery that refuses points before a purge (2026-11-24: this needs code first; no PropertyDO or OrgDO method calls `getBookmarkForTime` / `onNextSessionRestoreBookmark` yet, PITR only works on a deployed object, and the undo bookmark and reason must be stored outside the restored object);
+  - kill-switch procedure: done 2026-11-24, [runbook](runbooks/kill-switch.md) (interim, unaudited KV write; an audited command belongs in R7.3);
   - interim support access, where the hotel adds and removes a named HospAI member;
   - the DPA, sub-processor list and security contact;
   - 30 days of hypercare with a 24/7 P1 line.
@@ -972,7 +973,9 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
     - **Watching the sweep:** a public `GET /health` and a heartbeat let an off-Cloudflare monitor watch both the sweep and the Worker.
     - **Pins:** none move.
     - **Waiting on you:** the vendor and on-call questions (spec §10) and the account set-up (spec §7). The code does not wait on them.
-  - **Code done (2026-11-22, not deployed):**
+  - **Decided (2026-11-24):** the owner is the on-call person until a second operator joins. The paging sink (PagerDuty or webhook) is not chosen yet.
+  - **On staging (checked 2026-11-24):** the cron sweep runs every 5 minutes and records alerts in `ops_alert` (it had opened and resolved overdue-audit and unreachable-hotel alerts), log-only because no sink secret is set. Not in production.
+  - **Code done (2026-11-22):**
     - `runOpsHealthSweep` (`apps/pms-core/src/ops-health-sweep.ts`), `PropertyDO.readOpsHealth`, the sink (`ops-alert-sink.ts`), `GET /health`, platform D1 `0007_ops_alert.sql`, the wrangler cron, observability and Logpush keys, and the DLQ producer bindings. Wrangler 4.114 → 4.166.
     - 28 tests in `apps/pms-core/test/ops-health-sweep.spec.ts`.
     - The slice stays unticked until spec §7 is done and the staging rehearsal (§7 step 8) passes.

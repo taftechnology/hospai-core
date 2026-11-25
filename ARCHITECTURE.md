@@ -1009,11 +1009,16 @@ therefore **not** part of the resolution chain above and **not** in the versione
 
 ```ts
 // edge Worker, before entitlement resolution
-const killed = await env.KV.get(`kill:${featureKey}`, { cacheTtl: 10 });
+const killed = await env.KV.get(`kill:${featureKey}`, { cacheTtl: 60 });
 if (killed) return new Response(null, { status: 503 });
 ```
 
-Separate key space, low TTL, no version, checked at the edge on every request. Different
+Separate key space, low TTL, no version, checked at the edge on every request. The TTL is 60
+seconds (2026-11-24: the 10 seconds first written here was never accepted by KV). Production KV
+has accepted 30 since 2026-01-30; the code moves to 30 when the test pool's bundled runtime does,
+since it still rejects anything under 60. So a thrown switch lands everywhere within 60 seconds.
+A switch that must land at once (`kill:ops.write`) is read uncached. How to throw one:
+`docs/runbooks/kill-switch.md`. Different
 lifecycle, different audience, different latency requirement — same argument as §1.
 
 ### 6.5 Enforcement — four layers

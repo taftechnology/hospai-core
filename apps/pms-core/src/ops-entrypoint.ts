@@ -21,7 +21,7 @@ export class OpsEntrypoint extends WorkerEntrypoint<PmsEnv> {
   }
 
   // Reads
-  listCustomers(input: { operatorId: string; query?: string | null; page?: number }) {
+  listCustomers(input: { operatorId: string; query?: string | null; page?: number; status?: string | null }) {
     return ops.listCustomers(this.env, input);
   }
   getCustomer(input: { operatorId: string; orgId: string }) {

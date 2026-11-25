@@ -13,7 +13,7 @@ import { OpsEntrypoint } from '../src/ops-entrypoint.js';
 import * as ops from '../src/ops-platform.js';
 import type { OrgDO } from '../src/org-do.js';
 import { provisionProperty, resolvePropertyFromRegistry } from '../src/provision.js';
-import { getOrg, trySetOrgStatus } from '../src/registry.js';
+import { getOrg, setOrgPurgeNotBefore, trySetOrgStatus } from '../src/registry.js';
 import { actionRows, failingBatchDb, resetOperatorRegistry, seedOperator, uid, withEnv } from './ops-helpers.js';
 import { idemFor } from './fixtures.js';
 
@@ -516,6 +516,43 @@ describe('console reads', () => {
     expect(byName.ok && byName.customers.map((c) => c.orgId)).toEqual([orgId]);
     const wild = await ops.listCustomers(guarded, { operatorId: viewer.operatorId, query: '%' });
     expect(wild.ok && wild.customers.every((c) => c.orgId.includes('%') || c.name.includes('%'))).toBe(true);
+  });
+
+  it('listCustomers status filter: default active+suspended; closing; purging or purged; all; unknown is invalid', async () => {
+    const tag = crypto.randomUUID().slice(0, 8);
+    const ids: Record<string, string> = {};
+    for (const status of ['active', 'suspended', 'closing', 'purging', 'purged']) {
+      const orgId = `org_flt_${status}_${tag}`;
+      ids[status] = orgId;
+      await env.PLATFORM_DB.prepare(`INSERT INTO org (org_id, name, status, created_at) VALUES (?, ?, 'active', ?)`)
+        .bind(orgId, `Filter ${tag}`, Date.now())
+        .run();
+    }
+    // Walk each org to its status through the real transition guard.
+    expect((await trySetOrgStatus(env, ids.suspended!, 'suspended')).ok).toBe(true);
+    for (const s of ['closing', 'purging', 'purged'] as const) {
+      expect((await trySetOrgStatus(env, ids[s]!, 'suspended')).ok).toBe(true);
+      expect((await trySetOrgStatus(env, ids[s]!, 'closing')).ok).toBe(true);
+      if (s !== 'closing') {
+        await setOrgPurgeNotBefore(env, ids[s]!, Date.now());
+        expect((await trySetOrgStatus(env, ids[s]!, 'purging')).ok).toBe(true);
+      }
+      if (s === 'purged') expect((await trySetOrgStatus(env, ids[s]!, 'purged')).ok).toBe(true);
+    }
+    const list = async (status?: string | null) => {
+      const r = await ops.listCustomers(env, { operatorId: viewer.operatorId, query: `Filter ${tag}`, status });
+      expect(r.ok).toBe(true);
+      return r.ok ? r.customers.map((c) => c.status).sort() : [];
+    };
+    expect(await list()).toEqual(['active', 'suspended']);
+    expect(await list(null)).toEqual(['active', 'suspended']);
+    expect(await list('current')).toEqual(['active', 'suspended']);
+    expect(await list('closing')).toEqual(['closing']);
+    expect(await list('closed')).toEqual(['purged', 'purging']);
+    expect(await list('all')).toEqual(['active', 'closing', 'purged', 'purging', 'suspended']);
+    for (const bad of ['bogus', '', 'constructor', "current' OR 1=1 --"]) {
+      expect(await ops.listCustomers(env, { operatorId: viewer.operatorId, status: bad })).toMatchObject({ ok: false });
+    }
   });
 
   it('listCustomers pages at 50', async () => {

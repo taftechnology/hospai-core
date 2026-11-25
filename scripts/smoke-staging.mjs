@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * Staging HTTP smoke: provision → book → check-in → check-out.
+ * Staging HTTP smoke: provision → book → check-in → check-out → cancel the smoke orgs.
+ *
+ * Every run provisions a fresh `org_smoke_<ts>` org. Step 13 closes this run's org and any
+ * `org_smoke_*` leftovers of earlier runs (POST /v1/orgs/{id}/cancel {action:'close'}), so they
+ * stop showing as live customers. Purge after the retention window is a separate, later step.
  *
  *   BASE=https://hospai-pms-core-staging.<subdomain>.workers.dev \
  *   CLERK_SESSION_JWT=<jwt> \
@@ -356,6 +360,36 @@ async function main() {
     fail(12, getRes.status, `expected status checked_out, got ${JSON.stringify(getBody?.status)}`);
   }
   console.log('✓ step 12: GET …/reservations/{id} (checked_out)');
+
+  // Step 13: GET /v1/me/tenants, then POST /v1/orgs/{id}/cancel {action:'close'} for every active
+  // org_smoke_* org (this run's org must close; earlier leftovers are best effort).
+  const tenantsRes = await fetch(`${BASE}/v1/me/tenants`, { headers: bearerOnly });
+  const tenantsBody = await readJson(tenantsRes);
+  if (tenantsRes.status !== 200) fail(13, tenantsRes.status, snippet(tenantsBody));
+  const tenants = Array.isArray(tenantsBody?.tenants) ? tenantsBody.tenants : [];
+  if (!tenants.some((t) => t?.orgId === orgId)) {
+    fail(13, tenantsRes.status, `this run's org ${orgId} missing from /v1/me/tenants`);
+  }
+  const smokeOrgIds = tenants
+    .filter((t) => typeof t?.orgId === 'string' && t.orgId.startsWith('org_smoke_') && t.status === 'active')
+    .map((t) => t.orgId);
+  let closed = 0;
+  for (const id of smokeOrgIds) {
+    const cancelRes = await fetch(`${BASE}/v1/orgs/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ action: 'close' }),
+    });
+    const cancelBody = await readJson(cancelRes);
+    if (cancelRes.status === 200 && cancelBody?.ok === true) {
+      closed += 1;
+    } else if (id === orgId) {
+      fail(13, cancelRes.status, snippet(cancelBody));
+    } else {
+      console.warn(`warning: could not close leftover ${id}: HTTP ${cancelRes.status}`);
+    }
+  }
+  console.log(`✓ step 13: POST /v1/orgs/{orgId}/cancel (closed ${closed} smoke org(s))`);
 }
 
 main().catch((err) => {

@@ -10,6 +10,7 @@ import {
   EmptyState,
   Field,
   Input,
+  NativeSelect,
   PageHeader,
   Toolbar,
 } from '@hospai/ui-kit';
@@ -21,17 +22,28 @@ import { LoadFailure, LoadingBlock, Pager } from '../components/common.js';
 import { formatTime, limitLabel } from '../format.js';
 import { statusRung } from './status.js';
 
+const STATUS_FILTERS = [
+  { value: 'current', label: 'Active and suspended' },
+  { value: 'closing', label: 'Closing' },
+  { value: 'closed', label: 'Purging or purged' },
+  { value: 'all', label: 'All' },
+] as const;
+const DEFAULT_STATUS = 'current';
+
 export function CustomersScreen() {
   const isAdmin = useIsAdmin();
   const [params, setParams] = useSearchParams();
   const query = params.get('q') ?? '';
+  const statusRaw = params.get('status') ?? DEFAULT_STATUS;
+  const status = STATUS_FILTERS.some((f) => f.value === statusRaw) ? statusRaw : DEFAULT_STATUS;
   const pageRaw = Number(params.get('page') ?? '1');
   const page = Number.isInteger(pageRaw) && pageRaw >= 1 ? pageRaw : 1;
   const [draft, setDraft] = useState(query);
-  const q = useCustomers(query, page);
+  const q = useCustomers(status, query, page);
 
-  function go(nextQuery: string, nextPage: number) {
+  function go(nextQuery: string, nextPage: number, nextStatus: string = status) {
     const next = new URLSearchParams();
+    if (nextStatus !== DEFAULT_STATUS) next.set('status', nextStatus);
     if (nextQuery) next.set('q', nextQuery);
     if (nextPage > 1) next.set('page', String(nextPage));
     setParams(next);
@@ -55,6 +67,18 @@ export function CustomersScreen() {
           label="Search"
           control={<Input type="search" value={draft} onChange={(e) => setDraft(e.target.value)} />}
         />
+        <Field
+          label="Status"
+          control={
+            <NativeSelect value={status} onChange={(e) => go(query, 1, e.target.value)}>
+              {STATUS_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </NativeSelect>
+          }
+        />
         <Button intent="primary" onClick={() => go(draft.trim(), 1)}>
           Search
         </Button>
@@ -75,6 +99,8 @@ export function CustomersScreen() {
       {q.isSuccess && q.data.customers.length === 0 ? (
         query ? (
           <EmptyState kind="nomatch" title="No customer matches that search" description="Check the spelling or search by org id." />
+        ) : status !== 'all' ? (
+          <EmptyState kind="nomatch" title="No customer matches this status" description="Choose All to see every customer." />
         ) : (
           <EmptyState title="No customers yet" description={isAdmin ? 'Use Create customer to add the first one.' : undefined} />
         )

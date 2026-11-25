@@ -36,7 +36,7 @@ describe('Customers', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByRole('link', { name: 'Customer 3' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Customer 1' })).toBeNull();
-    expect(calls.some((c) => c.path === '/customers?query=&page=2')).toBe(true);
+    expect(calls.some((c) => c.path === '/customers?status=current&query=&page=2')).toBe(true);
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
   });
 
@@ -46,11 +46,35 @@ describe('Customers', () => {
       c.path.startsWith('/customers?') ? { body: { ok: true, page: 1, hasMore: false, customers: [] } } : undefined,
     );
     renderAt('/customers');
+    expect(await screen.findByText('No customer matches this status')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Status'), 'all');
     expect(await screen.findByText('No customers yet')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Search'), 'grand');
     await user.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('No customer matches that search')).toBeInTheDocument();
+  });
+
+  it('filters by status: default is "Active and suspended", a change refetches page 1 with the new status', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) => {
+      if (c.path.startsWith('/customers?')) {
+        return c.path.includes('page=2') ? page(2, false, [3]) : page(1, true, [1, 2]);
+      }
+      return undefined;
+    });
+    renderAt('/customers');
+    const select = (await screen.findByLabelText('Status')) as HTMLSelectElement;
+    expect(select.value).toBe('current');
+    expect(within(select).getByRole('option', { name: 'Active and suspended' })).toBeInTheDocument();
+    expect(calls.some((c) => c.path === '/customers?status=current&query=&page=1')).toBe(true);
+
+    await user.click(await screen.findByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(calls.some((c) => c.path === '/customers?status=current&query=&page=2')).toBe(true));
+
+    await user.selectOptions(screen.getByLabelText('Status'), 'closing');
+    await waitFor(() => expect(calls.some((c) => c.path === '/customers?status=closing&query=&page=1')).toBe(true));
+    expect((screen.getByLabelText('Status') as HTMLSelectElement).value).toBe('closing');
   });
 
   it('shows a failure with a retry, in plain words', async () => {

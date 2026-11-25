@@ -127,7 +127,9 @@ describe('reads', () => {
     const env = makeEnv();
     const get = (p: string) => worker.fetch(new Request(`${ORIGIN}${p}`, { headers: { authorization: 'Bearer t' } }), env);
     await get('/api/customers?query=grand&page=2');
-    expect(env.PMS_OPS.listCustomers).toHaveBeenCalledWith({ operatorId: 'op_1', query: 'grand', page: 2 });
+    expect(env.PMS_OPS.listCustomers).toHaveBeenCalledWith({ operatorId: 'op_1', query: 'grand', page: 2, status: null });
+    await get('/api/customers?status=closing');
+    expect(env.PMS_OPS.listCustomers).toHaveBeenLastCalledWith({ operatorId: 'op_1', query: null, page: undefined, status: 'closing' });
     await get('/api/operator-actions?orgId=org_a&operatorId=op_2&page=3');
     expect(env.PMS_OPS.listOperatorActions).toHaveBeenCalledWith({
       operatorId: 'op_1',

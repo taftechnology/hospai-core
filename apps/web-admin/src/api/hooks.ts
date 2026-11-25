@@ -21,11 +21,13 @@ export const useMe = () =>
     retry: false,
   });
 
-export const useCustomers = (query: string, page: number) =>
+export const useCustomers = (status: string, query: string, page: number) =>
   useQuery({
-    queryKey: opsKeys.customers(query, page),
+    queryKey: opsKeys.customers(status, query, page),
     queryFn: () =>
-      apiGet<CustomerPage>(`/customers?query=${encodeURIComponent(query)}&page=${page}`),
+      apiGet<CustomerPage>(
+        `/customers?status=${encodeURIComponent(status)}&query=${encodeURIComponent(query)}&page=${page}`,
+      ),
   });
 
 export const useCustomer = (orgId: string) =>

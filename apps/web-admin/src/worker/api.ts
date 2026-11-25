@@ -104,7 +104,10 @@ async function route(ctx: Ctx, operator: { displayName: string; role: OpsRole })
       const page = pageParam(url);
       if (page === 'bad') return badRequest('page');
       const query = url.searchParams.get('query');
-      return respond(await pms.listCustomers({ operatorId, query: query && query.length <= 200 ? query : null, page }));
+      const status = url.searchParams.get('status');
+      return respond(
+        await pms.listCustomers({ operatorId, query: query && query.length <= 200 ? query : null, page, status }),
+      );
     }
     if ((m = /^\/api\/customers\/([^/]+)$/.exec(path))) {
       return respond(await pms.getCustomer({ operatorId, orgId: enc(m[1]!) }));

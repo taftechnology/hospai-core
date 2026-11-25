@@ -2,7 +2,7 @@
 export const opsKeys = {
   me: () => ['ops', 'me'] as const,
   customersAll: () => ['ops', 'customers'] as const,
-  customers: (query: string, page: number) => ['ops', 'customers', query, page] as const,
+  customers: (status: string, query: string, page: number) => ['ops', 'customers', status, query, page] as const,
   customer: (orgId: string) => ['ops', 'customer', orgId] as const,
   health: (propertyId: string) => ['ops', 'health', propertyId] as const,
   actionsAll: () => ['ops', 'operator-actions'] as const,

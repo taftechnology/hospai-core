@@ -59,7 +59,7 @@ They are not the same screen and never share a route.
 
 ## 4. Stage 1 screens (R7.1)
 
-1. **Customers.** One row per org from the registry: name, org id, status, plan, add-ons, properties used / limit, created. Search by name or id, 50 per page. No DO calls.
+1. **Customers.** One row per org from the registry: name, org id, status, plan, add-ons, properties used / limit, created. Search by name or id, 50 per page. No DO calls. *Amended 2026-11-24:* the list has a status filter, default "Active and suspended" (others: Closing, Purging or purged, All), so closed and purged orgs, such as retired smoke orgs, stop cluttering the default view. The filter reads `org.status` in the registry only.
 2. **Customer detail.** The org's properties (name, id, time zone, jurisdiction, currency, status), plan and add-ons with change buttons, owners (user id and role only), and that org's operator actions.
 3. **Hotel detail.** One call, `OpsEntrypoint.getPropertyHealth(propertyId)`, which reads **one** PropertyDO: business date, last night audit (date, status, exception count), oldest outbox row age, room and room-type counts, active member count, schema version. Counts and dates only, with no guest names, amounts or folio rows. The customer list never calls this, so the list never fans out to every DO. Fleet-wide health columns come in R7.3.
 4. **Create customer** and **Add hotel** forms (§5).

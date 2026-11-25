@@ -36,7 +36,12 @@ export interface PmsOpsBinding {
     verifiedEmail: string | null;
     displayName?: string | null;
   }): Promise<ResolveOperatorResult>;
-  listCustomers(input: { operatorId: string; query?: string | null; page?: number }): Promise<CustomerPage | OpsFailure>;
+  listCustomers(input: {
+    operatorId: string;
+    query?: string | null;
+    page?: number;
+    status?: string | null;
+  }): Promise<CustomerPage | OpsFailure>;
   getCustomer(input: { operatorId: string; orgId: string }): Promise<CustomerDetail | OpsFailure>;
   getPropertyHealth(input: { operatorId: string; propertyId: string }): Promise<PropertyHealthView | OpsFailure>;
   listOperatorActions(input: {

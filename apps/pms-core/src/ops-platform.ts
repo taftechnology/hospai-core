@@ -1107,15 +1107,29 @@ function escapeLike(raw: string): string {
   return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/**
+ * Customer list status filter (2026-11-24). The wire value picks one fixed SQL fragment from this
+ * table; nothing from the request is ever concatenated into SQL.
+ */
+const CUSTOMER_STATUS_FILTERS = {
+  current: `o.status IN ('active','suspended')`,
+  closing: `o.status = 'closing'`,
+  closed: `o.status IN ('purging','purged')`,
+  all: `1 = 1`,
+} as const;
+
 /** Customers from the registry only: no Durable Object is called. */
 export async function listCustomers(
   env: PmsEnv,
-  input: { operatorId: string; query?: string | null; page?: number },
+  input: { operatorId: string; query?: string | null; page?: number; status?: string | null },
 ): Promise<CustomerPage | OpsFailure> {
   const operator = await authorize(env, input?.operatorId, 'read');
   if ('ok' in operator) return operator;
   const paging = pageOffset(input.page);
   if (!paging) return opsFail(INVALID_REQUEST, 'page');
+  const statusKey = input.status ?? 'current';
+  if (!Object.hasOwn(CUSTOMER_STATUS_FILTERS, statusKey)) return opsFail(INVALID_REQUEST, 'status');
+  const statusSql = CUSTOMER_STATUS_FILTERS[statusKey as keyof typeof CUSTOMER_STATUS_FILTERS];
   const query = typeof input.query === 'string' ? input.query.trim().slice(0, 100) : '';
   const like = query ? `%${escapeLike(query)}%` : null;
 
@@ -1123,7 +1137,7 @@ export async function listCustomers(
     `SELECT o.org_id, o.name, o.status, o.created_at, s.plan_code,
             (SELECT COUNT(*) FROM property p WHERE p.org_id = o.org_id) AS used
      FROM org o LEFT JOIN subscription s ON s.org_id = o.org_id
-     WHERE (? IS NULL OR o.name LIKE ? ESCAPE '\\' OR o.org_id LIKE ? ESCAPE '\\')
+     WHERE ${statusSql} AND (? IS NULL OR o.name LIKE ? ESCAPE '\\' OR o.org_id LIKE ? ESCAPE '\\')
      ORDER BY o.created_at DESC, o.org_id ASC
      LIMIT ? OFFSET ?`,
   )

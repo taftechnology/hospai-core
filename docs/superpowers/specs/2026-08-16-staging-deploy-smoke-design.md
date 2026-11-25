@@ -2,6 +2,8 @@
 
 **Tree verified 2026-08-16:** `COMMAND_CATALOG` length **89**, `AUDIT_WRITER_COMMAND_IDS.size === 63`, `V1_HTTP_ROUTE_AUDIT` length **144** (`[143].id === 'get_city_ledger_statement'`), `PROPERTY_SCHEMA_HEAD === 34`, `NIGHT_AUDIT_STEPS` length **8**, `[3] === 'AUTO_TRANSFER'`, `idempotency.ts` `export const` count **158**. Phase **H** landed on `main` (staging env scaffold in `wrangler.jsonc`; dry-run in CI).
 
+**Amendment 2026-11-24 (smoke cleanup):** the smoke script gains a final step 13 that closes the orgs it created. Unique ids per run stay (Lock 5), so every run left a live-looking "Smoke Org" in the Ops Console customer list (12 by this date). Step 13 reads `GET /v1/me/tenants` and, for every `active` org whose id starts `org_smoke_`, calls `POST /v1/orgs/{id}/cancel` with `{"action":"close"}`, which moves it to `closing` (the 30-day retention window). This run's org must close and must be listed, else the smoke fails; earlier leftovers are best effort (warning, no failure). No other org prefix is touched. Purging closed smoke orgs after retention is a later step, not part of this amendment.
+
 **Date:** 2026-08-16  
 **Status:** Draft (spec writer)  
 **Sources:** [Audit Phase H — H1 infra](./2026-08-16-audit-phase-h-infra-design.md) Lock 2 follow-up (item 2 deferred); `apps/pms-core/wrangler.jsonc` `env.staging` (`:117–233`); `apps/pms-core/src/env.ts` (`:60–90`); `apps/pms-core/src/auth.ts` (`:28–101`); `apps/pms-core/src/provision.ts`, `registry.ts`; `packages/contracts/src/v1-http-routes.ts`; `migrations/d1-platform/` (`0001`–`0005`); `apps/pms-core/test/reservations-routes.spec.ts`, `rooms-routes.spec.ts`, `guests-routes.spec.ts`, `rate-plans-routes.spec.ts` (request shapes).
@@ -222,7 +224,7 @@ Update scaffold comment to:
 
 ---
 
-## 4. HTTP smoke sequence (10 steps)
+## 4. HTTP smoke sequence (10 steps, plus cleanup step 13)
 
 All routes from `V1_HTTP_ROUTE_AUDIT`. Pattern references: `reservations-routes.spec.ts`, `rooms-routes.spec.ts`, `guests-routes.spec.ts`, `rate-plans-routes.spec.ts`.
 
@@ -242,6 +244,12 @@ All routes from `V1_HTTP_ROUTE_AUDIT`. Pattern references: `reservations-routes.
 | 10 | `POST …/reservations/{id}/check-out` | **`x-idempotency-key`** header | **200** |
 
 **Final assertion:** `GET /v1/properties/{propertyId}/reservations/{reservationId}` → `status === 'checked_out'` (or equivalent checked-out terminal status in response body).
+
+**Cleanup (amended 2026-11-24, step 13):**
+
+| # | Method + path | Body / headers | Assert |
+|---|---|---|---|
+| 13 | `GET /v1/me/tenants`, then for each listed org with `status === 'active'` and id prefix `org_smoke_`: `POST /v1/orgs/{id}/cancel` | `{ "action": "close" }`, Bearer | **200** `{ ok: true, status: 'closing' }`. This run's org must be listed and must close (else fail); leftovers: warn and continue |
 
 **Idempotency rule (locked):** Body-field `idempotencyKey` for room-type, rate-days, guest, room, reservation, assign-room; header `x-idempotency-key` for check-in and check-out only.
 

@@ -430,7 +430,7 @@ describe('command catalog', () => {
     expect(retry?.events).toEqual(['night_audit.step_retried']);
     expect(halt?.events).toEqual(['night_audit.halt_resolved']);
     expect(resolve?.events).toEqual(['provisional.exception_resolved']);
-    expect(run?.events).toEqual(['night_audit.started', 'night_audit.completed']);
+    expect(run?.events).toEqual(['night_audit.started', 'night_audit.completed', 'night_audit.halted']);
     expect(run).not.toHaveProperty('entitlement');
     expect(ENTITLEMENT_FAIL_CLOSED_OPT_OUT.find((e) => e.id === 'night_audit.run')?.reason).toMatch(
       /background alarm path/i,
@@ -986,38 +986,44 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[179]?.id).toBe('get_guest_documents');
     expect(V1_HTTP_ROUTE_AUDIT[186]?.id).toBe('post_guest_consent');
     expect(V1_HTTP_ROUTE_AUDIT.at(-1)).toEqual({
+      id: 'get_org_head_office',
+      scope: 'org',
+      permission: 'org:manage',
+      entitlement: 'pms.multi_property',
+    });
+    expect(V1_HTTP_ROUTE_AUDIT.at(-2)).toEqual({
       id: 'get_org_operator_actions',
       scope: 'org',
       permission: 'org:read',
     });
-    expect(V1_HTTP_ROUTE_AUDIT.at(-2)).toEqual({ id: 'get_me_tenants', scope: 'user' });
-    expect(V1_HTTP_ROUTE_AUDIT.at(-3)).toEqual({
+    expect(V1_HTTP_ROUTE_AUDIT.at(-3)).toEqual({ id: 'get_me_tenants', scope: 'user' });
+    expect(V1_HTTP_ROUTE_AUDIT.at(-4)).toEqual({
       id: 'get_reservation_invoices',
       scope: 'property',
       permission: 'folio:read',
       entitlement: 'pms.core',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT.at(-4)).toEqual({
+    expect(V1_HTTP_ROUTE_AUDIT.at(-5)).toEqual({
       id: 'get_accounting_journal',
       scope: 'property',
       permission: 'accounting:export',
       entitlement: 'accounting_export.enabled',
       degradedRead: 'FAIL_CLOSED',
     });
-    expect(V1_HTTP_ROUTE_AUDIT.at(-5)?.id).toBe('post_form_c_remove');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('post_form_c_filed');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('post_form_c_person');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-8)?.id).toBe('get_form_c_person');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-9)?.id).toBe('get_reservation_form_c');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-10)?.id).toBe('get_form_c_register');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-11)?.id).toBe('post_copilot_message');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-12)?.id).toBe('get_manager_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-13)?.id).toBe('get_housekeeping_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-14)?.id).toBe('get_audit_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-15)?.id).toBe('get_cashier_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-16)?.id).toBe('get_front_office_report');
-    expect(V1_HTTP_ROUTE_AUDIT.at(-17)?.id).toBe('get_housekeeping_dashboard');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-6)?.id).toBe('post_form_c_remove');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-7)?.id).toBe('post_form_c_filed');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-8)?.id).toBe('post_form_c_person');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-9)?.id).toBe('get_form_c_person');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-10)?.id).toBe('get_reservation_form_c');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-11)?.id).toBe('get_form_c_register');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-12)?.id).toBe('post_copilot_message');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-13)?.id).toBe('get_manager_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-14)?.id).toBe('get_housekeeping_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-15)?.id).toBe('get_audit_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-16)?.id).toBe('get_cashier_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-17)?.id).toBe('get_front_office_report');
+    expect(V1_HTTP_ROUTE_AUDIT.at(-18)?.id).toBe('get_housekeeping_dashboard');
     expect(V1_HTTP_ROUTE_AUDIT[213]?.id).toBe('get_room_ooo_history');
     expect(V1_HTTP_ROUTE_AUDIT[212]?.id).toBe('get_room_status_history');
     expect(V1_HTTP_ROUTE_AUDIT[211]?.id).toBe('get_housekeeping_tasks');
@@ -1033,7 +1039,7 @@ describe('command catalog', () => {
     expect(V1_HTTP_ROUTE_AUDIT[201]?.id).toBe('post_folio_hold_release');
     expect(V1_HTTP_ROUTE_AUDIT[198]?.id).toBe('get_reservation_registration_card');
     expect(V1_HTTP_ROUTE_AUDIT[197]?.id).toBe('get_reservation_proforma');
-    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(261);
+    expect(V1_HTTP_ROUTE_AUDIT).toHaveLength(262);
     expect(V1_HTTP_ROUTE_AUDIT[187]).toMatchObject({
       id: 'get_invoice_buyer',
       scope: 'property',

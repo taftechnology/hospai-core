@@ -56,6 +56,7 @@ describe('me authority helpers', () => {
           e.id !== 'exceptions' &&
           e.id !== 'copilot' &&
           e.id !== 'accounting' &&
+          e.id !== 'hotels-today' &&
           e.id !== 'inventory' &&
           e.id !== 'rates' &&
           e.id !== 'settings' &&
@@ -71,6 +72,26 @@ describe('me authority helpers', () => {
     expect(ids).toContain('reservations');
     expect(ids).not.toContain('in-house');
     expect(ids).not.toContain('departures');
+  });
+
+  it('filterNavEntries: Hotels today needs the multi-property plan and org:manage (R7.4)', () => {
+    const ids = (orgPermissions: PropertyMe['orgPermissions'], features: Record<string, boolean> | null) =>
+      filterNavEntries(
+        NAV_ENTRIES,
+        { kind: 'live', me: { ...baseMe, permissions: ['reservations:read'], orgPermissions } },
+        features as never,
+      ).map((e) => e.id);
+    const plan = { 'pms.multi_property': true };
+    expect(ids(['org:read', 'org:manage'], plan)).toContain('hotels-today');
+    expect(ids(['org:read', 'org:manage'], null)).not.toContain('hotels-today');
+    expect(ids(['org:read', 'org:manage'], { 'pms.multi_property': false })).not.toContain('hotels-today');
+    expect(ids(['org:read'], plan)).not.toContain('hotels-today');
+    expect(NAV_ENTRIES.find((e) => e.id === 'hotels-today')).toMatchObject({
+      path: '/hotels-today',
+      label: 'Hotels today',
+      orgPermission: 'org:manage',
+      entitlement: 'pms.multi_property',
+    });
   });
 
   it('filterNavEntries: live guests:read includes guests at order 60 after book', () => {

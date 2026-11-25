@@ -769,9 +769,9 @@ describe('freeze DDL single source', () => {
 
   it('applies org spine migrations', () => {
     const sql = new MemorySql();
-    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(14);
-    expect(sql.schemaVersion).toHaveLength(14);
-    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(migrateSql(sql, [...ORG_MIGRATIONS])).toBe(15);
+    expect(sql.schemaVersion).toHaveLength(15);
+    expect(sql.schemaVersion.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
     expect(sql.tables.size).toBeGreaterThanOrEqual(8);
   });
 });
@@ -1041,7 +1041,15 @@ describe('form c v57 and org v14', () => {
     expect(ddl).toContain('CREATE TABLE form_c_person (');
     expect(ddl).toContain('CREATE TABLE form_c_access (');
     expect(ddl).not.toMatch(/surname|passport_number|display_name/i);
-    expect(ORG_SCHEMA_HEAD).toBe(14);
+    expect(ORG_SCHEMA_HEAD).toBeGreaterThanOrEqual(14);
+  });
+
+  it('org v15 holds the head-office projection with no PII columns', () => {
+    const v15 = ORG_MIGRATIONS.find((m) => m.version === 15);
+    expect(v15?.name).toBe('0015_head_office_row');
+    const ddl = (v15?.statements ?? []).join('\n');
+    expect(ddl).toContain('CREATE TABLE head_office_row (');
+    expect(ddl).not.toMatch(/guest|surname|error|email|phone/i);
   });
 });
 
@@ -1079,7 +1087,7 @@ describe('accounting journal v58', () => {
 describe('schema head constants', () => {
   it('match current migration array tails', () => {
     expect(PROPERTY_SCHEMA_HEAD).toBe(58);
-    expect(ORG_SCHEMA_HEAD).toBe(14);
+    expect(ORG_SCHEMA_HEAD).toBe(15);
     expect(ORG_ENTITLEMENT_SCHEMA_HEAD).toBe(2);
   });
 

@@ -267,6 +267,8 @@ import {
   VIRTUAL_ROOM_COUNT_MUST_BE_ZERO,
   OPS_PAGE_SIZE,
   type OrgOperatorActionsResponse,
+  type HeadOfficeResponse,
+  computeHeadOfficeTotal,
 } from '@hospai/contracts';
 import { DEFAULT_RATE_PLAN_ID, TYPE_WIDE_RATE_PLAN } from '@hospai/do-runtime';
 import {
@@ -1464,6 +1466,27 @@ async function handlePutOperationalConfig(ctx: V1DispatchContext): Promise<Respo
         { 'Retry-After': '30' },
       );
     }
+    throw e;
+  }
+}
+
+/**
+ * R7.4 head-office view. The dispatcher has already checked `org:manage` and `pms.multi_property`
+ * for the URL org. Rows come from the org's own projection, filtered to the hotels this user can open.
+ */
+async function handleGetOrgHeadOffice(ctx: V1DispatchContext): Promise<Response> {
+  const orgId = decodeURIComponent(ctx.match[1]!);
+  ctx.observability.orgId = orgId;
+  const org = resolveOrgStub(ctx.env.ORG_DO, { orgId }) as DurableObjectStub<OrgDO>;
+  try {
+    await org.ensureMetaOrgId(orgId);
+    const { rows, missing } = await org.readHeadOfficeRows(ctx.actor.userId);
+    // A hotel with no row yet is not in the sum, so a total would understate the group: none then.
+    const total = missing.length > 0 ? null : computeHeadOfficeTotal(rows);
+    const body: HeadOfficeResponse = { orgId, rows, missing, total };
+    return json(body, 200);
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) return degradedFailClosedOrgReadResponse();
     throw e;
   }
 }
@@ -14918,6 +14941,17 @@ export const V1_ROUTES: V1RouteDef[] = [
     // R7.1 §6: read-only, no entitlement, kill-switch not applicable (read). Filtered by the URL org.
     permission: 'org:read',
     handler: handleGetOrgOperatorActions,
+  },
+  {
+    id: 'get_org_head_office',
+    scope: 'org',
+    method: 'GET',
+    pattern: /^\/v1\/orgs\/([^/]+)\/head-office$/,
+    // R7.4: revenue, so org:manage (owner, admin), not org:read. Read-only, so a suspended org keeps
+    // it. Kill-switch: `kill:pms.multi_property` turns it off like any entitled route.
+    permission: 'org:manage',
+    entitlement: 'pms.multi_property',
+    handler: handleGetOrgHeadOffice,
   },
 ];
 

@@ -26,6 +26,7 @@ import {
   PROVISIONAL_EXCEPTIONS_OPEN,
   CONFIG_REGISTER,
   domainConfigKeys,
+  type HeadOfficeRowRead,
   getConfigEntry,
   requiredPermissionForKey,
   IDEM_KEY_REUSED,
@@ -583,6 +584,8 @@ import {
   buildManagerReport,
   insertDayStats,
   readDayExtras,
+  readDayStats,
+  sellableRooms,
   type DayStats,
   type PaymentLine,
 } from './manager-report.js';
@@ -4320,6 +4323,12 @@ export class PropertyDO extends DurableObject<PmsEnv> {
           businessDate,
           step,
         );
+        // R7.4: tell the head-office projection. Step name only; the error text can name guests or amounts.
+        this.appendPropertyOutbox({
+          eventId: crypto.randomUUID(),
+          eventType: 'night_audit.halted',
+          payload: { propertyId: this.getPropertyIdSync(), businessDate, step },
+        });
       });
       // Ops signal: ids and step only. The error text can name guests or amounts (R7.2 §5.1).
       logError(
@@ -15841,6 +15850,91 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       inHouse,
       overstay,
       occupancy: { occupiedRooms, sellableRooms },
+    };
+  }
+
+  /**
+   * R7.4: this hotel's row for the org head-office view. Read only; not a command and not routed.
+   * The `pms.head_office_projection` consumer calls it after a night-audit event and sends the
+   * result to OrgDO. It reads this hotel's own state and never another hotel's.
+   */
+  async readHeadOfficeRow(): Promise<
+    { ok: true; row: HeadOfficeRowRead } | { ok: false; error: typeof BUSINESS_DATE_UNSET | typeof PROPERTY_ID_UNSET }
+  > {
+    this.assertRpcAvailable();
+    const propertyId = this.getPropertyIdSync();
+    if (!propertyId) return { ok: false, error: PROPERTY_ID_UNSET };
+    const businessDate = this.readBusinessDateSync();
+    if (!businessDate) return { ok: false, error: BUSINESS_DATE_UNSET };
+    const sql = this.ctx.storage.sql;
+    // Version first: if a write lands while the rest is read, the row is stamped older than what it
+    // holds, so the next event's read (with a higher version) still replaces it. Stamped last, a
+    // half-old row could carry the newest version and block that replacement.
+    // AUTOINCREMENT keeps the counter after an outbox row is gone; MAX(seq) is the fallback.
+    const seqRows = sql
+      .exec(`SELECT seq FROM sqlite_sequence WHERE name = 'outbox'`)
+      .toArray() as Array<{ seq: number }>;
+    const maxRows = sql.exec(`SELECT MAX(seq) AS s FROM outbox`).toArray() as Array<{ s: number | null }>;
+    const stateVersion = Math.max(Number(seqRows[0]?.seq ?? 0), Number(maxRows[0]?.s ?? 0));
+
+    const failed = sql
+      .exec(
+        `SELECT step FROM night_audit_run WHERE status = 'FAILED' ORDER BY business_date DESC, started_at DESC LIMIT 1`,
+      )
+      .toArray() as Array<{ step: string }>;
+    const latestRun = sql
+      .exec(`SELECT MAX(business_date) AS d FROM night_audit_run`)
+      .toArray() as Array<{ d: string | null }>;
+    const lastCompleted = sql
+      .exec(
+        `SELECT business_date, completed_at FROM night_audit_run
+         WHERE step = 'ARCHIVE' AND status = 'COMPLETED' ORDER BY business_date DESC LIMIT 1`,
+      )
+      .toArray() as Array<{ business_date: string; completed_at: number | null }>;
+    const lastCompletedDate = lastCompleted[0]?.business_date ?? null;
+    const state: HeadOfficeRowRead['audit']['state'] =
+      failed.length > 0
+        ? 'halted'
+        : latestRun[0]?.d != null && latestRun[0].d !== lastCompletedDate
+          ? 'running'
+          : 'idle';
+
+    let closed: HeadOfficeRowRead['closed'] = null;
+    if (lastCompletedDate) {
+      const stats = readDayStats(sql, lastCompletedDate);
+      if (stats) {
+        const config = readManagerReportConfig(this.readConfigValueSync('pms.reports.manager_report'));
+        closed = {
+          businessDate: stats.businessDate,
+          currency: stats.currency,
+          roomRevenueMinor: stats.roomRevenueMinor,
+          roomsSold: stats.sold,
+          roomsSellable: sellableRooms(stats.physical, stats.blocked, config.occupancy.excludeOutOfOrder),
+        };
+      }
+    }
+
+    const summary = await this.readFrontOfficeSummary(businessDate);
+
+    return {
+      ok: true,
+      row: {
+        propertyId,
+        businessDate,
+        audit: {
+          state,
+          failedStep: failed[0]?.step ?? null,
+          lastCompletedDate,
+          lastCompletedAt: lastCompleted[0]?.completed_at ?? null,
+        },
+        closed,
+        today: {
+          arrivals: summary.arrivals,
+          departuresDue: summary.departuresDue,
+          inHouse: summary.inHouse,
+        },
+        stateVersion,
+      },
     };
   }
 

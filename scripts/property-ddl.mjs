@@ -117,6 +117,7 @@ if (process.argv.includes('--self-test')) {
   let ORG_GUEST_DOCUMENTS_V12_SQL;
   let ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL;
   let ORG_FORM_C_V14_SQL;
+  let ORG_HEAD_OFFICE_V15_SQL;
   let PLATFORM_REGISTRY_SQL;
   let PLATFORM_ENTITLEMENT_SQL;
   let PLATFORM_SUBSCRIPTION_INVARIANT_SQL;
@@ -200,6 +201,7 @@ if (process.argv.includes('--self-test')) {
       ORG_GUEST_DOCUMENTS_V12_SQL,
       ORG_INVOICE_BUYER_SNAPSHOT_V13_SQL,
       ORG_FORM_C_V14_SQL,
+      ORG_HEAD_OFFICE_V15_SQL,
       PLATFORM_REGISTRY_SQL,
       PLATFORM_ENTITLEMENT_SQL,
       PLATFORM_SUBSCRIPTION_INVARIANT_SQL,
@@ -887,6 +889,15 @@ const targets = [
 
 `,
     sql: ORG_FORM_C_V14_SQL,
+  },
+  {
+    path: join(root, 'migrations/do-org/0015_head_office_row.sql'),
+    header: `-- OrgDO head-office projection (R7.4) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/org-migrations.ts
+-- Regenerate: pnpm generate:ddl
+
+`,
+    sql: ORG_HEAD_OFFICE_V15_SQL,
   },
   {
     path: join(root, 'migrations/d1-platform/0001_tenant_registry.sql'),

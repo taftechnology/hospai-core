@@ -85,7 +85,7 @@ import type {
   PackageListItem,
   PackageComponentTaxMode,
 } from '@hospai/contracts';
-import type { OrgOperatorActionsResponse } from '@hospai/contracts';
+import type { HeadOfficeResponse, OrgOperatorActionsResponse } from '@hospai/contracts';
 import { reportPath } from '@hospai/contracts';
 import type { ReservationStatus } from '@hospai/contracts/reservation-status';
 import { composeGuestStates, type GuestRowState } from './compose.js';
@@ -658,6 +658,11 @@ export function createClient(opts: {
     async getOrgOperatorActions(orgId: string, page = 1) {
       const { body } = await getJson(`/v1/orgs/${enc(orgId)}/operator-actions?page=${page}`);
       return body as OrgOperatorActionsResponse;
+    },
+    /** R7.4: today across the hotels this user can open. Org-scope, `org:manage`, `pms.multi_property`. */
+    async getOrgHeadOffice(orgId: string) {
+      const { body } = await getJson(`/v1/orgs/${enc(orgId)}/head-office`);
+      return body as HeadOfficeResponse;
     },
     /** Callers that mutate the current actor's grants should invalidate `['me', propertyId]`. */
     async listOrgMembers(orgId: string) {

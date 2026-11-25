@@ -384,6 +384,35 @@ export const ORG_FORM_C_V14_STATEMENTS = [
 
 export const ORG_FORM_C_V14_SQL = ORG_FORM_C_V14_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * v15 — head-office projection (R7.4): one row per hotel, fed by the `pms.head_office_projection`
+ * consumer after that hotel's night audit. Counts, dates, one money figure and a currency code.
+ * No guest data and no error text.
+ */
+export const ORG_HEAD_OFFICE_V15_STATEMENTS = [
+  `CREATE TABLE head_office_row (
+  property_id TEXT PRIMARY KEY,
+  property_name TEXT NOT NULL,
+  business_date TEXT NOT NULL,
+  audit_state TEXT NOT NULL CHECK (audit_state IN ('idle', 'running', 'halted')),
+  audit_failed_step TEXT,
+  last_completed_date TEXT,
+  last_completed_at INTEGER,
+  closed_date TEXT,
+  currency TEXT,
+  room_revenue_minor INTEGER,
+  rooms_sold INTEGER,
+  rooms_sellable INTEGER,
+  arrivals INTEGER NOT NULL,
+  departures_due INTEGER NOT NULL,
+  in_house INTEGER NOT NULL,
+  state_version INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)`,
+] as const;
+
+export const ORG_HEAD_OFFICE_V15_SQL = ORG_HEAD_OFFICE_V15_STATEMENTS.join(';\n\n') + ';\n';
+
 export const ORG_MIGRATIONS = [
   {
     version: 1,
@@ -454,5 +483,10 @@ export const ORG_MIGRATIONS = [
     version: 14,
     name: '0014_form_c',
     statements: ORG_FORM_C_V14_STATEMENTS,
+  },
+  {
+    version: 15,
+    name: '0015_head_office_row',
+    statements: ORG_HEAD_OFFICE_V15_STATEMENTS,
   },
 ] as const;

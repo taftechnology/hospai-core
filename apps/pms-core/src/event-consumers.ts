@@ -54,6 +54,20 @@ export const CORE_CONSUMERS: ModuleConsumerDecl[] = [
     handler: 'handleGuestDocumentFlag',
     entitlement: 'pms.core',
   },
+  {
+    // R7.4: every org keeps a current head-office row (pms.core), so turning on pms.multi_property
+    // later needs no catch-up: skipped events are never replayed.
+    consumer: 'pms.head_office_projection',
+    label: 'Head-office projection',
+    events: [
+      'night_audit.started',
+      'night_audit.completed',
+      'night_audit.halted',
+      'night_audit.halt_resolved',
+    ],
+    handler: 'handleHeadOfficeProjection',
+    entitlement: 'pms.core',
+  },
 ];
 
 export type ConsumerCtx = {
@@ -121,11 +135,40 @@ async function handleGuestDocumentFlag(ctx: ConsumerCtx, event: DomainEventMessa
   if (!result.ok) throw new Error(result.error);
 }
 
+/**
+ * R7.4: read the event's own hotel (one DO), then write its row to the org (one DO). The event is a
+ * trigger; the row is whatever the hotel's state is now.
+ */
+async function handleHeadOfficeProjection(ctx: ConsumerCtx, _event: DomainEventMessage): Promise<void> {
+  if (!ctx.propertyId) throw new ConsumerPermanentError('bad_source');
+  const resolved = await resolvePropertyFromRegistry(ctx.env, ctx.propertyId);
+  if (!resolved) throw new Error('property_unresolved');
+  if (resolved.property.orgId !== ctx.orgId) throw new ConsumerPermanentError('tenant_mismatch');
+  const read = await resolved.stub.readHeadOfficeRow();
+  if (!read.ok) throw new ConsumerPermanentError(read.error);
+  try {
+    const org = resolveOrgStub(ctx.env.ORG_DO, { orgId: ctx.orgId }) as DurableObjectStub<OrgDO>;
+    const result = await org.tryUpsertHeadOfficeRow({
+      row: read.row,
+      propertyName: resolved.property.name,
+      consumerIdempotencyKey: ctx.idempotencyKey,
+    });
+    if (!result.ok) {
+      if (result.error === 'property_ref_not_found') throw new ConsumerPermanentError('tenant_mismatch');
+      throw new Error(result.error);
+    }
+  } catch (e) {
+    if (isOrgDoTransportFailure(e, ctx.env)) throw new Error('org_unreachable');
+    throw e;
+  }
+}
+
 /** Static map. Keyed by consumer id. No dynamic import. */
 export const CONSUMER_HANDLERS: Record<string, ConsumerHandler> = {
   'pms.ari_projection': handleAvailabilityChangedConsumer,
   'pms.guest_purge': handleGuestPurge,
   'pms.guest_document_flag': handleGuestDocumentFlag,
+  'pms.head_office_projection': handleHeadOfficeProjection,
 };
 
 export type ConsumerGateDeps = {

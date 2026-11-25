@@ -313,6 +313,22 @@ export function moneyRatio(numerator: number, denominator: number, decimals: num
   return r === null ? null : r * step;
 }
 
+/**
+ * The Manager Report's available-rooms base: physical rooms, less out-of-order when the hotel's
+ * occupancy setting excludes them. The one place this rule lives (the head-office row reuses it).
+ */
+export function sellableRooms(physical: number, blocked: number, excludeOutOfOrder: boolean): number {
+  return Math.max(0, physical - (excludeOutOfOrder ? blocked : 0));
+}
+
+/** One stored `night_audit_day_stats` row, or null when that day has none. */
+export function readDayStats(sql: SqlStorageLike, businessDate: string): DayStats | null {
+  const rows = sql
+    .exec(`SELECT * FROM night_audit_day_stats WHERE business_date = ?`, businessDate)
+    .toArray() as Row[];
+  return rows[0] ? fromStatsRow(rows[0]) : null;
+}
+
 function fromStatsRow(r: Row): DayStats {
   let mix: SourceMix = {};
   try {
@@ -425,7 +441,7 @@ function metrics(
 ): Map<string, Metric> {
   const m = new Map<string, Metric>();
   const put = (id: string, value: number | null, scale = 0) => m.set(id, { value, scale });
-  const available = Math.max(0, s.physical - (config.occupancy.excludeOutOfOrder ? s.blocked : 0));
+  const available = sellableRooms(s.physical, s.blocked, config.occupancy.excludeOutOfOrder);
   const sold = s.sold + (config.occupancy.countNoShowAsSold ? s.noShowNights : 0);
   put('rooms_in_hotel', s.physical);
   put('rooms_out_of_order', s.blocked);

@@ -1646,6 +1646,8 @@ export const V1_HTTP_ROUTE_AUDIT: Array<V1HttpRouteAudit & { id: string }> = [
   { id: 'get_me_tenants', scope: 'user' },
   // R7.1: the hotel's read-only view of what HospAI changed on its account. Filtered by the URL org.
   { id: 'get_org_operator_actions', scope: 'org', permission: 'org:read' },
+  // R7.4: today across the hotels. Revenue, so org:manage. Rows filtered to hotels the caller can open.
+  { id: 'get_org_head_office', scope: 'org', permission: 'org:manage', entitlement: 'pms.multi_property' },
 ];
 
 export type RouteId = (typeof V1_HTTP_ROUTE_AUDIT)[number]['id'];

@@ -1046,7 +1046,7 @@ The pilot hotel is the first of about **ten hotels with one owner** (user, 2026-
 
 ### Part C — head office (before hotel 3)
 
-- [ ] **R7.4 Head-office view — today across the hotels** (pulled out of R5.7, 2026-11-22)
+- [x] **R7.4 Head-office view — today across the hotels** (pulled out of R5.7, 2026-11-22; shipped 2026-11-24 as **Hotels today**, [spec](superpowers/specs/2026-11-24-head-office-view-design.md), with the locked rows; the client's G-Q3 answer may change the columns, not the mechanism)
   - **Why:** the owner runs several hotels from one place. Every vendor sells a portfolio view, and no vendor documents a group night-audit board [gap 26].
   - **Locked:**
     - Each PropertyDO **pushes** a small daily summary to an org-level projection through an outbox consumer (R4.5 registry, idempotent per event): `BoardSummary` counts, room revenue for the business date, and night-audit status including HALTED.

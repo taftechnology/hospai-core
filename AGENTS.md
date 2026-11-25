@@ -219,15 +219,15 @@ Copy this into the spec/plan for any new route, command, screen, or DO method:
 
 ## Catalog and schema pins
 
-After roadmap R7.5 (copy setup: `ops.copy_setup`, the 162nd catalog entry, 2026-11-24), R7.1 part 1 (operations platform: ten `ops.*` operator commands, `get_org_operator_actions`, 2026-11-24), R4.12 Part A (accounting journal, 2026-11-22; R6.2 Form C, R4.16 Copilot, R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
+After roadmap R7.4 (head-office view: `get_org_head_office`, the 262nd audited route, org schema 15, 2026-11-24), R7.5 (copy setup: `ops.copy_setup`, the 162nd catalog entry, 2026-11-24), R7.1 part 1 (operations platform: ten `ops.*` operator commands, `get_org_operator_actions`, 2026-11-24), R4.12 Part A (accounting journal, 2026-11-22; R6.2 Form C, R4.16 Copilot, R4.32 and R4.14 Parts A to C before it) — update this table when you bump them:
 
 | Pin | Value | Assertion |
 |---|---|---|
 | `COMMAND_CATALOG` length | **162** | `packages/contracts/src/register.test.ts` |
-| `V1_HTTP_ROUTE_AUDIT` | **261** routes, last id **`get_org_operator_actions`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
+| `V1_HTTP_ROUTE_AUDIT` | **262** routes, last id **`get_org_head_office`** | same file; `scripts/permissions-check.mjs` matches `V1_ROUTES` |
 | `AUDIT_WRITER_COMMAND_IDS` | **117** | `packages/contracts/src/register.test.ts` |
 | `PROPERTY_SCHEMA_HEAD` | **58** | `packages/do-runtime` migrate tests |
-| `ORG_SCHEMA_HEAD` | **14** | `packages/do-runtime` migrate tests |
+| `ORG_SCHEMA_HEAD` | **15** | `packages/do-runtime` migrate tests |
 | `NIGHT_AUDIT_STEPS` | length 8, `[3] === 'AUTO_TRANSFER'` | night-audit specs |
 | `NIGHT_AUDIT_CHECK_IDS` | length **11**, includes **`open_folio_unsettled`**, **`open_folio_past_close_by`**, **`open_folio_zero_balance`**, **`arrival_deposit_missing`**, and **`form_c_overdue`** | `packages/contracts/src/register.test.ts` |
 

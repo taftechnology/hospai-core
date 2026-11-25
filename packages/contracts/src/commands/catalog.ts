@@ -970,7 +970,7 @@ export const COMMAND_CATALOG: CommandEntry[] = [
     lane: 'INTERACTIVE',
     degraded: 'FAIL_CLOSED',
     idempotent: true,
-    events: ['night_audit.started', 'night_audit.completed'],
+    events: ['night_audit.started', 'night_audit.completed', 'night_audit.halted'],
     permission: 'night_audit:run',
   },
   {

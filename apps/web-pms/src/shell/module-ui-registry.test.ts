@@ -7,6 +7,7 @@ describe('module UI nav merge', () => {
     expect(ALL_NAV.map((e) => e.id)).toEqual([
       'dashboard',
       'copilot',
+      'hotels-today',
       'board',
       'arrivals',
       'live-rooms',

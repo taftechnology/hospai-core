@@ -43,6 +43,9 @@ import {
   type CommandError,
   type EventSource,
   type GuestSettings,
+  type HeadOfficeRow,
+  type HeadOfficeRowRead,
+  fingerprintPayload,
   type GuestDocumentKind,
   type GuestPreferences,
   type ConsentPurpose,
@@ -390,6 +393,7 @@ const ORG_PURGE_INVENTORY_TABLES = [
   'guest_document',
   'guest_document_access',
   'guest_property',
+  'head_office_row',
   'invoice_buyer_snapshot',
   'idempotency',
   'member',
@@ -418,6 +422,7 @@ function countOrgInventoryRows(sql: DurableObjectState['storage']['sql']): numbe
       (SELECT COUNT(*) FROM guest_document) +
       (SELECT COUNT(*) FROM guest_document_access) +
       (SELECT COUNT(*) FROM guest_property) +
+      (SELECT COUNT(*) FROM head_office_row) +
       (SELECT COUNT(*) FROM invoice_buyer_snapshot) +
       (SELECT COUNT(*) FROM idempotency) +
       (SELECT COUNT(*) FROM member) +
@@ -2047,6 +2052,135 @@ export class OrgDO extends DurableObject<PmsEnv> {
       name: r.name,
       timeZone: r.time_zone ?? null,
     }));
+  }
+
+  /**
+   * R7.4 consumer write: store one hotel's head-office row. The key is
+   * `consumer:pms.head_office_projection:<eventId>` and is not recomputed here. A row whose hotel is
+   * not in this org's `property_ref` is refused. A read with a `stateVersion` at or below the stored
+   * one is a no-op, so a late read never overwrites a newer row.
+   */
+  async tryUpsertHeadOfficeRow(input: {
+    row: HeadOfficeRowRead;
+    propertyName: string;
+    consumerIdempotencyKey: string;
+  }): Promise<
+    | { ok: true; written: boolean }
+    | { ok: false; error: typeof IDEM_KEY_REUSED | typeof ORG_ID_UNSET | typeof PROPERTY_REF_NOT_FOUND }
+  > {
+    this.assertRpcAvailable();
+    this.lanes.touchInteractive();
+    if (!this.getOrgIdSync()) return { ok: false, error: ORG_ID_UNSET };
+    const { row } = input;
+    // The consumer key already names the consumer and the event, and the row is read live. Hashing
+    // the row would turn a redelivery after a later change into IDEM_KEY_REUSED and a dead letter,
+    // so the fingerprint is the hotel id only. A replay returns the first write's result.
+    const fingerprint = await fingerprintPayload({ propertyId: row.propertyId });
+    const idem = { key: input.consumerIdempotencyKey, fingerprint };
+    const actor = { kind: 'system' as const, reason: 'event_consumer' as const };
+    try {
+      return this.ctx.storage.transactionSync(() =>
+        runIdempotent(
+          this.ctx.storage.sql,
+          idem,
+          () => {
+            const ref = this.ctx.storage.sql
+              .exec(`SELECT 1 AS one FROM property_ref WHERE property_id = ?`, row.propertyId)
+              .toArray();
+            if (ref.length === 0) return { ok: false as const, error: PROPERTY_REF_NOT_FOUND };
+            const stored = this.ctx.storage.sql
+              .exec(`SELECT state_version FROM head_office_row WHERE property_id = ?`, row.propertyId)
+              .toArray() as Array<{ state_version: number }>;
+            if (stored[0] && Number(stored[0].state_version) >= row.stateVersion) {
+              return { ok: true as const, written: false };
+            }
+            this.ctx.storage.sql.exec(
+              `INSERT OR REPLACE INTO head_office_row (
+                 property_id, property_name, business_date, audit_state, audit_failed_step,
+                 last_completed_date, last_completed_at, closed_date, currency, room_revenue_minor,
+                 rooms_sold, rooms_sellable, arrivals, departures_due, in_house, state_version, updated_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              row.propertyId,
+              input.propertyName,
+              row.businessDate,
+              row.audit.state,
+              row.audit.failedStep,
+              row.audit.lastCompletedDate,
+              row.audit.lastCompletedAt,
+              row.closed?.businessDate ?? null,
+              row.closed?.currency ?? null,
+              row.closed?.roomRevenueMinor ?? null,
+              row.closed?.roomsSold ?? null,
+              row.closed?.roomsSellable ?? null,
+              row.today.arrivals,
+              row.today.departuresDue,
+              row.today.inHouse,
+              row.stateVersion,
+              Date.now(),
+            );
+            return { ok: true as const, written: true };
+          },
+          actor,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof IdempotencyKeyReused) return { ok: false, error: IDEM_KEY_REUSED };
+      throw e;
+    }
+  }
+
+  /**
+   * R7.4 head-office read: stored rows for the hotels this user can open (the same rule as
+   * `listAccessiblePropertiesFor`), plus the accessible hotels that have no row yet. The caller's
+   * route has already checked `org:manage`; this only filters. Hotel names come from `property_ref`,
+   * so a rename shows at once.
+   */
+  async readHeadOfficeRows(userId: string): Promise<{ rows: HeadOfficeRow[]; missing: string[] }> {
+    this.assertRpcAvailable();
+    const accessible = await this.listAccessiblePropertiesFor(userId);
+    const stored = this.ctx.storage.sql
+      .exec(`SELECT * FROM head_office_row`)
+      .toArray() as Array<Record<string, unknown>>;
+    const byId = new Map(stored.map((r) => [String(r.property_id), r]));
+    const rows: HeadOfficeRow[] = [];
+    const missing: string[] = [];
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+    for (const p of accessible) {
+      const r = byId.get(p.propertyId);
+      if (!r) {
+        missing.push(p.propertyId);
+        continue;
+      }
+      const closedDate = r.closed_date === null ? null : String(r.closed_date);
+      rows.push({
+        propertyId: p.propertyId,
+        propertyName: p.name,
+        businessDate: String(r.business_date),
+        audit: {
+          state: r.audit_state as HeadOfficeRow['audit']['state'],
+          failedStep: r.audit_failed_step === null ? null : String(r.audit_failed_step),
+          lastCompletedDate: r.last_completed_date === null ? null : String(r.last_completed_date),
+          lastCompletedAt: num(r.last_completed_at),
+        },
+        closed:
+          closedDate !== null && r.currency !== null
+            ? {
+                businessDate: closedDate,
+                currency: String(r.currency),
+                roomRevenueMinor: Number(r.room_revenue_minor ?? 0),
+                roomsSold: Number(r.rooms_sold ?? 0),
+                roomsSellable: Number(r.rooms_sellable ?? 0),
+              }
+            : null,
+        today: {
+          arrivals: Number(r.arrivals),
+          departuresDue: Number(r.departures_due),
+          inHouse: Number(r.in_house),
+        },
+        updatedAt: Number(r.updated_at),
+      });
+    }
+    return { rows, missing };
   }
 
   /** True when the user still has an org `member` row or any `property_member` grant (index delete guard). */

@@ -1,6 +1,7 @@
 import {
   REPORT_GROUP_PERMISSION,
   type FeatureKey,
+  type OrgScopedPermission,
   reportGroupsWithReports,
   type PropertyScopedPermission,
 } from '@hospai/contracts';
@@ -18,6 +19,8 @@ export type NavEntry = {
   permission?: PropertyScopedPermission;
   /** Visible when the user holds any one of these (the Reports entry spans the report groups). */
   anyPermission?: readonly PropertyScopedPermission[];
+  /** Visible when the user holds this org-scope permission (Hotels today, R7.4). */
+  orgPermission?: OrgScopedPermission;
   /** Shown only when the org's plan grants this feature (the Copilot entry, R4.16). */
   entitlement?: FeatureKey;
   tone?: 'primary' | 'quiet';
@@ -35,6 +38,15 @@ export const NAV_ENTRIES: NavEntry[] = [
     order: 7,
     permission: 'copilot:use',
     entitlement: 'ai_ops.enabled',
+  },
+  // R7.4: the group's morning view. Needs the multi-property plan and org:manage (it shows revenue).
+  {
+    id: 'hotels-today',
+    label: 'Hotels today',
+    path: '/hotels-today',
+    order: 8,
+    orgPermission: 'org:manage',
+    entitlement: 'pms.multi_property',
   },
   { id: 'board', label: 'Room Plan', path: '/board', order: 10, permission: 'reservations:read' },
   { id: 'arrivals', label: 'Front Desk', path: '/arrivals', order: 20, permission: 'reservations:read' },

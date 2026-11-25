@@ -52,6 +52,7 @@ import { ACCOUNT_SUSPENDED_MESSAGE } from '../copy/classified-user-message.js';
 const NAV_ICONS: Record<string, typeof RoomPlanIcon> = {
   dashboard: DashboardIcon,
   copilot: CopilotIcon,
+  'hotels-today': PropertyIcon,
   board: RoomPlanIcon,
   arrivals: CheckIcon,
   'live-rooms': MonitorIcon,

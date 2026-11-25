@@ -172,6 +172,7 @@ export async function assertEventContract(message: DomainEventMessage): Promise<
     case 'maintenance.task_type_changed':
     case 'night_audit.started':
     case 'night_audit.completed':
+    case 'night_audit.halted':
     case 'night_audit.step_retried':
     case 'night_audit.halt_resolved':
     case 'provisional.exception_resolved':

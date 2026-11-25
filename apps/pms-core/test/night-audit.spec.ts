@@ -568,11 +568,11 @@ describe('PropertyDO night audit', () => {
     expect(await stub.countAvailabilityDays('rt_king')).toBe(rowsBefore);
     expect(await stub.readAriVersion()).toBe(ariBefore);
 
-    // Bookkeeping survived: FAILED row + halt + the started event from txn A.
+    // Bookkeeping survived: FAILED row + halt + the started event from txn A and the halted event from txn C.
     expect(await stub.getNightAuditStepStatus(behindDate, 'ROLL_BUSINESS_DATE')).toBe('FAILED');
     expect(await stub.isNightAuditHalted()).toBe(true);
     const events = await stub.listOutboxEventTypes();
-    expect(events).toEqual(['night_audit.started']);
+    expect(events).toEqual(['night_audit.started', 'night_audit.halted']);
 
     // Disarming and retrying completes cleanly — nothing was left half-written.
     await stub.setRollFailureForTest(null);

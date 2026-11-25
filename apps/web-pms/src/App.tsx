@@ -9,6 +9,7 @@ import {
 } from 'react-router';
 import { Skeleton } from '@hospai/ui-kit';
 import { PermissionRoute } from './auth/PermissionRoute.js';
+import { OrgPermissionRoute } from './auth/OrgPermissionRoute.js';
 import { HomeRedirect } from './auth/HomeRedirect.js';
 import { createQueryClient } from './query-client.js';
 import { BookingScreen } from './screens/BookingScreen.js';
@@ -69,6 +70,9 @@ const FormCScreen = lazy(() =>
 const AccountingScreen = lazy(() =>
   import('./screens/AccountingScreen.js').then((m) => ({ default: m.AccountingScreen })),
 );
+const HotelsTodayScreen = lazy(() =>
+  import('./screens/HotelsTodayScreen.js').then((m) => ({ default: m.HotelsTodayScreen })),
+);
 const NightAuditScreen = lazy(() =>
   import('./screens/NightAuditScreen.js').then((m) => ({ default: m.NightAuditScreen })),
 );
@@ -85,6 +89,14 @@ export const router = createBrowserRouter(
             {/* R2.6: home follows live permissions (housekeeping-only → Housekeeping). */}
             <Route index element={<HomeRedirect />} />
             <Route path="dashboard" element={<DashboardScreen />} />
+            {/* R7.4: today across the hotels. Org-scope: org:manage here, and the plan's multi-property feature on the server. */}
+            <Route path="hotels-today" element={<OrgPermissionRoute permission="org:manage" />}>
+              <Route index element={
+                <Suspense fallback={<Skeleton />}>
+                  <HotelsTodayScreen />
+                </Suspense>
+              } />
+            </Route>
             <Route path="copilot" element={<PermissionRoute permission="copilot:use" />}>
               <Route index element={<CopilotScreen />} />
             </Route>

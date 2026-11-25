@@ -73,6 +73,7 @@ export function filterNavEntries(
       return entries.filter((e) => {
         // An entry the plan does not grant stays hidden until the snapshot says it does.
         if (e.entitlement && features?.[e.entitlement] !== true) return false;
+        if (e.orgPermission) return hasOrgPermission(authority.me, e.orgPermission);
         if (e.anyPermission) return e.anyPermission.some((p) => hasPropertyPermission(authority.me, p));
         return !e.permission || hasPropertyPermission(authority.me, e.permission);
       });

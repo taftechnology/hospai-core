@@ -104,4 +104,25 @@ Done once on staging, with the owner's go. Use a staging customer that has the d
 
 ## Drill log
 
-(none yet)
+**2026-11-25, staging, operator iamabdus (ticket DRILL), commit `9f7eb81`.** Hotel `prop_staging`
+(The Meridian Seattle, America/Los_Angeles) of `org_staging`.
+
+- Before: BAR had no rates for the next two weeks; no arrivals on 26 Nov. Restore point 12:00 hotel time.
+- Bad change at 12:01–12:02: King Deluxe BAR set to $289.00 for 25 Nov–1 Dec (bulk fill), and a confirmed
+  King Deluxe booking for 26 Nov ("Restore Drill Test").
+- Restore to 12:00 answered **Done** in under 10 seconds. While suspended and after reinstating, the rates
+  were gone and 26 Nov had no arrivals. A King Deluxe quote for 26 Nov said no published rate, so the ARI
+  cache was not served stale. The hotel's Settings → Logs showed "Hotel restored to an earlier time".
+  The hotel's own audit log for the day was empty (the bulk-fill entry was rewound too, as expected).
+  Oldest pending event went from "Under a minute" to none, so the queue consumer took `property.restored`.
+- Undo answered **Done**; after reinstating, the $289 rates and the booking were back. Neither row offers
+  Undo afterwards.
+- A restore to 20 Oct was refused: "That is more than 29 days ago."
+- **Not run:** the purge-floor refusal (staging has no test erasure for this customer; covered by the
+  `ops-restore` tests), and the head-office row check (HospAI Staging is on starter, without
+  `pms.multi_property`).
+- **Left on staging:** the bad change, by design of step 8: KDX BAR $289 for 25 Nov–1 Dec, the
+  26 Nov booking, and its guest record in the vault (not rewound, as the warning says).
+- **Surprise:** the restore details in Settings → Logs and in the Ops Console operator actions show
+  `targetTime` as epoch milliseconds (`1795636800000`) and internal restore ids, not a time on the
+  hotel's clock.

@@ -241,7 +241,7 @@ export async function restoreProperty(
         orgId: org.orgId,
         propertyId: property.propertyId,
         before: null,
-        after: { restoreId, kind, targetTime, undoOf },
+        after: { restoreId, kind, targetTime, undoOf, timeZone: property.timeZone },
       },
       true,
     ),

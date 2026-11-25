@@ -93,6 +93,23 @@ export function formatAge(ms: number | null): string {
 const scalar = (v: unknown): string =>
   v === null || v === undefined ? 'none' : typeof v === 'object' ? JSON.stringify(v) : String(v);
 
+/**
+ * What the operator log shows in the Change column. A restore reads as a sentence on the hotel's own clock
+ * (rows written before `timeZone` was recorded fall back to UTC); everything else is `describeChange`.
+ */
+export function describeAction(commandId: string, before: unknown, after: unknown): string {
+  if (commandId === 'ops.restore_property' && after && typeof after === 'object') {
+    const a = after as Record<string, unknown>;
+    if (a.kind === 'undo') return 'Undid the previous restore';
+    if (a.kind === 'restore' && typeof a.targetTime === 'number') {
+      return typeof a.timeZone === 'string' && a.timeZone !== ''
+        ? `Restored to ${formatInZone(a.targetTime, a.timeZone)}`
+        : `Restored to ${formatTime(a.targetTime)}`;
+    }
+  }
+  return describeChange(before, after);
+}
+
 /** `key: old to new` for the flat before/after objects the operator log stores. */
 export function describeChange(before: unknown, after: unknown): string {
   const b = (before && typeof before === 'object' ? before : {}) as Record<string, unknown>;

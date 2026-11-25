@@ -17,6 +17,7 @@ import {
   EmptyState,
   Skeleton,
 } from '@hospai/ui-kit';
+import { formatDateTime, propertyFormat } from '@hospai/client-core';
 import { api, asClassified, tenant } from '../client.js';
 import { classifiedUserMessage } from '../copy/classified-user-message.js';
 import { useFormat } from '../shell/PropertyFormat.js';
@@ -43,6 +44,26 @@ function summarise(value: unknown): string {
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length === 0) return '—';
   return entries.map(([k, v]) => `${k} ${v === null ? '—' : String(v)}`).join(', ');
+}
+
+/** The After column. A restore reads as a sentence on the hotel's own clock; the rest is `summarise`. */
+function afterText(row: OrgOperatorActionRow, dateTime: (ms: number) => string): string {
+  const a = row.after;
+  if (row.commandId === 'ops.restore_property' && a && typeof a === 'object') {
+    const r = a as Record<string, unknown>;
+    if (r.kind === 'undo') return 'Undid the previous restore';
+    if (r.kind === 'restore' && typeof r.targetTime === 'number') {
+      if (typeof r.timeZone === 'string' && r.timeZone !== '') {
+        try {
+          return `Restored to ${formatDateTime(r.targetTime, propertyFormat({ timeZone: r.timeZone, currency: null }))} ${r.timeZone}`;
+        } catch {
+          // An unreadable zone name: fall through to the hotel-screen formatter.
+        }
+      }
+      return `Restored to ${dateTime(r.targetTime)}`;
+    }
+  }
+  return summarise(a);
 }
 
 /**
@@ -106,7 +127,7 @@ export function SettingsAccountChanges() {
                     <DataTableCell>{actionLabel(row.commandId)}</DataTableCell>
                     <DataTableCell>{row.reason}</DataTableCell>
                     <DataTableCell>{summarise(row.before)}</DataTableCell>
-                    <DataTableCell>{summarise(row.after)}</DataTableCell>
+                    <DataTableCell>{afterText(row, dateTime)}</DataTableCell>
                   </DataTableRow>
                 ))}
               </DataTableBody>

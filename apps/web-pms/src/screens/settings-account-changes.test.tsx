@@ -67,6 +67,36 @@ describe('Settings: HospAI account changes (R7.1)', () => {
     expect(client.getQueryData(['org-operator-actions', 'org_demo', 1])).toBeTruthy();
   });
 
+  it('shows a restore and an undo as sentences, not ids or epochs', async () => {
+    const t = Date.UTC(2026, 10, 25, 20, 0);
+    const restoreRow = (n: number, after: Record<string, unknown>) => ({
+      actionId: `opa_${n}`,
+      commandId: 'ops.restore_property',
+      operatorName: 'HospAI support: Sam',
+      propertyId: 'prop_demo',
+      reason: `Restore ${n}`,
+      before: null,
+      after,
+      createdAt: 1_000 + n,
+    });
+    getOrgOperatorActions.mockResolvedValue({
+      orgId: 'org_demo',
+      page: 1,
+      hasMore: false,
+      actions: [
+        restoreRow(1, { restoreId: 'opa_1', kind: 'restore', targetTime: t, undoOf: null, timeZone: 'America/Los_Angeles' }),
+        restoreRow(2, { restoreId: 'opa_2', kind: 'undo', targetTime: t, undoOf: 'opa_1', timeZone: 'America/Los_Angeles' }),
+      ],
+    });
+    renderTable();
+    const table = await screen.findByTestId('account-changes-table');
+    expect(within(table).getByText(/^Restored to .*12:00 pm America\/Los_Angeles$/)).toBeInTheDocument();
+    expect(within(table).getByText('Undid the previous restore')).toBeInTheDocument();
+    expect(table.textContent).not.toContain(String(t));
+    expect(table.textContent).not.toMatch(/restoreId|undoOf/);
+    expect(table.textContent).not.toContain('opa_1');
+  });
+
   it('pages older and newer under the page-specific key', async () => {
     getOrgOperatorActions.mockImplementation(async (_org: string, page: number) => ({
       orgId: 'org_demo',

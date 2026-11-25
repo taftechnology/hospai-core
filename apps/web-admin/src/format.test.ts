@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeChange, formatAge, formatInZone, formatTime, limitLabel, zonedLocalToEpoch } from './format.js';
+import { describeAction, describeChange, formatAge, formatInZone, formatTime, limitLabel, zonedLocalToEpoch } from './format.js';
 
 describe('format', () => {
   it('formats time, limits and ages', () => {
@@ -48,5 +48,26 @@ describe('zonedLocalToEpoch (restore time in the hotel zone)', () => {
   it('formats an instant on the zone clock, with the zone name', () => {
     expect(formatInZone(Date.UTC(2026, 10, 25, 9, 0), 'Asia/Kolkata')).toBe('2026-11-25 14:30 Asia/Kolkata');
     expect(formatInZone(Date.UTC(2026, 10, 25, 0, 5), 'UTC')).toBe('2026-11-25 00:05 UTC');
+  });
+
+  it('describes a restore on the hotel clock, falls back to UTC, and hides internal ids', () => {
+    const t = Date.UTC(2026, 10, 25, 20, 0);
+    const base = { restoreId: 'opa_abc', kind: 'restore', targetTime: t, undoOf: null };
+    expect(describeAction('ops.restore_property', null, { ...base, timeZone: 'America/Los_Angeles' })).toBe(
+      'Restored to 2026-11-25 12:00 America/Los_Angeles',
+    );
+    const old = describeAction('ops.restore_property', null, base);
+    expect(old).toBe('Restored to 2026-11-25 20:00 UTC');
+    expect(old).not.toContain('opa_');
+    expect(
+      describeAction('ops.restore_property', null, { ...base, kind: 'undo', undoOf: 'opa_prev', timeZone: 'UTC' }),
+    ).toBe('Undid the previous restore');
+  });
+
+  it('keeps describeChange output for every other command', () => {
+    expect(describeAction('ops.set_plan', { planCode: 'growth' }, { planCode: 'group' })).toBe(
+      describeChange({ planCode: 'growth' }, { planCode: 'group' }),
+    );
+    expect(describeAction('ops.set_plan', { planCode: 'growth' }, { planCode: 'group' })).toBe('planCode: growth to group');
   });
 });

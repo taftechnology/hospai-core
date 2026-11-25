@@ -284,7 +284,12 @@ describe('ops.restore_property: happy path with the fake', () => {
     const actions = await actionRows(`command_id = 'ops.restore_property' AND property_id = ?`, h.propertyId);
     expect(actions).toHaveLength(1);
     expect(actions[0]).toMatchObject({ action_id: res.restoreId, org_id: h.orgId, operator_id: admin.operatorId, reason: input.reason });
-    expect(JSON.parse(String(actions[0]!.after_json))).toMatchObject({ restoreId: res.restoreId, kind: 'restore', targetTime: input.targetTime });
+    expect(JSON.parse(String(actions[0]!.after_json))).toMatchObject({
+      restoreId: res.restoreId,
+      kind: 'restore',
+      targetTime: input.targetTime,
+      timeZone: expect.any(String),
+    });
     expect(String(actions[0]!.after_json)).not.toContain('bookmark');
 
     // Fence: ARI above the pre-restore value, outbox sequence above the pre-restore sequence, one event.

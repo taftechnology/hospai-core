@@ -9,7 +9,7 @@ import {
   EmptyState,
 } from '@hospai/ui-kit';
 import { Link } from 'react-router';
-import { describeChange, formatTime } from '../format.js';
+import { describeAction, formatTime } from '../format.js';
 
 export function OperatorActionsTable({
   actions,
@@ -45,7 +45,7 @@ export function OperatorActionsTable({
                 {a.orgId ? <Link to={`/customers/${encodeURIComponent(a.orgId)}`}>{a.orgId}</Link> : 'none'}
               </DataTableCell>
             ) : null}
-            <DataTableCell>{describeChange(a.before, a.after)}</DataTableCell>
+            <DataTableCell>{describeAction(a.commandId, a.before, a.after)}</DataTableCell>
             <DataTableCell>{a.reason}</DataTableCell>
             <DataTableCell>{a.ticketRef ?? ''}</DataTableCell>
           </DataTableRow>

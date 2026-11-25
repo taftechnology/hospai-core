@@ -41,7 +41,7 @@ The edge is an optimization, never the only check (ARCHITECTURE Rule 3, §6.5, �
 
 | Layer | Location | Runs | On deny / failure |
 |---|---|---|---|
-| Kill-switch | Edge Worker `/v1/*` (and future non-HTTP entry points: alarms, queue consumers) | `KV.get('kill:${featureKey}', { cacheTtl: 60 })` **before** entitlement resolution (amended 2026-11-24: 10 s was never accepted by KV; 60 s until the test runtime accepts 30) | **503**, empty body |
+| Kill-switch | Edge Worker `/v1/*` (and future non-HTTP entry points: alarms, queue consumers) | `KV.get('kill:${featureKey}', { cacheTtl: 30 })` **before** entitlement resolution (amended 2026-11-24/25: 10 s was never accepted by KV; 30 s is its minimum) | **503**, empty body |
 | Entitlement (fast path) | Edge Worker `/v1/*` when route carries a required feature | `loadSnapshot` → `require(feature)` | **402** `{ error: 'entitlement_required', feature }` on missing feature; **503** on resolution failure |
 | Entitlement (authoritative) | DO `try*` method entry, **async, before** `transactionSync` | `assertEntitled` resolves via **OrgEntitlementDO service binding** (never a caller-supplied snapshot) | `{ ok: false, error: 'entitlement_required' }` on missing feature; `{ ok: false, error: 'entitlement_unavailable' }` on resolution failure |
 | Hard limits | DO `try*` when catalog maps a meter (Phase 0: stub only — see limits) | OrgEntitlementDO counter increment/check | `{ ok: false, error: 'limit_exceeded' }` |
@@ -143,7 +143,7 @@ Phase 0 **does not** enforce `pms.units.limit` on room-type add (counter wiring 
 
 - **Not** in `EntitlementSnapshot`; **not** version-keyed
 - Key: `kill:${featureKey}` in `ENTITLEMENT_KV`
-- Edge checks with `{ cacheTtl: 60 }` (amended 2026-11-24; see ARCHITECTURE.md §6.4) before `loadSnapshot`
+- Edge checks with `{ cacheTtl: 30 }` (amended 2026-11-25; see ARCHITECTURE.md §6.4) before `loadSnapshot`
 - Value truthy → 503; absence → proceed
 - Operational tooling (Vitest helper `setKillSwitch(env, featureKey, active)`) for tests only in Phase 0
 

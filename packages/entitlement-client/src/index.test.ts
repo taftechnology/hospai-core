@@ -47,10 +47,10 @@ describe('checkKillSwitch', () => {
     return { get, env: { ENTITLEMENT_KV: { get } } as unknown as EntitlementEnv };
   }
 
-  it('reads kill:<feature> with a 60 s cache, not longer', async () => {
+  it('reads kill:<feature> with the 30 s KV minimum cache, not longer', async () => {
     const { get, env } = kvWith(null);
     expect(await checkKillSwitch(env, 'pms.core')).toBe(false);
-    expect(get).toHaveBeenCalledWith('kill:pms.core', { cacheTtl: 60 });
+    expect(get).toHaveBeenCalledWith('kill:pms.core', { cacheTtl: 30 });
   });
 
   it('is on for any non-empty value and off for an empty one', async () => {

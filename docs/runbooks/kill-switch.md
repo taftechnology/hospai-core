@@ -13,7 +13,7 @@ customer, use **Suspend** in the Ops Console instead; that is audited and the ho
 | Key | What stops | How fast | What keeps working |
 |---|---|---|---|
 | `kill:ops.write` | Every Ops Console write (create customer, add hotel, plan, add-on, suspend, reinstate, operators, copy setup, restore) returns `503 ops_writes_disabled` | At once (read uncached on each write) | Console reads; the hotel app is untouched |
-| `kill:<featureKey>` | Every org and property HTTP route whose route or command declares that feature returns `503` with an empty body. Outbox queue consumers gated on that feature skip their events | Within 60 s (`cacheTtl` 60; `ARCHITECTURE.md` §6.4) | `/v1/me` and other user-scope routes, Durable Object alarms (night audit runs), the Ops Console, guest erasure (never gated) |
+| `kill:<featureKey>` | Every org and property HTTP route whose route or command declares that feature returns `503` with an empty body. Outbox queue consumers gated on that feature skip their events | Within 30 s (`cacheTtl` 30, KV's minimum; `ARCHITECTURE.md` §6.4) | `/v1/me` and other user-scope routes, Durable Object alarms (night audit runs), the Ops Console, guest erasure (never gated) |
 
 `featureKey` is one of `FEATURE_KEYS` in `packages/contracts/src/entitlements.ts`. In practice:
 
@@ -54,7 +54,7 @@ pnpm exec wrangler kv key list --binding ENTITLEMENT_KV --env staging --remote -
 
 An empty list means every switch is off. Then check the effect: for `kill:ops.write`, try a write
 in the Ops Console (it should say "Operator changes are switched off right now. Reads still
-work."); for a feature key, wait 60 seconds and
+work."); for a feature key, wait 30 seconds and
 call one route that declares it (expect `503`).
 
 ## Clear it
@@ -64,7 +64,7 @@ cd apps/pms-core
 pnpm exec wrangler kv key delete "kill:ops.write" --binding ENTITLEMENT_KV --env staging --remote
 ```
 
-A feature switch can stay in effect for up to 60 seconds after the delete. Run the list command
+A feature switch can stay in effect for up to 30 seconds after the delete. Run the list command
 again to confirm nothing is left on.
 
 ## Record it

@@ -32,7 +32,7 @@
     "@hospai/tenant-router": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.36",
+    "@cloudflare/vitest-pool-workers": "0.12.18",
     "@cloudflare/workers-types": "^4.20250726.0",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9",

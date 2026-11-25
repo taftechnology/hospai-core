@@ -860,7 +860,8 @@ a.ui-metric:hover {
   font-size: var(--text-sm);
 }
 
-.ui-table tbody tr:last-child td {
+.ui-table tbody tr:last-child td,
+.ui-table tbody tr:last-child th {
   border-block-end: 0;
 }
 

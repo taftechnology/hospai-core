@@ -1102,7 +1102,7 @@ describe('command catalog', () => {
     });
     expect(COMMAND_CATALOG.find((c) => c.id === 'demo.seed')).toBeUndefined();
     expect(AUDIT_WRITER_COMMAND_IDS.size).toBe(117);
-    expect(COMMAND_CATALOG).toHaveLength(162);
+    expect(COMMAND_CATALOG).toHaveLength(163);
     expect(V1_HTTP_ROUTE_AUDIT[199]).toMatchObject({
       id: 'post_folio_hold',
       scope: 'property',

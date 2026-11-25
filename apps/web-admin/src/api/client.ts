@@ -88,6 +88,13 @@ const DETAIL_MESSAGES: Record<string, string> = {
   copy_in_progress: 'A copy into this hotel is already running. Wait for it to finish.',
   workflow_unavailable: 'The copy could not be started. Send it again in a moment.',
   copy_id: 'That copy id is not valid.',
+  confirm_property_id: 'The hotel id you typed does not match this hotel.',
+  target_time: 'Choose a date and time in the past.',
+  target_time_too_old: 'That is more than 29 days ago. A hotel can only be restored within the last 29 days.',
+  target_time_unavailable: 'The platform has no restore point for that time. Choose a later time.',
+  target_or_undo: 'Choose a date and time, or an earlier restore to undo.',
+  undo_of: 'That restore id is not valid.',
+  undo_not_available: 'Only the latest finished restore can be undone, and only once.',
 };
 
 const CODE_MESSAGES: Record<string, string> = {
@@ -111,6 +118,9 @@ const CODE_MESSAGES: Record<string, string> = {
   last_ops_admin: 'That would leave no active ops admin. Make another operator an admin first.',
   ops_writes_disabled: 'Operator changes are switched off right now. Reads still work.',
   idempotency_key_reused: 'This request was already sent with different contents. Reload and try again.',
+  org_not_suspended: 'Suspend the customer first. A hotel can only be restored while its customer is suspended.',
+  restore_in_progress: 'Another restore of this hotel is still unfinished. Wait for it, or send the same request again to finish it.',
+  restore_before_purge: 'That time is at or before a recorded erasure or purge for this customer. A restore never crosses one. Choose a later time.',
   not_found: 'Not found.',
   org_unreachable: 'The customer could not be reached. Try again in a moment.',
   clerk_unreachable: 'The sign-in service could not be reached. Try again in a moment.',
@@ -125,6 +135,9 @@ export function opsErrorMessage(err: unknown, fallback = 'That did not work. Try
   if (err.code === 'target_not_empty') {
     if (err.detail === 'reservations' || err.detail === 'copy_in_progress') return DETAIL_MESSAGES[err.detail]!;
     if (err.detail) return `This hotel already has ${kindList(err.detail)}. Copy only works into an empty hotel.`;
+  }
+  if (err.code === 'internal_error' && (err.detail === 'restore_fence_pending' || err.detail === 'property_unreachable')) {
+    return 'The restore was applied, but the hotel has not finished restarting. Send the same request again in a moment to finish it.';
   }
   if (err.code === 'limit_exceeded' && err.detail === 'kinds') return 'That is more than a copy can carry. Tick fewer things.';
   if (err.code === 'invalid_request' && err.detail) {

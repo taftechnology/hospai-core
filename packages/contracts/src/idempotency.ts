@@ -59,6 +59,10 @@ export const CLERK_UNREACHABLE = 'clerk_unreachable' as const;
 /** R7.5 copy setup (ops-platform spec §11 C2, C3). */
 export const ORG_MISMATCH = 'org_mismatch' as const;
 export const TARGET_NOT_EMPTY = 'target_not_empty' as const;
+/** Property restore drill (spec 2026-11-25 §2). */
+export const ORG_NOT_SUSPENDED = 'org_not_suspended' as const;
+export const RESTORE_IN_PROGRESS = 'restore_in_progress' as const;
+export const RESTORE_BEFORE_PURGE = 'restore_before_purge' as const;
 
 /** Night-audit PRE_CHECK wire codes */
 export const PENDING_COMMANDS_UNDRAINED = 'pending_commands_undrained' as const;

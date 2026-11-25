@@ -658,3 +658,152 @@ describe('copy setup (R7.5)', () => {
     setCopyPollMs(2000);
   });
 });
+
+describe('restore drill', () => {
+  const orgDetail = {
+    ...customerDetail(),
+    properties: [{ propertyId: 'prop_b', name: 'Hotel B', timeZone: 'Asia/Kolkata', jurisdiction: null, status: 'active' }],
+  };
+  const health = {
+    ok: true,
+    propertyId: 'prop_b',
+    orgId: 'org_a',
+    businessDate: '2026-11-24',
+    lastNightAudit: null,
+    oldestOutboxAgeMs: null,
+    roomCount: 0,
+    roomTypeCount: 0,
+    activeMemberCount: 0,
+    schemaVersion: 58,
+  };
+  const row = (id: string, over: Record<string, unknown> = {}) => ({
+    restoreId: id,
+    kind: 'restore',
+    undoOf: null,
+    targetTime: Date.UTC(2026, 10, 24, 9, 0),
+    status: 'fenced',
+    operatorName: 'HospAI support: Sam',
+    reason: 'Bad bulk rate change',
+    createdAt: Date.UTC(2026, 10, 25, 9, 0),
+    updatedAt: Date.UTC(2026, 10, 25, 9, 1),
+    canUndo: false,
+    ...over,
+  });
+  const ledger = (orgStatus: string, restores: unknown[]) => ({
+    ok: true,
+    propertyId: 'prop_b',
+    orgId: 'org_a',
+    orgStatus,
+    timeZone: 'Asia/Kolkata',
+    restores,
+  });
+  const base = (c: { path: string }, orgStatus = 'suspended', restores: unknown[] = []) =>
+    c.path === '/properties/prop_b/health'
+      ? { body: health }
+      : c.path === '/customers/org_a'
+        ? { body: orgDetail }
+        : c.path === '/properties/prop_b/restores'
+          ? { body: ledger(orgStatus, restores) }
+          : undefined;
+  const RESTORE_BUTTON = 'Restore to a point in time';
+
+  it('is hidden for a viewer, who still sees the ledger without an Undo column', async () => {
+    installFetch('ops_viewer', (c) => base(c, 'suspended', [row('opa_r1', { canUndo: true })]));
+    renderAt('/customers/org_a/hotels/prop_b');
+    expect(await screen.findByText('HospAI support: Sam')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: RESTORE_BUTTON })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Undo' })).toBeNull();
+  });
+
+  it('is disabled with the reason when the customer is not suspended, and enabled when it is', async () => {
+    installFetch('ops_admin', (c) => base(c, 'active'));
+    const first = renderAt('/customers/org_a/hotels/prop_b');
+    const button = await screen.findByRole('button', { name: RESTORE_BUTTON });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/Suspend the customer first/)).toBeInTheDocument();
+    first.unmount();
+    cleanup();
+
+    installFetch('ops_admin', (c) => base(c, 'suspended'));
+    renderAt('/customers/org_a/hotels/prop_b');
+    expect(await screen.findByRole('button', { name: RESTORE_BUTTON })).toBeEnabled();
+    expect(screen.queryByText(/Suspend the customer first/)).toBeNull();
+    expect(screen.getByText('No restore has been run for this hotel')).toBeInTheDocument();
+  });
+
+  it('offers Undo only on the newest finished restore', async () => {
+    installFetch('ops_admin', (c) =>
+      base(c, 'suspended', [
+        row('opa_new', { canUndo: true, createdAt: Date.UTC(2026, 10, 25, 9, 0) }),
+        row('opa_old', { canUndo: false, createdAt: Date.UTC(2026, 10, 20, 9, 0) }),
+        row('opa_failed', { status: 'failed', canUndo: false, createdAt: Date.UTC(2026, 10, 19, 9, 0) }),
+      ]),
+    );
+    renderAt('/customers/org_a/hotels/prop_b');
+    await screen.findAllByText('HospAI support: Sam');
+    expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(1);
+    // The target time is shown on the hotel's own clock.
+    expect(screen.getAllByText('2026-11-24 14:30 Asia/Kolkata').length).toBeGreaterThan(0);
+  });
+
+  it('asks for the date and time, the typed hotel id and a reason, warns about what is not rewound, and sends hotel-time as an instant', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) => {
+      if (c.method === 'POST' && c.path === '/properties/prop_b/restore') {
+        return { body: { ok: true, actionId: 'opa_rst_1', restoreId: 'opa_rst_1', replayed: false } };
+      }
+      return base(c);
+    });
+    renderAt('/customers/org_a/hotels/prop_b');
+    await user.click(await screen.findByRole('button', { name: RESTORE_BUTTON }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('What a restore does not fix')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Payments taken at the payment provider/)).toBeInTheDocument();
+
+    const submit = () => user.click(within(dialog).getByRole('button', { name: 'Restore this hotel' }));
+    await submit();
+    expect(await within(dialog).findByText('Enter a reason (1 to 500 characters).')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('Reason'), 'Bad bulk rate change');
+    await submit();
+    expect(await within(dialog).findByText('Choose the date and the time to restore to.')).toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText(/Restore to: date/), '2026-11-24');
+    await user.type(within(dialog).getByLabelText('Restore to: time'), '14:30');
+    await submit();
+    expect(await within(dialog).findByText('Type the hotel id exactly as shown to confirm.')).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+
+    await user.type(within(dialog).getByLabelText(/Type the hotel id to confirm/), 'prop_b');
+    await submit();
+    expect(await within(dialog).findByText('Done')).toBeInTheDocument();
+    const post = calls.find((c) => c.method === 'POST')!;
+    expect(post.path).toBe('/properties/prop_b/restore');
+    expect(post.body).toMatchObject({
+      targetTime: Date.UTC(2026, 10, 24, 9, 0), // 14:30 in Asia/Kolkata (+05:30)
+      confirmPropertyId: 'prop_b',
+      reason: 'Bad bulk rate change',
+    });
+    expect(post.body?.clientKey).toBeTruthy();
+    expect(calls.filter((c) => c.path === '/properties/prop_b/restores').length).toBeGreaterThan(1);
+  });
+
+  it('Undo sends the restore id and the typed hotel id, and a refusal is shown in words', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) => {
+      if (c.method === 'POST' && c.path === '/properties/prop_b/restore') {
+        return { status: 409, body: { error: 'restore_in_progress' } };
+      }
+      return base(c, 'suspended', [row('opa_new', { canUndo: true })]);
+    });
+    renderAt('/customers/org_a/hotels/prop_b');
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText(/Type the hotel id to confirm/), 'prop_b');
+    await user.type(within(dialog).getByLabelText('Reason'), 'Wrong time chosen');
+    await user.click(within(dialog).getByRole('button', { name: 'Undo the restore' }));
+    expect(await within(dialog).findByText(/Another restore of this hotel is still unfinished/)).toBeInTheDocument();
+    expect(dialog.textContent).not.toContain('restore_in_progress');
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({ undoOf: 'opa_new', confirmPropertyId: 'prop_b' });
+  });
+});

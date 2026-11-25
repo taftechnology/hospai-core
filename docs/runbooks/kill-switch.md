@@ -12,7 +12,7 @@ customer, use **Suspend** in the Ops Console instead; that is audited and the ho
 
 | Key | What stops | How fast | What keeps working |
 |---|---|---|---|
-| `kill:ops.write` | Every Ops Console write (create customer, add hotel, plan, add-on, suspend, reinstate, operators, copy setup) returns `503 ops_writes_disabled` | At once (read uncached on each write) | Console reads; the hotel app is untouched |
+| `kill:ops.write` | Every Ops Console write (create customer, add hotel, plan, add-on, suspend, reinstate, operators, copy setup, restore) returns `503 ops_writes_disabled` | At once (read uncached on each write) | Console reads; the hotel app is untouched |
 | `kill:<featureKey>` | Every org and property HTTP route whose route or command declares that feature returns `503` with an empty body. Outbox queue consumers gated on that feature skip their events | Within 60 s (`cacheTtl` 60; `ARCHITECTURE.md` §6.4) | `/v1/me` and other user-scope routes, Durable Object alarms (night audit runs), the Ops Console, guest erasure (never gated) |
 
 `featureKey` is one of `FEATURE_KEYS` in `packages/contracts/src/entitlements.ts`. In practice:

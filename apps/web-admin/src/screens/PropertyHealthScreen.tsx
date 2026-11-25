@@ -6,6 +6,7 @@ import { useIsAdmin } from '../auth/OperatorContext.js';
 import { LoadFailure, LoadingBlock } from '../components/common.js';
 import { formatAge } from '../format.js';
 import { CopySetupDialog } from './CopySetupDialog.js';
+import { RestoreSection } from './RestoreSection.js';
 
 export function PropertyHealthScreen() {
   const { orgId = '', propertyId = '' } = useParams();
@@ -74,6 +75,7 @@ export function PropertyHealthScreen() {
           <EmptyState title="No night audit has run yet" />
         )}
       </section>
+      <RestoreSection propertyId={propertyId} isAdmin={isAdmin} />
     </>
   );
 }

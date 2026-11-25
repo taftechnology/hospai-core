@@ -139,7 +139,7 @@ describe('R7.4 head-office projection', () => {
     const decl = CORE_CONSUMERS.find((c) => c.consumer === CONSUMER);
     expect(decl).toMatchObject({
       entitlement: 'pms.core',
-      events: ['night_audit.started', 'night_audit.completed', 'night_audit.halted', 'night_audit.halt_resolved'],
+      events: ['night_audit.started', 'night_audit.completed', 'night_audit.halted', 'night_audit.halt_resolved', 'property.restored'],
     });
     expect(decl?.gateExempt).toBeUndefined();
   });

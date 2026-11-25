@@ -1856,6 +1856,22 @@ export const COMMAND_CATALOG: CommandEntry[] = [
       OPS_COMMAND_NOTES +
       ' Copy setup (room types, rate plans and rates, packages, charge codes, tax rules, products, allowlisted DOMAIN config) from one hotel into an empty hotel of the same org, as a Workflow with a step per kind.',
   },
+  // Restore drill (spec 2026-11-25). INTERACTIVE is real: one operator request arms the PropertyDO
+  // point-in-time restore and runs the fence after the restart (a few seconds). The restore itself is
+  // an operator action and has no audit-writer row inside the PropertyDO, which the restore rewinds.
+  // `property.restored` is the fence's one event; the command's own result is the Platform D1 ledger.
+  {
+    id: 'ops.restore_property',
+    prototypeAction: null,
+    lane: 'INTERACTIVE',
+    degraded: 'FAIL_CLOSED',
+    idempotent: true,
+    events: ['property.restored'],
+    permission: 'shell:internal',
+    notes:
+      OPS_COMMAND_NOTES +
+      ' Restore one hotel (PropertyDO) to a point in time within 29 days, or undo such a restore. The org must be suspended; refused at or before the newest purge certificate.',
+  },
 ];
 
 export const PLATFORM_GAPS: PlatformGap[] = [];

@@ -1,6 +1,6 @@
 /** Shared fixtures for the R7.1 operations platform specs. */
 import { env } from 'cloudflare:test';
-import { PLATFORM_OPERATOR_STATEMENTS } from '@hospai/do-runtime';
+import { PLATFORM_OPERATOR_STATEMENTS, PLATFORM_PROPERTY_RESTORE_STATEMENTS } from '@hospai/do-runtime';
 import type { OpsRole } from '@hospai/contracts';
 import type { PmsEnv } from '../src/env.js';
 import { ensurePlatformSchema, resetPlatformSchemaGate } from '../src/registry.js';
@@ -15,9 +15,13 @@ export async function resetOperatorRegistry(): Promise<void> {
   await env.PLATFORM_DB.prepare(`DROP TRIGGER IF EXISTS operator_action_no_delete`).run();
   await env.PLATFORM_DB.prepare(`DROP TRIGGER IF EXISTS operator_no_delete`).run();
   await env.PLATFORM_DB.prepare(`DELETE FROM ops_copy_run`).run();
+  // The restore ledger references operators and is append-only: same drop, clear and restore as above.
+  await env.PLATFORM_DB.prepare(`DROP TRIGGER IF EXISTS property_restore_no_delete`).run();
+  await env.PLATFORM_DB.prepare(`DELETE FROM property_restore`).run();
   await env.PLATFORM_DB.prepare(`DELETE FROM operator_action`).run();
   await env.PLATFORM_DB.prepare(`DELETE FROM operator`).run();
   for (const stmt of PLATFORM_OPERATOR_STATEMENTS) await env.PLATFORM_DB.prepare(stmt).run();
+  for (const stmt of PLATFORM_PROPERTY_RESTORE_STATEMENTS) await env.PLATFORM_DB.prepare(stmt).run();
 }
 
 export async function seedOperator(

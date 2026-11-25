@@ -13,7 +13,9 @@ import type {
   OpsFailure,
   OpsRole,
   OpsWriteOk,
+  OpsRestoreAccepted,
   PropertyHealthView,
+  PropertyRestoreList,
   ResolveOperatorResult,
 } from '@hospai/contracts';
 
@@ -77,6 +79,12 @@ export interface PmsOpsBinding {
     input: WriteBase & { sourcePropertyId: string; targetPropertyId: string; kinds: OpsCopyKind[] },
   ): Promise<OpsCopyAccepted | OpsFailure>;
   getCopyStatus(input: { operatorId: string; copyId: string }): Promise<OpsCopyStatus | OpsFailure>;
+  /** Restore drill: the hotel's restore ledger. */
+  listPropertyRestores(input: { operatorId: string; propertyId: string }): Promise<PropertyRestoreList | OpsFailure>;
+  /** Restore drill `ops.restore_property`: rewind a suspended customer's hotel to `targetTime`, or undo `undoOf`. */
+  restoreProperty(
+    input: WriteBase & { propertyId: string; targetTime?: number | null; undoOf?: string | null; confirmPropertyId: string },
+  ): Promise<OpsRestoreAccepted | OpsFailure>;
 }
 
 export interface AdminEnv {

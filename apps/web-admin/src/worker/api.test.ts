@@ -237,3 +237,72 @@ describe('copy setup (R7.5)', () => {
     expect(env.PMS_OPS.getCopyStatus).toHaveBeenCalledWith({ operatorId: 'op_1', copyId: 'opa_copy_1' });
   });
 });
+
+describe('restore drill', () => {
+  const restoreBody = {
+    clientKey: 'ck-restore',
+    reason: 'Bad bulk rate change',
+    ticketRef: 'T-77',
+    targetTime: 1_790_000_000_000,
+    confirmPropertyId: 'prop_tgt',
+  };
+
+  it('forwards only known fields: the hotel comes from the URL, the operator from the session', async () => {
+    signIn();
+    const env = makeEnv();
+    const res = await worker.fetch(
+      post('/api/properties/prop_tgt/restore', { ...restoreBody, propertyId: 'prop_attacker', operatorId: 'op_attacker', extra: true }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(env.PMS_OPS.restoreProperty).toHaveBeenCalledWith({
+      operatorId: 'op_1',
+      clientKey: 'ck-restore',
+      reason: 'Bad bulk rate change',
+      ticketRef: 'T-77',
+      propertyId: 'prop_tgt',
+      targetTime: 1_790_000_000_000,
+      undoOf: null,
+      confirmPropertyId: 'prop_tgt',
+    });
+    expect(((await res.json()) as { restoreId: string }).restoreId).toBe('opa_rst_1');
+  });
+
+  it('forwards an undo, and refuses both, neither, or a non-integer time before the binding', async () => {
+    signIn();
+    const env = makeEnv();
+    const undo = { clientKey: 'ck-u', reason: 'r', undoOf: 'opa_rst_1', confirmPropertyId: 'prop_tgt' };
+    expect((await worker.fetch(post('/api/properties/prop_tgt/restore', undo), env)).status).toBe(200);
+    expect(env.PMS_OPS.restoreProperty).toHaveBeenCalledWith(
+      expect.objectContaining({ propertyId: 'prop_tgt', targetTime: null, undoOf: 'opa_rst_1' }),
+    );
+    for (const bad of [
+      { ...restoreBody, undoOf: 'opa_rst_1' },
+      { clientKey: 'k', reason: 'r', confirmPropertyId: 'prop_tgt' },
+      { ...restoreBody, targetTime: '1790000000000' },
+      { ...restoreBody, targetTime: 1.5 },
+    ]) {
+      const res = await worker.fetch(post('/api/properties/prop_tgt/restore', bad), env);
+      expect(res.status).toBe(400);
+    }
+    expect(env.PMS_OPS.restoreProperty).toHaveBeenCalledTimes(1);
+  });
+
+  it('needs the same origin, and passes the entrypoint failure status and detail through', async () => {
+    signIn();
+    const env = makeEnv();
+    expect((await worker.fetch(post('/api/properties/p/restore', restoreBody, {}), env)).status).toBe(403);
+    expect(env.PMS_OPS.restoreProperty).not.toHaveBeenCalled();
+    const pms = fakePms({ restoreProperty: vi.fn(async () => ({ ok: false, error: 'org_not_suspended', status: 409 })) });
+    const refused = await worker.fetch(post('/api/properties/p/restore', restoreBody), makeEnv({ PMS_OPS: pms }));
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: 'org_not_suspended' });
+  });
+
+  it('GET /api/properties/:id/restores reads the ledger for the signed-in operator', async () => {
+    signIn();
+    const env = makeEnv();
+    await worker.fetch(new Request(`${ORIGIN}/api/properties/prop_tgt/restores`, { headers: { authorization: 'Bearer t' } }), env);
+    expect(env.PMS_OPS.listPropertyRestores).toHaveBeenCalledWith({ operatorId: 'op_1', propertyId: 'prop_tgt' });
+  });
+});

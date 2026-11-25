@@ -30,6 +30,7 @@ const ACTION_LABELS: Record<string, string> = {
   'ops.suspend_org': 'Account suspended',
   'ops.reinstate_org': 'Account reinstated',
   'ops.copy_setup': 'Setup copied from another hotel',
+  'ops.restore_property': 'Hotel restored to an earlier time',
 };
 
 function actionLabel(commandId: string): string {

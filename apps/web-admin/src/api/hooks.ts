@@ -7,6 +7,7 @@ import type {
   OpsCopyStatus,
   OpsRole,
   PropertyHealthView,
+  PropertyRestoreList,
 } from '@hospai/contracts';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { useCallback, useRef } from 'react';
@@ -41,6 +42,15 @@ export const usePropertyHealth = (propertyId: string) =>
   useQuery({
     queryKey: opsKeys.health(propertyId),
     queryFn: () => apiGet<PropertyHealthView>(`/properties/${encodeURIComponent(propertyId)}/health`),
+  });
+
+/** The restore ledger of one hotel (viewers can read it). */
+export const usePropertyRestores = (propertyId: string) =>
+  useQuery({
+    queryKey: opsKeys.restores(propertyId),
+    queryFn: () => apiGet<PropertyRestoreList>(`/properties/${encodeURIComponent(propertyId)}/restores`),
+    // A restore finishes inside one request, but a fence that needs a second try leaves the row open.
+    staleTime: 0,
   });
 
 export const useOperatorActions = (orgId: string, operatorId: string, page: number) =>
@@ -124,7 +134,7 @@ export function useOpsWrite(path: string, invalidate: () => QueryKey[], opts?: {
         ...(input.meta.ticketRef.trim() ? { ticketRef: input.meta.ticketRef.trim() } : {}),
         clientKey: keyFor({ path, ...input.payload, reason: input.meta.reason.trim(), ticketRef: input.meta.ticketRef.trim() }),
       };
-      return apiPost<{ actionId: string | null; replayed: boolean; copyId?: string }>(path, body);
+      return apiPost<{ actionId: string | null; replayed: boolean; copyId?: string; restoreId?: string }>(path, body);
     },
     onSuccess: async () => {
       if (!opts?.keepKeyOnSuccess) clear();

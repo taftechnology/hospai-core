@@ -184,6 +184,9 @@ import {
   OPS_WRITES_DISABLED,
   ORG_MISMATCH,
   TARGET_NOT_EMPTY,
+  ORG_NOT_SUSPENDED,
+  RESTORE_IN_PROGRESS,
+  RESTORE_BEFORE_PURGE,
   TENANT_SUSPENDED,
   MFA_REQUIRED,
   CLERK_UNREACHABLE,
@@ -555,6 +558,9 @@ function mapConcreteCommandErrorStatus(error: ConcreteCommandError): number {
     case LAST_OPS_ADMIN:
     case ORG_MISMATCH:
     case TARGET_NOT_EMPTY:
+    case ORG_NOT_SUSPENDED:
+    case RESTORE_IN_PROGRESS:
+    case RESTORE_BEFORE_PURGE:
       return 409;
     case PLAN_BELOW_USAGE:
       return 422;

@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { realPitrPort, RESTORE_ABORT_DELAY_MS, type PitrPort } from './pitr-port.js';
 import {
   type DomainEventMessage,
   financialYearLabel,
@@ -2246,6 +2247,18 @@ export class PropertyDO extends DurableObject<PmsEnv> {
 
   /** The accounting journal (R4.12) computed by SNAPSHOT_REPORTS, inserted beside the day statistics. */
   private pendingJournal = new Map<string, JournalSnapshot>();
+
+  /**
+   * Restore drill: a test installs a fake here through `runInDurableObject`; there is no other way to set
+   * it, so a deployed object always uses the real `ctx.storage` PITR API.
+   */
+  private pitrPortOverride: PitrPort | null = null;
+  /**
+   * True from the moment a restore is armed until the object restarts (which applies it). In memory on
+   * purpose: the restart is exactly what clears it, so a fence that finds it set knows the restore has not
+   * been applied yet.
+   */
+  private restoreArmed = false;
 
   constructor(ctx: DurableObjectState, env: PmsEnv) {
     super(ctx, env);
@@ -31289,6 +31302,149 @@ export class PropertyDO extends DurableObject<PmsEnv> {
       configKeys: keys.filter((k) => stored.has(k)),
       ledgerCurrency: this.readStoredLedgerCurrencySync() ?? null,
     };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Restore drill (spec 2026-11-25). `OpsEntrypoint` is the only caller; it has already checked the
+  // operator, the suspended org, the 29-day window, the purge floor and the typed property id.
+  // ---------------------------------------------------------------------------------------------
+
+  private pitrPort(): PitrPort {
+    return this.pitrPortOverride ?? realPitrPort(this.ctx);
+  }
+
+  /** The outbox sequence counter: the larger of the AUTOINCREMENT counter and the highest row (R7.4 `stateVersion`). */
+  private readOutboxSeqSync(): number {
+    const sql = this.ctx.storage.sql;
+    const seqRows = sql.exec(`SELECT seq FROM sqlite_sequence WHERE name = 'outbox'`).toArray() as Array<{ seq: number }>;
+    const maxRows = sql.exec(`SELECT MAX(seq) AS s FROM outbox`).toArray() as Array<{ s: number | null }>;
+    return Math.max(Number(seqRows[0]?.seq ?? 0), Number(maxRows[0]?.s ?? 0));
+  }
+
+  /**
+   * Step A: resolves the bookmark, arms the restore for the next start, reads the fence values and
+   * schedules the restart after this reply. Exactly one of `targetTime` (epoch ms) and `targetBookmark`
+   * (an undo). Writes nothing: the restore would rewind it.
+   */
+  async prepareRestore(input: { restoreId: string; targetTime?: number; targetBookmark?: string }): Promise<
+    | { ok: true; bookmark: string; undoBookmark: string; fromBookmark: string; ariVersion: number; outboxSeq: number }
+    | { ok: false; error: string; detail?: string }
+  > {
+    this.assertRpcAvailable();
+    const hasTime = input?.targetTime !== undefined;
+    const hasBookmark = input?.targetBookmark !== undefined;
+    if (
+      typeof input?.restoreId !== 'string' ||
+      input.restoreId.length === 0 ||
+      input.restoreId.length > 128 ||
+      hasTime === hasBookmark ||
+      (hasTime && !Number.isSafeInteger(input.targetTime)) ||
+      (hasBookmark &&
+        (typeof input.targetBookmark !== 'string' || input.targetBookmark.length === 0 || input.targetBookmark.length > 512))
+    ) {
+      return { ok: false, error: INVALID_REQUEST };
+    }
+    if (this.restoreArmed) return { ok: false, error: 'restore_in_progress' };
+    const port = this.pitrPort();
+    let bookmark: string;
+    try {
+      bookmark = hasBookmark ? (input.targetBookmark as string) : await port.getBookmarkForTime(input.targetTime as number);
+    } catch {
+      return { ok: false, error: INVALID_REQUEST, detail: 'target_time_unavailable' };
+    }
+    const fromBookmark = await port.getCurrentBookmark();
+    const undoBookmark = await port.onNextSessionRestoreBookmark(bookmark);
+    this.restoreArmed = true;
+    // Read after arming, so the fence floor covers everything written up to now. A write in the few
+    // milliseconds before the restart is rewound, and the fence's max() keeps its numbers from being reused.
+    const result = {
+      ok: true as const,
+      bookmark,
+      undoBookmark,
+      fromBookmark,
+      ariVersion: this.readAriVersionSync(),
+      outboxSeq: this.readOutboxSeqSync(),
+    };
+    // The restart must come after this reply is on its way: aborting inside the call would fail the RPC.
+    setTimeout(() => {
+      try {
+        port.abort();
+      } catch {
+        // abort() ends this isolate: nothing after it runs, and a fake that returns is not an error.
+      }
+    }, RESTORE_ABORT_DELAY_MS);
+    return result;
+  }
+
+  /**
+   * Step B: after the restart, one transaction makes the rewound object safe to reuse. Idempotent per
+   * `restoreId`. `restore_not_applied` means this instance has armed a restore and not restarted yet:
+   * the caller waits and asks again.
+   */
+  async fenceAfterRestore(input: {
+    restoreId: string;
+    targetTime: number | null;
+    minAriVersion: number;
+    minOutboxSeq: number;
+  }): Promise<
+    | { ok: true; replayed: boolean; ariVersion: number; outboxSeq: number }
+    | { ok: false; error: string; detail?: string }
+  > {
+    this.assertRpcAvailable();
+    if (
+      typeof input?.restoreId !== 'string' ||
+      input.restoreId.length === 0 ||
+      input.restoreId.length > 128 ||
+      !Number.isSafeInteger(input.minAriVersion) ||
+      input.minAriVersion < 0 ||
+      !Number.isSafeInteger(input.minOutboxSeq) ||
+      input.minOutboxSeq < 0 ||
+      (input.targetTime !== null && !Number.isSafeInteger(input.targetTime))
+    ) {
+      return { ok: false, error: INVALID_REQUEST };
+    }
+    if (this.restoreArmed) return { ok: false, error: INTERNAL_ERROR, detail: 'restore_not_applied' };
+    const markerKey = `__meta.restore_fence.${input.restoreId}`;
+    const propertyId = this.getPropertyIdSync();
+    return this.ctx.storage.transactionSync(() => {
+      const sql = this.ctx.storage.sql;
+      const done = sql.exec(`SELECT 1 AS one FROM property_config WHERE key = ?`, markerKey).toArray();
+      if (done.length > 0) {
+        return {
+          ok: true as const,
+          replayed: true,
+          ariVersion: this.readAriVersionSync(),
+          outboxSeq: this.readOutboxSeqSync(),
+        };
+      }
+      const now = Date.now();
+      // ARI: never reuse a version number a pre-restore ARI_KV entry may carry.
+      const ariVersion = Math.max(this.readAriVersionSync(), input.minAriVersion) + 1;
+      sql.exec(
+        `INSERT INTO property_config (key, value_json, version, updated_at)
+         VALUES ('__meta.ari_version', ?, 1, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+        JSON.stringify(ariVersion),
+        now,
+      );
+      // Outbox: the next AUTOINCREMENT value must be above every sequence a consumer has already seen.
+      if (this.readOutboxSeqSync() < input.minOutboxSeq) {
+        const has = sql.exec(`SELECT 1 AS one FROM sqlite_sequence WHERE name = 'outbox'`).toArray().length > 0;
+        if (has) sql.exec(`UPDATE sqlite_sequence SET seq = ? WHERE name = 'outbox'`, input.minOutboxSeq);
+        else sql.exec(`INSERT INTO sqlite_sequence (name, seq) VALUES ('outbox', ?)`, input.minOutboxSeq);
+      }
+      this.appendPropertyOutbox({
+        eventId: crypto.randomUUID(),
+        eventType: 'property.restored',
+        payload: { propertyId, restoreId: input.restoreId, targetTime: input.targetTime },
+      });
+      sql.exec(
+        `INSERT INTO property_config (key, value_json, version, updated_at) VALUES (?, 'true', 1, ?)`,
+        markerKey,
+        now,
+      );
+      return { ok: true as const, replayed: false, ariVersion, outboxSeq: this.readOutboxSeqSync() };
+    });
   }
 
   async getOutboxBacklog(): Promise<{ unackedCount: number; oldestCreatedAt: number | null }> {

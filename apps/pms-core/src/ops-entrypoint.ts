@@ -12,6 +12,7 @@ import type { Jurisdiction, OperatorStatus, OpsCopyKind, OpsRole } from '@hospai
 import type { PmsEnv } from './env.js';
 import * as copy from './ops-copy.js';
 import * as ops from './ops-platform.js';
+import * as restore from './ops-restore.js';
 
 type W = ops.WriteInput;
 
@@ -94,5 +95,20 @@ export class OpsEntrypoint extends WorkerEntrypoint<PmsEnv> {
   /** R7.5 `ops.copy_setup`: accepted here, then run as `OpsCopyWorkflow`. Poll `getCopyStatus` with the returned `copyId`. */
   copySetup(input: W & { sourcePropertyId: string; targetPropertyId: string; kinds: OpsCopyKind[] }) {
     return copy.copySetup(this.env, input);
+  }
+
+  /** Restore drill: the ledger of one hotel's restores. `ops_viewer` can read it. */
+  listPropertyRestores(input: { operatorId: string; propertyId: string }) {
+    return restore.listPropertyRestores(this.env, input);
+  }
+
+  /**
+   * Restore drill `ops.restore_property`: rewinds one hotel to `targetTime` (epoch ms), or undoes the restore
+   * `undoOf`. The org must be suspended. `confirmPropertyId` is the id the operator typed.
+   */
+  restoreProperty(
+    input: W & { propertyId: string; targetTime?: number | null; undoOf?: string | null; confirmPropertyId: string },
+  ) {
+    return restore.restoreProperty(this.env, input);
   }
 }

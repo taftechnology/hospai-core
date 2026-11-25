@@ -74,4 +74,9 @@ export const ENTITLEMENT_FAIL_CLOSED_OPT_OUT: EntitlementFailClosedOptOut[] = [
     id: 'property.update_details',
     reason: 'Tenancy metadata, not product data — no feature gate applies.',
   },
+  {
+    id: 'ops.restore_property',
+    reason:
+      'Operator command run from the Ops Console on a suspended customer, not a tenant feature — no entitlement applies, and a kill-switch must not stop recovery. Its own guard is the suspended-org precondition.',
+  },
 ];

@@ -196,6 +196,7 @@ export async function assertEventContract(message: DomainEventMessage): Promise<
     case 'channel.synced':
     case 'channel.mapping.created':
     case 'property.updated':
+    case 'property.restored':
     case 'staff.changed':
     case 'roster.created':
     case 'roster.updated':

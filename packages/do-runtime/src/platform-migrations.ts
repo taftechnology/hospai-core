@@ -626,6 +626,67 @@ ON ops_copy_run (target_property_id) WHERE status IN ('pending', 'running')`,
 
 export const PLATFORM_OPS_COPY_SQL = PLATFORM_OPS_COPY_STATEMENTS.join(';\n\n') + ';\n';
 
+/**
+ * Restore drill ledger (spec 2026-11-25 §3). One row per `ops.restore_property` (kind `restore`) and per undo
+ * (kind `undo`). It lives here, outside the PropertyDO, because the restore rewinds everything inside the
+ * object, including any note of itself. `restore_id` is the `operator_action` id written in the same batch that
+ * moves the row to `restored`. The bookmarks and fence values are filled when the PropertyDO has armed the
+ * restore, so they are NULL while the row is `pending` and a CHECK requires them from `restored` on. Status moves
+ * only forward; at most one restore per hotel is unfinished (`pending` or `restored`, not yet `fenced`); rows are
+ * never deleted. No guest data: ids, instants, opaque bookmarks and the operator's reason.
+ */
+export const PLATFORM_PROPERTY_RESTORE_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS property_restore (
+  restore_id          TEXT PRIMARY KEY,
+  property_id         TEXT NOT NULL,
+  org_id              TEXT NOT NULL,
+  kind                TEXT NOT NULL CHECK (kind IN ('restore', 'undo')),
+  undo_of             TEXT REFERENCES property_restore(restore_id),
+  target_time         INTEGER,
+  target_bookmark     TEXT,
+  undo_bookmark       TEXT,
+  fence_ari_version   INTEGER,
+  fence_outbox_seq    INTEGER,
+  status              TEXT NOT NULL CHECK (status IN ('pending', 'restored', 'fenced', 'failed')),
+  operator_id         TEXT NOT NULL REFERENCES operator(operator_id),
+  reason              TEXT NOT NULL,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL,
+  CHECK (kind = 'undo' OR undo_of IS NULL),
+  CHECK (kind = 'restore' OR undo_of IS NOT NULL),
+  CHECK (
+    status IN ('pending', 'failed')
+    OR (target_bookmark IS NOT NULL AND undo_bookmark IS NOT NULL
+        AND fence_ari_version IS NOT NULL AND fence_outbox_seq IS NOT NULL)
+  )
+)`,
+
+  `CREATE UNIQUE INDEX IF NOT EXISTS property_restore_one_open_per_property
+ON property_restore (property_id) WHERE status IN ('pending', 'restored')`,
+
+  `CREATE INDEX IF NOT EXISTS property_restore_property_idx ON property_restore (property_id, created_at DESC)`,
+
+  `CREATE TRIGGER IF NOT EXISTS property_restore_status_transition
+BEFORE UPDATE OF status ON property_restore
+BEGIN
+  SELECT RAISE(ABORT, 'property_restore status transition forbidden')
+  WHERE NOT (
+    (OLD.status = 'pending' AND NEW.status = 'restored')
+    OR (OLD.status = 'restored' AND NEW.status = 'fenced')
+    OR (OLD.status = 'pending' AND NEW.status = 'failed')
+    OR (OLD.status = NEW.status)
+  );
+END`,
+
+  `CREATE TRIGGER IF NOT EXISTS property_restore_no_delete
+BEFORE DELETE ON property_restore
+BEGIN
+  SELECT RAISE(ABORT, 'property_restore is append-only');
+END`,
+];
+
+export const PLATFORM_PROPERTY_RESTORE_SQL = PLATFORM_PROPERTY_RESTORE_STATEMENTS.join(';\n\n') + ';\n';
+
 export const PLATFORM_OPERATOR_SQL =
   [...PLATFORM_OPERATOR_STATEMENTS, ...PLATFORM_ORG_SUSPENDED_STATEMENTS].join(';\n\n') + ';\n';
 
@@ -639,6 +700,7 @@ export const PLATFORM_ALL_STATEMENTS: string[] = [
   ...PLATFORM_USER_ORG_STATEMENTS,
   ...PLATFORM_OPERATOR_STATEMENTS,
   ...PLATFORM_OPS_COPY_STATEMENTS,
+  ...PLATFORM_PROPERTY_RESTORE_STATEMENTS,
   // PLATFORM_ORG_SUSPENDED_STATEMENTS applied by ensurePlatformSchema after the purge triggers.
   // PLATFORM_PURGE_STATEMENTS applied after PLATFORM_PURGE_ALTERS in ensurePlatformSchema
 ];

@@ -18,6 +18,8 @@ export const OPS_COMMAND_IDS = [
   'ops.set_operator_role',
   // R7.5 (spec §11 C1): a BACKGROUND command run as a Workflow, not one of the ten INTERACTIVE D1 writes.
   'ops.copy_setup',
+  // Restore drill (spec 2026-11-25): rewinds one PropertyDO to a point in time, or undoes such a restore.
+  'ops.restore_property',
 ] as const;
 export type OpsCommandId = (typeof OPS_COMMAND_IDS)[number];
 
@@ -277,3 +279,46 @@ export type OpsCopyCensus = {
   configKeys: string[];
   ledgerCurrency: string | null;
 };
+
+// ---------------------------------------------------------------------------------------------
+// Restore drill (spec 2026-11-25): rewind one PropertyDO to a point in time
+// ---------------------------------------------------------------------------------------------
+
+/** Cloudflare keeps 30 days of point-in-time history; a restore may reach back 29 (one day of margin). */
+export const RESTORE_WINDOW_DAYS = 29;
+export const RESTORE_WINDOW_MS = RESTORE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+export const RESTORE_KINDS = ['restore', 'undo'] as const;
+export type RestoreKind = (typeof RESTORE_KINDS)[number];
+
+/** Moves only forward: `pending` to `restored` to `fenced`, or to `failed` from `pending`. */
+export const RESTORE_STATUSES = ['pending', 'restored', 'fenced', 'failed'] as const;
+export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
+
+/** One row of the restore ledger the console shows. Bookmarks and fence values stay server-side. */
+export type PropertyRestoreRow = {
+  restoreId: string;
+  kind: RestoreKind;
+  undoOf: string | null;
+  /** The instant the hotel was rewound to, epoch ms. Null for an undo. */
+  targetTime: number | null;
+  status: RestoreStatus;
+  operatorName: string;
+  reason: string;
+  createdAt: number;
+  updatedAt: number;
+  /** True only on the newest `fenced` restore that no undo has used. */
+  canUndo: boolean;
+};
+
+export type PropertyRestoreList = {
+  ok: true;
+  propertyId: string;
+  orgId: string;
+  /** The restore action needs `suspended`; the console disables it with the reason otherwise. */
+  orgStatus: string;
+  timeZone: string;
+  restores: PropertyRestoreRow[];
+};
+
+export type OpsRestoreAccepted = OpsWriteOk & { restoreId: string };

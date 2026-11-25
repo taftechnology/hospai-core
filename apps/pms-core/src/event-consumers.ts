@@ -56,7 +56,8 @@ export const CORE_CONSUMERS: ModuleConsumerDecl[] = [
   },
   {
     // R7.4: every org keeps a current head-office row (pms.core), so turning on pms.multi_property
-    // later needs no catch-up: skipped events are never replayed.
+    // later needs no catch-up: skipped events are never replayed. `property.restored` (restore drill)
+    // re-reads a rewound hotel's row from its restored state.
     consumer: 'pms.head_office_projection',
     label: 'Head-office projection',
     events: [
@@ -64,6 +65,7 @@ export const CORE_CONSUMERS: ModuleConsumerDecl[] = [
       'night_audit.completed',
       'night_audit.halted',
       'night_audit.halt_resolved',
+      'property.restored',
     ],
     handler: 'handleHeadOfficeProjection',
     entitlement: 'pms.core',

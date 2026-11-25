@@ -128,6 +128,7 @@ if (process.argv.includes('--self-test')) {
   let PLATFORM_USER_ORG_SQL;
   let PLATFORM_OPERATOR_SQL;
   let PLATFORM_OPS_COPY_SQL;
+  let PLATFORM_PROPERTY_RESTORE_SQL;
   try {
     ({
       FREEZE_GATE_SQL,
@@ -212,6 +213,7 @@ if (process.argv.includes('--self-test')) {
       PLATFORM_USER_ORG_SQL,
       PLATFORM_OPERATOR_SQL,
       PLATFORM_OPS_COPY_SQL,
+      PLATFORM_PROPERTY_RESTORE_SQL,
     } = await import(modPath));
   } catch (e) {
     console.error(
@@ -996,6 +998,16 @@ const targets = [
 
 `,
     sql: PLATFORM_OPS_COPY_SQL,
+  },
+  {
+    path: join(root, 'migrations/d1-platform/0011_property_restore.sql'),
+    header: `-- Platform D1 restore drill ledger (spec 2026-11-25) — generated from @hospai/do-runtime
+-- DO NOT EDIT BY HAND. Edit packages/do-runtime/src/platform-migrations.ts
+-- Regenerate: pnpm generate:ddl
+-- One row per ops.restore_property and its undo: bookmarks, fence values and a forward-only status.
+
+`,
+    sql: PLATFORM_PROPERTY_RESTORE_SQL,
   },
 ];
 

@@ -129,6 +129,9 @@ async function route(ctx: Ctx, operator: { displayName: string; role: OpsRole })
     }
     if (path === '/api/catalog') return respond(await pms.listCatalog({ operatorId }));
     if (path === '/api/operators') return respond(await pms.listOperators({ operatorId }));
+    if ((m = /^\/api\/properties\/([^/]+)\/restores$/.exec(path))) {
+      return respond(await pms.listPropertyRestores({ operatorId, propertyId: enc(m[1]!) }));
+    }
     if ((m = /^\/api\/copies\/([^/]+)$/.exec(path))) {
       return respond(await pms.getCopyStatus({ operatorId, copyId: enc(m[1]!) }));
     }
@@ -152,6 +155,24 @@ async function route(ctx: Ctx, operator: { displayName: string; role: OpsRole })
           sourcePropertyId: str(b.sourcePropertyId),
           targetPropertyId: enc(m[1]!),
           kinds: b.kinds.map((k) => str(k)) as OpsCopyKind[],
+        }),
+      );
+    }
+    if ((m = /^\/api\/properties\/([^/]+)\/restore$/.exec(path))) {
+      // Restore drill: the hotel is the one in the URL. Exactly one of `targetTime` (epoch ms) and `undoOf`.
+      const targetTime = b.targetTime === undefined || b.targetTime === null ? null : b.targetTime;
+      if (targetTime !== null && (typeof targetTime !== 'number' || !Number.isSafeInteger(targetTime))) {
+        return badRequest('target_time');
+      }
+      const undoOf = optStr(b.undoOf);
+      if ((targetTime === null) === (undoOf === null)) return badRequest('target_or_undo');
+      return respond(
+        await pms.restoreProperty({
+          ...base,
+          propertyId: enc(m[1]!),
+          targetTime,
+          undoOf,
+          confirmPropertyId: str(b.confirmPropertyId),
         }),
       );
     }

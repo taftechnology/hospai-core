@@ -92,8 +92,8 @@ describe('platform schema (R7.1)', () => {
     expect((await trySetOrgStatus(env, orgId, 'closing')).ok).toBe(true);
   });
 
-  it('the ten ops.* writes are INTERACTIVE catalog entries, ops.copy_setup is BACKGROUND, and none is a tenant permission', () => {
-    expect(OPS_COMMAND_IDS).toHaveLength(11);
+  it('the ten ops.* writes and ops.restore_property are INTERACTIVE catalog entries, ops.copy_setup is BACKGROUND, and none is a tenant permission', () => {
+    expect(OPS_COMMAND_IDS).toHaveLength(12);
     for (const id of OPS_COMMAND_IDS) {
       const entry = COMMAND_BY_ID.get(id)!;
       expect(entry.lane).toBe(id === 'ops.copy_setup' ? 'BACKGROUND' : 'INTERACTIVE');

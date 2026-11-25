@@ -594,10 +594,33 @@ describe('console reads', () => {
     expect(await ops.listOperators(env, { operatorId: viewer.operatorId })).toMatchObject({ ok: false, error: 'forbidden' });
   });
 
+  it('listCatalog returns plans by tier with the hotel limit, and add-ons by name; a viewer may read it', async () => {
+    const res = await ops.listCatalog(env, { operatorId: viewer.operatorId });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const tiers = res.plans.map((p) => p.tier);
+    expect(tiers).toEqual([...tiers].sort((a, b) => a - b));
+    const limits = Object.fromEntries(res.plans.map((p) => [p.code, p.propertiesLimit]));
+    expect(limits).toMatchObject({ starter: 1, growth: 1, group: 10 });
+    expect(res.plans.find((p) => p.code === 'group')).toMatchObject({ code: 'group', name: expect.any(String) });
+    const names = res.addons.map((a) => a.name);
+    expect(names).toEqual([...names].sort());
+    expect(res.addons).toContainEqual({ code: 'properties_plus_1', name: 'Extra property', kind: 'increment' });
+    expect(res.addons).toContainEqual({ code: 'pos', name: 'Point of sale', kind: 'grant' });
+  });
+
+  it('listCatalog refuses an unknown or disabled operator like the other reads', async () => {
+    expect(await ops.listCatalog(env, { operatorId: 'op_missing' })).toMatchObject({ ok: false, error: 'not_an_operator' });
+    const gone = await seedOperator('ops_admin');
+    await env.PLATFORM_DB.prepare(`UPDATE operator SET status = 'disabled' WHERE operator_id = ?`).bind(gone.operatorId).run();
+    expect(await ops.listCatalog(env, { operatorId: gone.operatorId })).toMatchObject({ ok: false, error: 'not_an_operator' });
+  });
+
   it('the OpsEntrypoint class delegates to the same checks', async () => {
     const entry = new OpsEntrypoint({} as ExecutionContext, env);
     expect(await entry.listCustomers({ operatorId: 'op_missing' })).toMatchObject({ ok: false, error: 'not_an_operator' });
     expect(await entry.listCustomers({ operatorId: viewer.operatorId })).toMatchObject({ ok: true });
+    expect(await entry.listCatalog({ operatorId: viewer.operatorId })).toMatchObject({ ok: true });
   });
 });
 

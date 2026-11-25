@@ -127,6 +127,7 @@ async function route(ctx: Ctx, operator: { displayName: string; role: OpsRole })
         }),
       );
     }
+    if (path === '/api/catalog') return respond(await pms.listCatalog({ operatorId }));
     if (path === '/api/operators') return respond(await pms.listOperators({ operatorId }));
     if ((m = /^\/api\/copies\/([^/]+)$/.exec(path))) {
       return respond(await pms.getCopyStatus({ operatorId, copyId: enc(m[1]!) }));

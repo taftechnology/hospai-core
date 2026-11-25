@@ -8,6 +8,7 @@ export const opsKeys = {
   actionsAll: () => ['ops', 'operator-actions'] as const,
   actions: (orgId: string, operatorId: string, page: number) =>
     ['ops', 'operator-actions', orgId, operatorId, page] as const,
+  catalog: () => ['ops', 'catalog'] as const,
   operators: () => ['ops', 'operators'] as const,
   copy: (copyId: string) => ['ops', 'copy', copyId] as const,
 };

@@ -17,6 +17,7 @@ export function fakePms(overrides: Partial<Record<keyof PmsOpsBinding, unknown>>
     getCustomer: vi.fn(async () => ({ ok: false, error: 'not_found', status: 404 })),
     getPropertyHealth: vi.fn(async () => ({ ok: false, error: 'not_found', status: 404 })),
     listOperatorActions: vi.fn(async () => ({ ok: true, page: 1, hasMore: false, actions: [] })),
+    listCatalog: vi.fn(async () => ({ ok: true, plans: [], addons: [] })),
     listOperators: vi.fn(async () => ({ ok: true, operators: [OPERATOR] })),
     createOrg: ok,
     addProperty: ok,

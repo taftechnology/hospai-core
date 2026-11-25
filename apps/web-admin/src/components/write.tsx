@@ -120,6 +120,8 @@ export type WriteDialogProps = {
   /** Suspend and disable are destructive: red button, and the dialog is the confirmation. */
   destructive?: boolean;
   intro?: ReactNode;
+  /** Holds the submit button off while the form cannot be sent (for example the plan list has not loaded). */
+  submitDisabled?: boolean;
   children?: ReactNode;
 };
 
@@ -132,6 +134,7 @@ export function WriteDialog({
   onClose,
   destructive,
   intro,
+  submitDisabled,
   children,
 }: WriteDialogProps) {
   const c = useWriteController(write, build);
@@ -144,7 +147,7 @@ export function WriteDialog({
         <>
           <Button onClick={onClose}>{c.succeeded ? 'Close' : 'Cancel'}</Button>
           {c.succeeded ? null : (
-            <Button intent={destructive ? 'destructive' : 'primary'} disabled={c.pending} onClick={c.submit}>
+            <Button intent={destructive ? 'destructive' : 'primary'} disabled={c.pending || submitDisabled === true} onClick={c.submit}>
               {c.pending ? 'Working' : submitLabel}
             </Button>
           )}

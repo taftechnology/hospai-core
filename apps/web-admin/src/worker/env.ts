@@ -6,6 +6,7 @@ import type {
   OperatorStatus,
   OperatorView,
   OpsAddPropertyOk,
+  OpsCatalog,
   OpsCopyAccepted,
   OpsCopyKind,
   OpsCopyStatus,
@@ -50,6 +51,7 @@ export interface PmsOpsBinding {
     filterOperatorId?: string | null;
     page?: number;
   }): Promise<OperatorActionPage | OpsFailure>;
+  listCatalog(input: { operatorId: string }): Promise<OpsCatalog | OpsFailure>;
   listOperators(input: { operatorId: string }): Promise<{ ok: true; operators: OperatorView[] } | OpsFailure>;
   createOrg: Write<{ orgId: string; name: string; planCode: string }>;
   addProperty(

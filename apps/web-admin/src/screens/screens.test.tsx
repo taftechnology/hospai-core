@@ -125,14 +125,126 @@ describe('viewer role', () => {
   });
 });
 
-describe('write forms', () => {
-  it('refuse an empty reason client-side, then send reason, ticket and a clientKey', async () => {
+const catalog = {
+  ok: true,
+  plans: [
+    { code: 'starter', name: 'Starter', tier: 1, propertiesLimit: 1 },
+    { code: 'growth', name: 'Growth', tier: 2, propertiesLimit: 3 },
+    { code: 'group', name: 'Group', tier: 3, propertiesLimit: null },
+  ],
+  addons: [
+    { code: 'pos', name: 'Point of sale', kind: 'grant' },
+    { code: 'properties_plus_1', name: 'Extra property', kind: 'increment' },
+  ],
+};
+
+describe('catalog pickers', () => {
+  it('Create customer lists the plans, starts on "Choose a plan", and submits the chosen code', async () => {
     const user = userEvent.setup();
-    const { calls } = installFetch('ops_admin', (c) => (c.path === '/customers/org_a' ? { body: customerDetail() } : undefined));
+    const { calls } = installFetch('ops_admin', (c) => (c.path === '/catalog' ? { body: catalog } : undefined));
+    renderAt('/customers/new');
+    const select = (await screen.findByLabelText('Plan')) as HTMLSelectElement;
+    await waitFor(() => expect(select).not.toBeDisabled());
+    expect(select.value).toBe('');
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      'Choose a plan',
+      'Starter (starter) · 1 hotel',
+      'Growth (growth) · 3 hotels',
+      'Group (group) · unlimited hotels',
+    ]);
+    await user.type(screen.getByLabelText('Customer name'), 'Big Group');
+    await user.selectOptions(select, 'group');
+    await user.type(screen.getByLabelText('Reason'), 'Signed');
+    await user.click(screen.getByRole('button', { name: 'Create customer' }));
+    await screen.findByText(/The customer is created/);
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({ name: 'Big Group', planCode: 'group' });
+  });
+
+  it('Create customer without a chosen plan sends nothing', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) => (c.path === '/catalog' ? { body: catalog } : undefined));
+    renderAt('/customers/new');
+    await waitFor(() => expect(screen.getByLabelText('Plan')).not.toBeDisabled());
+    await user.type(screen.getByLabelText('Customer name'), 'No Plan');
+    await user.type(screen.getByLabelText('Reason'), 'Signed');
+    await user.click(screen.getByRole('button', { name: 'Create customer' }));
+    expect(await screen.findByText(/plan are required/)).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+  });
+
+  it('Change plan marks the current plan, disables it, and submits another', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) =>
+      c.path === '/customers/org_a' ? { body: customerDetail() } : c.path === '/catalog' ? { body: catalog } : undefined,
+    );
     renderAt('/customers/org_a');
     await user.click(await screen.findByRole('button', { name: 'Change plan' }));
     const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByLabelText('New plan code'), 'growth');
+    const select = (await within(dialog).findByLabelText('New plan')) as HTMLSelectElement;
+    await waitFor(() => expect(select).not.toBeDisabled());
+    const current = within(select).getByRole('option', { name: /Starter \(starter\).*\(current\)/ }) as HTMLOptionElement;
+    expect(current.disabled).toBe(true);
+    expect(within(dialog).getByText('Current plan: starter')).toBeInTheDocument();
+    await user.selectOptions(select, 'group');
+    await user.type(within(dialog).getByLabelText('Reason'), 'Upgrade');
+    await user.click(within(dialog).getByRole('button', { name: 'Change plan' }));
+    await within(dialog).findByText(/The plan is changed/);
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({ planCode: 'group' });
+  });
+
+  it('Set add-on lists the add-ons and submits the chosen code with the quantity', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) =>
+      c.path === '/customers/org_a' ? { body: customerDetail() } : c.path === '/catalog' ? { body: catalog } : undefined,
+    );
+    renderAt('/customers/org_a');
+    await user.click(await screen.findByRole('button', { name: 'Set add-on' }));
+    const dialog = await screen.findByRole('dialog');
+    const select = (await within(dialog).findByLabelText('Add-on')) as HTMLSelectElement;
+    await waitFor(() => expect(select).not.toBeDisabled());
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      'Choose an add-on',
+      'Point of sale (pos)',
+      'Extra property (properties_plus_1)',
+    ]);
+    await user.selectOptions(select, 'properties_plus_1');
+    await user.type(within(dialog).getByLabelText('Reason'), 'Extra hotel');
+    await user.click(within(dialog).getByRole('button', { name: 'Set add-on' }));
+    await within(dialog).findByText(/The add-on is updated/);
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({ addonCode: 'properties_plus_1', quantity: 1 });
+  });
+
+  it('a failed catalog load says so plainly and keeps submit disabled', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) => (c.path === '/catalog' ? { status: 500, body: { error: 'internal_error' } } : undefined));
+    renderAt('/customers/new');
+    const alert = await screen.findByText(/list of plans could not be loaded/);
+    expect(alert.closest('[role="alert"]')).not.toBeNull();
+    expect(screen.queryByLabelText('Plan')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Create customer' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Create customer' }));
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+  });
+
+  it('an empty catalog says there are no plans instead of showing an empty select', async () => {
+    installFetch('ops_admin', (c) => (c.path === '/catalog' ? { body: { ok: true, plans: [], addons: [] } } : undefined));
+    renderAt('/customers/new');
+    expect(await screen.findByText(/no plans in the catalog/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Plan')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Create customer' })).toBeDisabled();
+  });
+});
+
+describe('write forms', () => {
+  it('refuse an empty reason client-side, then send reason, ticket and a clientKey', async () => {
+    const user = userEvent.setup();
+    const { calls } = installFetch('ops_admin', (c) =>
+      c.path === '/customers/org_a' ? { body: customerDetail() } : c.path === '/catalog' ? { body: catalog } : undefined,
+    );
+    renderAt('/customers/org_a');
+    await user.click(await screen.findByRole('button', { name: 'Change plan' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.selectOptions(await within(dialog).findByLabelText('New plan'), 'growth');
     await user.click(within(dialog).getByRole('button', { name: 'Change plan' }));
 
     expect(await within(dialog).findByText(/Enter a reason/)).toBeInTheDocument();
@@ -247,11 +359,11 @@ describe('write forms', () => {
 
   it('create customer refuses an empty reason and posts the whole form', async () => {
     const user = userEvent.setup();
-    const { calls } = installFetch('ops_admin');
+    const { calls } = installFetch('ops_admin', (c) => (c.path === '/catalog' ? { body: catalog } : undefined));
     renderAt('/customers/new');
     expect(await screen.findByRole('heading', { level: 1, name: 'Create customer' })).toBeInTheDocument();
     await user.type(screen.getByLabelText('Customer name'), 'New Group');
-    await user.type(screen.getByLabelText('Plan code'), 'starter');
+    await user.selectOptions(await screen.findByLabelText('Plan'), 'starter');
     await user.click(screen.getByRole('button', { name: 'Create customer' }));
     expect(await screen.findByText(/Enter a reason/)).toBeInTheDocument();
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);

@@ -38,6 +38,9 @@ export class OpsEntrypoint extends WorkerEntrypoint<PmsEnv> {
   }) {
     return ops.listOperatorActions(this.env, input);
   }
+  listCatalog(input: { operatorId: string }) {
+    return ops.listCatalog(this.env, input);
+  }
   listOperators(input: { operatorId: string }) {
     return ops.listOperators(this.env, input);
   }

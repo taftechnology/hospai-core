@@ -1,7 +1,8 @@
 import { Field, Input, NativeSelect } from '@hospai/ui-kit';
 import { useState } from 'react';
-import { useOpsWrite } from '../api/hooks.js';
+import { useCatalog, useOpsWrite } from '../api/hooks.js';
 import { opsKeys } from '../api/keys.js';
+import { CatalogField, addonOptions, catalogBlocked, planOptions } from '../components/catalog.js';
 import { WriteDialog } from '../components/write.js';
 import { newId } from '../format.js';
 
@@ -48,6 +49,8 @@ export function ReinstateDialog({ orgId, onClose }: ActionProps) {
 
 export function ChangePlanDialog({ orgId, currentPlan, onClose }: ActionProps & { currentPlan: string | null }) {
   const [planCode, setPlanCode] = useState('');
+  const catalog = useCatalog();
+  const plans = planOptions(catalog.data, currentPlan);
   const write = useOpsWrite(`/customers/${encodeURIComponent(orgId)}/plan`, customerKeys(orgId));
   return (
     <WriteDialog
@@ -55,13 +58,19 @@ export function ChangePlanDialog({ orgId, currentPlan, onClose }: ActionProps & 
       submitLabel="Change plan"
       doneText="The plan is changed."
       write={write}
-      build={() => (text(planCode) ? { payload: { planCode: text(planCode) } } : { error: 'Enter a plan code.' })}
+      build={() => (text(planCode) ? { payload: { planCode: text(planCode) } } : { error: 'Choose a plan.' })}
       onClose={onClose}
+      submitDisabled={catalogBlocked(catalog, plans)}
     >
-      <Field
-        label="New plan code"
+      <CatalogField
+        label="New plan"
+        noun="plan"
         hint={currentPlan ? `Current plan: ${currentPlan}` : undefined}
-        control={<Input value={planCode} onChange={(e) => setPlanCode(e.target.value)} />}
+        catalog={catalog}
+        options={plans}
+        placeholder="Choose a plan"
+        value={planCode}
+        onChange={setPlanCode}
       />
     </WriteDialog>
   );
@@ -70,6 +79,8 @@ export function ChangePlanDialog({ orgId, currentPlan, onClose }: ActionProps & 
 export function SetAddonDialog({ orgId, onClose }: ActionProps) {
   const [addonCode, setAddonCode] = useState('');
   const [quantity, setQuantity] = useState('1');
+  const catalog = useCatalog();
+  const addons = addonOptions(catalog.data);
   const write = useOpsWrite(`/customers/${encodeURIComponent(orgId)}/addons`, customerKeys(orgId));
   return (
     <WriteDialog
@@ -79,13 +90,22 @@ export function SetAddonDialog({ orgId, onClose }: ActionProps) {
       write={write}
       build={() => {
         const n = Number(quantity);
-        if (!text(addonCode)) return { error: 'Enter an add-on code.' };
+        if (!text(addonCode)) return { error: 'Choose an add-on.' };
         if (!Number.isInteger(n) || n < 0) return { error: 'Quantity is a whole number, 0 or more. 0 removes the add-on.' };
         return { payload: { addonCode: text(addonCode), quantity: n } };
       }}
       onClose={onClose}
+      submitDisabled={catalogBlocked(catalog, addons)}
     >
-      <Field label="Add-on code" control={<Input value={addonCode} onChange={(e) => setAddonCode(e.target.value)} />} />
+      <CatalogField
+        label="Add-on"
+        noun="add-on"
+        catalog={catalog}
+        options={addons}
+        placeholder="Choose an add-on"
+        value={addonCode}
+        onChange={setAddonCode}
+      />
       <Field
         label="Quantity"
         hint="0 removes the add-on."

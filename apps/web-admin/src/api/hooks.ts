@@ -3,6 +3,7 @@ import type {
   CustomerPage,
   OperatorActionPage,
   OperatorView,
+  OpsCatalog,
   OpsCopyStatus,
   OpsRole,
   PropertyHealthView,
@@ -69,6 +70,14 @@ export const useCopyStatus = (copyId: string) =>
       return state === 'completed' || state === 'failed' ? false : copyPollMs;
     },
     staleTime: 0,
+  });
+
+/** The plans and add-ons that exist. Changes rarely, so it is not refetched on every dialog. */
+export const useCatalog = () =>
+  useQuery({
+    queryKey: opsKeys.catalog(),
+    queryFn: () => apiGet<OpsCatalog>('/catalog'),
+    staleTime: 5 * 60_000,
   });
 
 export const useOperators = (enabled: boolean) =>

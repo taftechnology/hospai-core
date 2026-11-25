@@ -77,6 +77,11 @@ export type OperatorView = {
   status: OperatorStatus;
 };
 
+/** One plan in the catalog the console picks from. `propertiesLimit` null = unlimited hotels. */
+export type OpsCatalogPlan = { code: string; name: string; tier: number; propertiesLimit: number | null };
+export type OpsCatalogAddon = { code: string; name: string; kind: 'grant' | 'increment' | 'metered' };
+export type OpsCatalog = { ok: true; plans: OpsCatalogPlan[]; addons: OpsCatalogAddon[] };
+
 export type OpsWriteOk = {
   ok: true;
   /** The `operator_action` row; null when the command changed nothing and wrote no record. */

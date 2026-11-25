@@ -143,6 +143,27 @@ describe('reads', () => {
     expect((await get('/api/nope')).status).toBe(404);
   });
 
+  it('GET /api/catalog reads the catalog for the resolved operator, and keeps a refusal status', async () => {
+    signIn();
+    const plans = [{ code: 'starter', name: 'Starter', tier: 1, propertiesLimit: 1 }];
+    const addons = [{ code: 'pos', name: 'Point of sale', kind: 'grant' }];
+    const pms = fakePms({ listCatalog: vi.fn(async () => ({ ok: true, plans, addons })) });
+    const res = await worker.fetch(
+      new Request(`${ORIGIN}/api/catalog`, { headers: { authorization: 'Bearer t' } }),
+      makeEnv({ PMS_OPS: pms }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, plans, addons });
+    expect(pms.listCatalog).toHaveBeenCalledWith({ operatorId: 'op_1' });
+
+    const refused = fakePms({ listCatalog: vi.fn(async () => ({ ok: false, error: 'not_an_operator', status: 403 })) });
+    const res2 = await worker.fetch(
+      new Request(`${ORIGIN}/api/catalog`, { headers: { authorization: 'Bearer t' } }),
+      makeEnv({ PMS_OPS: refused }),
+    );
+    expect(res2.status).toBe(403);
+  });
+
   it('a forbidden viewer read keeps the entrypoint status', async () => {
     signIn();
     const pms = fakePms({ listOperators: vi.fn(async () => ({ ok: false, error: 'forbidden', status: 403 })) });

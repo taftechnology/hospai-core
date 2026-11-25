@@ -1,9 +1,10 @@
 import { Button, Field, Input, PageHeader } from '@hospai/ui-kit';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useOpsWrite } from '../api/hooks.js';
+import { useCatalog, useOpsWrite } from '../api/hooks.js';
 import { opsKeys } from '../api/keys.js';
 import { useIsAdmin } from '../auth/OperatorContext.js';
+import { CatalogField, catalogBlocked, planOptions } from '../components/catalog.js';
 import { ReadOnlyNote } from '../components/common.js';
 import { ReasonFields, WriteResult, useWriteController } from '../components/write.js';
 import { newId } from '../format.js';
@@ -14,13 +15,15 @@ export function CreateCustomerScreen() {
   const [orgId, setOrgId] = useState(() => newId('org'));
   const [name, setName] = useState('');
   const [planCode, setPlanCode] = useState('');
+  const catalog = useCatalog();
+  const plans = planOptions(catalog.data);
   const write = useOpsWrite('/customers', () => [opsKeys.customersAll(), opsKeys.actionsAll()]);
   const c = useWriteController(
     write,
     () =>
       orgId.trim() && name.trim() && planCode.trim()
         ? { payload: { orgId: orgId.trim(), name: name.trim(), planCode: planCode.trim() } }
-        : { error: 'Customer id, name and plan code are required.' },
+        : { error: 'Customer id, name and plan are required.' },
   );
 
   return (
@@ -41,9 +44,14 @@ export function CreateCustomerScreen() {
             hint="Chosen once; it cannot change. A new one is suggested."
             control={<Input value={orgId} onChange={(e) => setOrgId(e.target.value)} />}
           />
-          <Field
-            label="Plan code"
-            control={<Input value={planCode} onChange={(e) => setPlanCode(e.target.value)} />}
+          <CatalogField
+            label="Plan"
+            noun="plan"
+            catalog={catalog}
+            options={plans}
+            placeholder="Choose a plan"
+            value={planCode}
+            onChange={setPlanCode}
           />
           <ReasonFields c={c} />
           <WriteResult c={c} doneText="The customer is created." />
@@ -52,7 +60,7 @@ export function CreateCustomerScreen() {
               Open customer
             </Button>
           ) : (
-            <Button intent="primary" disabled={c.pending} onClick={c.submit}>
+            <Button intent="primary" disabled={c.pending || catalogBlocked(catalog, plans)} onClick={c.submit}>
               {c.pending ? 'Working' : 'Create customer'}
             </Button>
           )}

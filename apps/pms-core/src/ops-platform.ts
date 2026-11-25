@@ -54,6 +54,8 @@ import {
   type OperatorActionPage,
   type OperatorActionRow,
   type OperatorView,
+  type OpsCatalog,
+  type OpsCatalogAddon,
   type OpsAddPropertyOk,
   type OpsFailure,
   type OpsPropertyView,
@@ -1337,6 +1339,35 @@ export async function listOperatorActions(
     paging.offset,
   );
   return { ok: true, page: paging.page, hasMore, actions: rows };
+}
+
+/** Plans and add-ons that exist, so the console offers a choice instead of free text. */
+export async function listCatalog(env: PmsEnv, input: { operatorId: string }): Promise<OpsCatalog | OpsFailure> {
+  const operator = await authorize(env, input?.operatorId, 'read');
+  if ('ok' in operator) return operator;
+  const [plans, addons, tables] = await Promise.all([
+    env.PLATFORM_DB.prepare(`SELECT code, name, tier FROM plan ORDER BY tier, code`).all<{
+      code: string;
+      name: string;
+      tier: number;
+    }>(),
+    env.PLATFORM_DB.prepare(`SELECT code, name, kind FROM addon ORDER BY name, code`).all<{
+      code: string;
+      name: string;
+      kind: OpsCatalogAddon['kind'];
+    }>(),
+    loadLimitTables(env),
+  ]);
+  return {
+    ok: true,
+    plans: (plans.results ?? []).map((p) => ({
+      code: p.code,
+      name: p.name,
+      tier: Number(p.tier),
+      propertiesLimit: computeLimit(tables, p.code, []),
+    })),
+    addons: (addons.results ?? []).map((a) => ({ code: a.code, name: a.name, kind: a.kind })),
+  };
 }
 
 export async function listOperators(
